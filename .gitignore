@@ -16,6 +16,10 @@ ledger/data/*.db
 ledger/data/*.db-shm
 ledger/data/*.db-wal
 ledger/data/review-snapshots/
+# Superseded versions preserved outside Git (config/tracked-data-policy.json externally_preserved).
+/ledger/data/classified_v12.csv
+/ledger/data/classified_v13.csv
+/ledger/data/manual_v3.csv
 outputs/*.sqlite
 outputs/*.sqlite-*
 outputs/agoda-benchmark-*.json
@@ -27,3 +31,15 @@ outputs/agoda-benchmark-*.json
 
 # Cost reconciliation visual outputs (generated artifacts)
 cost-reconciliation.*
+
+# Rust core build output
+core/target/
+
+# Quality-check run outputs and local work DBs
+quality-artifacts/junit.xml
+quality-artifacts/pytest.log
+quality-artifacts/run-summary.json
+/webledger.work*.sqlite
+
+# deployed release marker (would override Git HEAD in a dev folder)
+DEPLOYED_COMMIT

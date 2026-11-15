@@ -23,6 +23,7 @@ from app.partial_refund import read_only_scope as refund_evidence_scope
 from .deployment_role import active_writer, writer
 
 INTERVAL = 1800
+_PERIODS_MOVED = object()
 STATUS_HEARTBEAT_SECONDS = 300
 CHUNK = 20
 MAX_ATTEMPTS = 3
@@ -525,7 +526,17 @@ class AutonomousCleanupWorker:
 
     @active_writer(default=False)
     def _prepare_sweep(self):
-        from app import automatic_classification, ai_classification
+        from app import core_writer
+        rust = core_writer.selected() == 'rust'
+        for attempt in (0, 1):
+            # The Rust writer's period evidence can take minutes when cold; build it before taking any lock.
+            built = core_writer.periods_with_key(self.board.conn, self.board._lock) if rust else None
+            result = self._prepare_locked(built, final=attempt == 1)
+            if result is not _PERIODS_MOVED:
+                return result
+
+    def _prepare_locked(self, built, final):
+        from app import automatic_classification, ai_classification, core_writer
 
         with self.runtime_lock, self.board._lock:
             self._progress('preparing', reason='NO_WORK')
@@ -563,6 +574,10 @@ class AutonomousCleanupWorker:
                 self._finish(rows)
                 return False
             ids = [row[0] for row in due_rows]
+            # The lock is held through apply, so a matching key here still matches there.
+            stale = built is not None and core_writer.periods_key(self.board.conn) != built[1]
+            if stale and not final:
+                return _PERIODS_MOVED  # rebuild outside the locks once; the final attempt fails the jobs instead
             self.status['passes'] += 1
             self.status['state'] = 'running'
             for row in due_rows:
@@ -570,8 +585,12 @@ class AutonomousCleanupWorker:
                 save_job(self.board.conn, row[0], fingerprints[row[0]],
                          {'status': 'awaiting_agent', 'attempts': attempts})
             try:
-                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
-                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
+                classify_evidence = self._classification_evidence(trips)
+                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids,evidence=classify_evidence)
+                if stale:
+                    raise ValueError('CLASSIFICATION_PREVIEW_STALE')
+                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids,evidence=classify_evidence,
+                                               **({} if built is None else {'periods': built[0]}))
                 self.board.conn.commit()
             except Exception as exc:
                 self._progress('p1_failed', reason='P1_' + failure_code(exc))
@@ -1000,6 +1019,10 @@ class AutonomousCleanupWorker:
                                        'duration_ms': int((time.monotonic() - started) * 1000)})
             self._finish(all_rows)
             return True
+
+    def _classification_evidence(self, trips):
+        from .card_classification_completion import classification_evidence
+        return classification_evidence(self.board,trips)
 
     def _completed_period_evidence(self, trips):
         from .card_classification_completion import completed_period_evidence

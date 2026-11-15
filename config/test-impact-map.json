@@ -15,12 +15,17 @@
     },
     {
       "name": "quarter-review-readonly-pack",
-      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py"],
-      "tests": ["tests/test_quarter_review_pack.py"]
+      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py", "app/google_tsv.py"],
+      "tests": ["tests/test_quarter_review_pack.py", "tests/test_quarter_review_paste_pack.py"]
+    },
+    {
+      "name": "use-period-output-consistency",
+      "paths": ["webapp/sheet_expense_reconciliation.py", "tests/test_use_period_output_consistency.py"],
+      "tests": ["tests/test_use_period_output_consistency.py", "webapp/tests/test_sheet_expense_integration.py", "webapp/tests/test_sheet_expense_projection.py", "webapp/tests/test_sheet_expense_review.py", "webapp/tests/test_trip_expense_copy_button.py"]
     },
     {
       "name": "closed-period-boundary-and-repair",
-      "paths": ["tests/card_pipeline/test_preparation_costs.py", "app/closed_period.py", "app/closed_period_repair.py", "app/preparation_cost_repair.py", "tools/repair_preparation_cost_grouping.py", "webapp/tests/test_preparation_cost_repair.py", "tools/repair_closed_period_grouping.py", "tools/review_card_inference.py", "webapp/tests/test_closed_period_grouping.py", "tools/verify_operational_backup_restore.py", "tests/card_pipeline/test_operational_product_backup.py"],
+      "paths": ["tests/card_pipeline/test_preparation_costs.py", "app/closed_period.py", "app/closed_period_repair.py", "app/preparation_cost_repair.py", "tools/repair_preparation_cost_grouping.py", "webapp/tests/test_preparation_cost_repair.py", "tools/repair_closed_period_grouping.py", "tools/review_card_inference.py", "webapp/tests/test_closed_period_grouping.py", "tools/verify_operational_backup_restore.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/card_pipeline/test_operational_backup_scope.py"],
       "tests": ["tests/card_pipeline/test_preparation_costs.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_decision_provenance.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/test_p2_batch.py"]
     },
     {
@@ -50,7 +55,7 @@
     },
     {
       "name": "kb-card-collection-synthetic",
-      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
+      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tools/collection_run_summary.mjs", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
@@ -82,7 +87,7 @@
     },
     {
       "name": "ota-collection-script-synthetic",
-      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
+      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tools/collection_run_summary.mjs", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
       "tests": ["tests/test_ota_collection_script.py"]
     },
     {
@@ -92,7 +97,7 @@
     },
     {
       "name": "collection-status-panel",
-      "paths": ["webapp/collection_status.py", "webapp/tests/test_collection_status.py"],
+      "paths": ["webapp/collection_status.py", "tools/collection_run_summary.mjs", "webapp/tests/test_collection_status.py"],
       "tests": ["webapp/tests/test_collection_status.py", "webapp/tests/test_card_flow.py"]
     },
     {
@@ -147,8 +152,8 @@
     },
     {
       "name": "airline-mail-collection",
-      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
-      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "app/mytrip_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
     },
     {
       "name": "export-source-equivalence",
@@ -157,13 +162,18 @@
     },
     {
       "name": "recorded-booking-period-correction",
-      "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py"],
-      "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
+      "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py"],
+      "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
     },
     {
       "name": "fukutake-setouchi-assignment",
-      "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py"],
-      "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
+      "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py"],
+      "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
+    },
+    {
+      "name": "card3820-online-overseas",
+      "paths": ["app/rules.py", "app/automatic_classification.py", "tests/card_pipeline/test_card3820_online_overseas.py"],
+      "tests": ["tests/card_pipeline/test_card3820_online_overseas.py", "tests/card_pipeline/test_card3820_residual.py", "tests/card_pipeline/test_card3820_singapore.py", "tests/card_pipeline/test_card3820_reconcile.py", "webapp/tests/test_automatic_classification_completion.py"]
     },
     {
       "name": "jeju-trip-card-scope",
@@ -206,8 +216,8 @@
     },
     {
       "name": "continuous-release-gateway",
-      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/switch_verified_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "tools/webledger_windows_lifecycle.py", "tools/webledger_task_entry.pyw", "tests/test_webledger_job_lifecycle.py", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py", "tools/webledger_worker.py", "tools/install_webledger_worker.ps1", "tests/test_webledger_worker.py", "app/python_launch.py", "webapp/tests/test_python_launch.py"],
-      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "tests/test_webledger_job_lifecycle.py", "tests/test_webledger_worker.py", "webapp/tests/test_python_launch.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
+      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/switch_verified_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "tools/webledger_windows_lifecycle.py", "tools/webledger_task_entry.pyw", "tests/test_webledger_job_lifecycle.py", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py", "tools/webledger_worker.py", "tools/launch_web_ledger.py", "webapp/tests/test_launch_ota_review.py", "tests/test_core_switch_config.py", "tools/install_webledger_worker.ps1", "tests/test_webledger_worker.py", "app/python_launch.py", "webapp/tests/test_python_launch.py"],
+      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "tests/test_webledger_job_lifecycle.py", "tests/test_webledger_worker.py", "tests/test_core_switch_config.py", "webapp/tests/test_launch_ota_review.py", "webapp/tests/test_python_launch.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
     },
     {
       "name": "participant-runtime-identity",
@@ -227,7 +237,8 @@
     {
       "name": "code-only-release-content",
       "paths": ["tools/code_release_manifest.py", "tests/test_code_release_manifest.py",
-                "config/tracked-data-policy.json"],
+                "config/tracked-data-policy.json", "tools/check_tracked_data.py",
+                "tests/test_tracked_data_guard.py", "outputs/**", "ledger/data/**"],
       "tests": ["tests/test_code_release_manifest.py", "tests/test_tracked_data_guard.py"]
     },
     {
@@ -287,8 +298,8 @@
     },
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_schema_migration.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
     },
     {
       "name": "google-readonly",
@@ -318,13 +329,14 @@
     {
       "name": "card-flow",
       "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
-                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py"],
-      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
+                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py",
+                "webapp/tests/test_card_automatic_write_atomicity.py"],
+      "tests": ["webapp/tests/test_card_automatic_write_atomicity.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
     },
     {
       "name": "ota-mail-load-lifetime",
-      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py"],
-      "tests": ["tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
+      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tests/card_pipeline/test_mail_import_skip.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tools/reindex_reservation_observations.py", "tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py"],
+      "tests": ["tests/card_pipeline/test_mail_import_skip.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
     },
     {
       "name": "ota-reconciliation",
@@ -427,8 +439,13 @@
     },
     {
       "name": "autonomous-quality-gate",
-      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt"],
+      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt", "pytest.ini", ".gitignore"],
       "tests": ["tests/test_quality_checks.py", "tests/test_run_targeted_checks.py", "webapp/tests/test_targeted_test_selector.py"]
+    },
+    {
+      "name": "rust-core-workspace",
+      "paths": ["core/**"],
+      "tests": ["tests/test_quality_checks.py"]
     },
     {
       "name": "autonomous-workflow-journeys",
@@ -479,6 +496,11 @@
       "tests": ["tests/test_forest_portal_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "tests/card_pipeline/test_forest_payment_mail.py", "webapp/tests/test_forest_reconciliation.py"]
     },
     {
+      "name": "booking-trips-import",
+      "paths": ["app/booking_trips_capture.py", "tools/import_booking_trips.py", "tests/test_booking_trips_capture.py"],
+      "tests": ["tests/test_booking_trips_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ledger_stay_evidence.py"]
+    },
+    {
       "name": "forest-payment-receipts",
       "paths": ["app/forest_payment_mail.py", "tests/card_pipeline/test_forest_payment_mail.py"],
       "tests": ["tests/card_pipeline/test_forest_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py", "webapp/tests/test_forest_reconciliation.py"]
@@ -489,9 +511,49 @@
       "tests": ["webapp/tests/test_user_action_queue.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
     },
     {
+      "name": "core-dates-golden",
+      "paths": ["tools/core_dates_golden.py", "tests/test_core_dates_golden.py", "app/quarter_costs.py", "app/reconciliation.py", "app/closed_period.py", "app/classification_correction.py"],
+      "tests": ["tests/test_core_dates_golden.py"]
+    },
+    {
+      "name": "core-ota-links-switch",
+      "paths": ["app/core_ota_links.py", "webapp/ota_payment_review.py", "tools/core_bridge/ota_input.py", "tests/test_core_ota_links_switch.py", "core/crates/cli/src/links_ota.rs"],
+      "tests": ["tests/test_core_ota_links_switch.py", "tests/test_core_bridge_ota_input.py", "webapp/tests/test_ota_payment_review.py", "tests/card_pipeline/test_ota_payments.py"]
+    },
+    {
       "name": "trip-price-change-charge",
       "paths": ["tests/card_pipeline/test_trip_price_change_charge.py"],
       "tests": ["tests/card_pipeline/test_trip_price_change_charge.py", "tests/card_pipeline/test_ota_payments.py"]
+    },
+    {
+      "name": "core-bridge-golden",
+      "paths": ["tools/core_bridge/**", "core/golden/**", "tests/test_core_bridge.py", "tests/test_core_bridge_ota_input.py", "tests/test_core_periods.py", "webapp/ledger_stay_evidence.py", "app/ota_core_projection.py", "app/automatic_classification.py", "app/classify.py", "app/partial_refund.py", "app/ota_payments.py", "app/rules.py", "app/closed_period.py", "app/trip_selection.py", "app/quarter_costs.py", "app/reconciliation.py", "app/provisional_assignment.py", "app/card_destination.py", "app/ota_matching_defaults.py", "app/ota_inference.py", "app/ota_payment_relations.py", "app/classification_provenance.py", "app/decision_provenance.py", "webapp/card_flow.py", "webapp/ledger_store_schema.py"],
+      "tests": ["tests/test_core_bridge.py", "tests/test_core_bridge_ota_input.py", "tests/test_core_periods.py"]
+    },
+    {
+      "name": "core-writer-switch",
+      "paths": ["app/core_writer.py", "app/core_switch_config.py", "app/automatic_classification.py", "tests/test_core_writer.py", "tests/test_stored_period_reads.py", "tests/test_core_switch_config.py", "config/runtime-environment-catalog.json"],
+      "tests": ["tests/test_core_writer.py", "tests/test_stored_period_reads.py", "tests/test_core_switch_config.py", "tests/test_verify_runtime_environment.py", "tests/test_core_rejudge.py"]
+    },
+    {
+      "name": "core-rejudge-entrypoint",
+      "paths": ["tools/core_rejudge.py", "tests/test_core_rejudge.py", "webapp/card_classification_completion.py"],
+      "tests": ["tests/test_core_rejudge.py", "tests/test_core_writer.py"]
+    },
+    {
+      "name": "core-links-switch",
+      "paths": ["app/core_links.py", "app/partial_refund.py", "tests/test_core_links_switch.py", "tests/card_pipeline/test_hana_supersede_rust_links.py", "config/runtime-environment-catalog.json"],
+      "tests": ["tests/test_core_links_switch.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_hana_supersede_rust_links.py", "tests/test_verify_runtime_environment.py"]
+    },
+    {
+      "name": "full-only-backup-gate-tools",
+      "paths": ["tools/apply_ota_owner_answers.py", "tools/deploy_reserve_trips.py", "tools/verify_operational_backup_restore.py"],
+      "tests": ["tests/card_pipeline/test_operational_backup_scope.py", "tests/card_pipeline/test_reserve_trips.py"]
+    },
+    {
+      "name": "ota-evidence-compaction",
+      "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
+      "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
     }
   ]
 }

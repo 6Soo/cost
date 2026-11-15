@@ -4,6 +4,7 @@
 되고, 기록 여부는 장부 기록 자체로 판단한다. 한 트랜잭션에서 처리하고, 이미 기록된
 거래는 건너뛴다. 되돌릴 때는 기록을 지우지 않고 역분개 기록을 추가한다.
 """
+import json
 import re
 import sqlite3
 
@@ -31,10 +32,13 @@ def parse_tab(tab: str):
     return int(match.group(1)), int(match.group(2))
 
 
-def pending_rows(conn, tab: str, batch_id: str | None = None) -> list[dict]:
+def pending_rows(conn, tab: str, batch_id: str | None = None, transaction_ids=None) -> list[dict]:
     """Assigned to the tab, not yet recorded, not a duplicate. With a batch, only that batch's rows."""
     scope = " AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)" if batch_id else ""
     args = (ITEM, tab, batch_id) if batch_id else (ITEM, tab)
+    if transaction_ids is not None:
+        scope += " AND transaction_id IN (SELECT value FROM json_each(?))"
+        args += (json.dumps(sorted(transaction_ids)),)
     try:
         rows = conn.execute(
             "SELECT transaction_id, batch_id, source_hash, merchant, approval_date, posting_date, amount_krw, "
@@ -75,7 +79,9 @@ def book_batch(store, batch_id: str, projection=None, *, transaction_ids=None) -
     tabs = [r[0] for r in store.conn.execute(
         "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? "
         "AND display_tab_id LIKE 'quarter:%' AND transaction_id IN "
-        "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)", (ITEM, batch_id)).fetchall()]
+        "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
+        + ("" if transaction_ids is None else " AND transaction_id IN (SELECT value FROM json_each(?))"),
+        (ITEM, batch_id) if transaction_ids is None else (ITEM, batch_id, json.dumps(sorted(transaction_ids)))).fetchall()]
     return sum(confirm_tab(store, tab, batch_id=batch_id, projection=projection,
                            transaction_ids=transaction_ids)['booked']
                for tab in tabs if parse_tab(tab))
@@ -94,13 +100,14 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *
     now = utc_now()
     selected = None if transaction_ids is None else frozenset(transaction_ids)
     with store.lock:
-        store.conn.execute('BEGIN IMMEDIATE')
+        nested = store.conn.in_transaction
+        store.conn.execute('SAVEPOINT cost_quarter_confirm' if nested else 'BEGIN IMMEDIATE')
         try:
             from .company_expenses import states as company_expense_states
             from .review_holds import active_holds
             exclusions = company_expense_states(store.conn)
             holds = active_holds(store.conn)
-            for row in pending_rows(store.conn, tab, batch_id):
+            for row in pending_rows(store.conn, tab, batch_id, selected):
                 transaction_id = row['transaction_id']
                 if selected is not None and transaction_id not in selected:
                     continue
@@ -132,8 +139,12 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *
                                 'amount_krw': amount, 'merchant': row['merchant'] or '', 'occurred_on': day,
                                 'transaction_direction': 'purchase', 'source_hash': row['source_hash'],
                                 'classification_state': 'classified', 'now': now})
-            store.conn.execute('COMMIT')
+            store.conn.execute('RELEASE SAVEPOINT cost_quarter_confirm' if nested else 'COMMIT')
         except Exception:
-            store.conn.execute('ROLLBACK')
+            if nested:
+                store.conn.execute('ROLLBACK TO SAVEPOINT cost_quarter_confirm')
+                store.conn.execute('RELEASE SAVEPOINT cost_quarter_confirm')
+            else:
+                store.conn.execute('ROLLBACK')
             raise
     return {'tab': tab, 'booked': len(booked), 'skipped': len(skipped)}

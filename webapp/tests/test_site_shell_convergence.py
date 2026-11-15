@@ -8,6 +8,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 from webapp import site_shell, site_theme, flight_passenger_page as flight_page
+from webapp.static_assets import inline_document
 
 
 def test_single_theme_toggle_contract_across_native_and_standalone():
@@ -36,7 +37,7 @@ def test_single_theme_toggle_contract_across_native_and_standalone():
 def test_browser_viewports_theme_and_keyboard_accessibility():
     """Synthetic browser tests across 320/390/1440 viewports, 200% zoom, theme, and keyboard."""
     with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"><a class="brand brand-link" href="/">홈</a><div class="site-links"><a href="/cards/all">카드</a><a href="/flight-passengers">항공권</a></div></aside>'):
-        doc_page = site_shell.wrap_document(flight_page._page('csrf-synth'), '/flight-passengers')
+        doc_page = inline_document(site_shell.wrap_document(flight_page._page('csrf-synth'), '/flight-passengers'))
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()

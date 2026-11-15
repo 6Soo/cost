@@ -2,7 +2,7 @@
 import sqlite3
 from html import escape
 
-from app.partial_refund import refund_links
+from app.partial_refund import all_refund_links
 
 from . import read_scope, refund_tab_ui, ui_components
 
@@ -11,18 +11,23 @@ def groups(store):
     if store is None:
         return []
     try:
-        records = store.conn.execute(
-            "SELECT transaction_id, merchant, amount_krw, "
-            "COALESCE(NULLIF(approval_date,''),posting_date), item, issuer, card_tail, approval_number, "
-            "original_approval_number, transaction_direction, duplicate_of, conflict_reason, parse_error "
-            "FROM transactions ORDER BY transaction_id").fetchall()
+        # Only linked rows can be group members; read just those, in the same order as the full table.
+        links = all_refund_links(store.conn)
+        wanted = sorted({str(t) for t in links} | {str(link['original_id']) for link in links.values()})
+        records = []
+        for start in range(0, len(wanted), 500):
+            part = wanted[start:start + 500]
+            records.extend(store.conn.execute(
+                "SELECT transaction_id, merchant, amount_krw, "
+                "COALESCE(NULLIF(approval_date,''),posting_date), item "
+                "FROM transactions WHERE transaction_id IN (" + ",".join("?" * len(part)) + ")", part).fetchall())
     except sqlite3.OperationalError as exc:
         if 'no such table: transactions' in str(exc):
             return []
         raise
     sources = {r[0]: dict(transaction_id=r[0], merchant=r[1], amount_krw=r[2],
                           occurred_on=r[3], item=r[4]) for r in records}
-    links = refund_links(store.conn, list(sources))
+    links = {tid: link for tid, link in links.items() if tid in sources}
     # Preserved history is excluded from new cleanup work, not from this
     # read-only history tab. Keep every source amount and accounting decision.
     return refund_tab_ui.assemble_refund_groups(sources, links, is_preserved_fn=lambda periods: False)

@@ -206,10 +206,11 @@ def _parse_mail_events(directories):
             event, context.get((event['provider'], event['booking_ref']), ()))
         from app.ota_mail_reservation_identity import attest
         attest(events[event['ota_event_id']], message, text)
-    from app import airbnb_mail, forest_mail, forest_payment_mail, toyoko_mail, ota_rakuten_mail
+    from app import airbnb_mail, forest_mail, forest_payment_mail, mytrip_mail, toyoko_mail, ota_rakuten_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
             + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory)
-            + ota_rakuten_mail.collect(messages, inventory) + airbnb_mail.collect(messages, inventory))
+            + ota_rakuten_mail.collect(messages, inventory) + airbnb_mail.collect(messages, inventory)
+            + mytrip_mail.collect(messages, inventory))
 
 
 def extract_payment_fact(message):
@@ -456,6 +457,48 @@ def _trip_reservation_events(databases):
                     'source_digest': digest, 'source_digests': [digest], 'source_ids': [source_id],
                     'identity_source_ids': [source_id],
                     'observation_ids': ['obs_' + _digest([source_id, digest, 'trip_reservation'])],
+                }
+                event['ota_event_id'] = _event_id(event['identity_source_ids'])
+                events.append(event)
+    return events
+
+
+def _booking_trip_events(databases):
+    """Saved Booking.com trip reservations read as reservation evidence only.
+
+    They carry the stay or departure and a KRW display fare. Booking shows lodging in the
+    viewer's currency, so the display fare may be a conversion of the property's own currency
+    and is never a verified card payment. Matching treats these like any reservation; only a
+    read-only display reads the period, and no payment or charge date is created here.
+    """
+    from contextlib import closing
+    from app.ota_store import connect_read, direct_facts, is_store
+    events = []
+    for path in ota_portal.as_databases(databases):
+        if not is_store(Path(path)):
+            continue
+        with closing(connect_read(path)) as conn:
+            for booking, fact, conflicts in direct_facts(conn):
+                if booking['provider'] != 'booking' or fact.get('evidence_format') != 'booking-trips-v1' or conflicts:
+                    continue
+                start, end = fact.get('service_start_on'), fact.get('service_end_on')
+                source = 'booking-trips:' + booking['booking_id']
+                digest = _digest(fact)
+                event = {
+                    'provider': 'booking', 'booking_ref': str(fact['booking_number']),
+                    'event_type': 'reservation', 'evidence_status': 'reservation_only',
+                    'payment_status': 'not_card_charge', 'evidence_kind': 'portal_reservation',
+                    'item': fact.get('item'), 'product_type': fact.get('product_type'),
+                    'service_period': {'starts_on': start, 'ends_on': end} if start and end else None,
+                    'reservation_status': fact.get('reservation_status'),
+                    'amount': None, 'currency': '', 'amount_krw': None,
+                    'display_amount_krw': fact.get('display_amount_krw'),
+                    'display_currency': fact.get('display_currency'),
+                    'card_last4': None, 'paid_on': None, 'paid_on_semantics': 'missing',
+                    'booked_on': None, 'hotel_name': fact.get('label'), 'refund_status': 'none_displayed',
+                    'source_digest': digest, 'source_digests': [digest], 'source_ids': [source],
+                    'identity_source_ids': [source], 'source_lineage_ids': [source],
+                    'observation_ids': ['obs_' + _digest([source, digest])],
                 }
                 event['ota_event_id'] = _event_id(event['identity_source_ids'])
                 events.append(event)
@@ -904,6 +947,7 @@ def build_ota_payment_events(sources, *, extraction_outcomes=None):
                                  source_lineage_ids=sources.get("source_lineage_ids"),
                                  extraction_outcomes=extraction_outcomes))
     events.extend(_trip_reservation_events(sources.get("portal_databases")))
+    events.extend(_booking_trip_events(sources.get("portal_databases")))
     events = _attach_forest_portal_periods(events, _forest_portal_events(sources.get("portal_databases")))
     events = _merge_proven_duplicate_payments(events)
     # 참고 문서는 진단에만 쓰며 금전 이벤트를 공급하지 않는다.
@@ -1974,9 +2018,12 @@ def _assemble_ota_match_results(context):
                                                          if row.get("transaction_id") in reserved_partial}),
                                reason="card_reserved_by_partial_or_ambiguous_group"))
             continue
-        free = [row for row in options if row["transaction_id"] not in claimed]
+        assigned_cards = set(singleton_selected.values()) - {singleton_selected.get(identity)}
         if identity in singleton_selected:
             free = [row for row in options if row["transaction_id"] == singleton_selected[identity]]
+        else:
+            free = [row for row in options if row["transaction_id"] not in claimed and
+                    row["transaction_id"] not in assigned_cards]
         competing = False
         if not options:
             blocked_candidates = [row for row in raw_options.get(str(identity), ())

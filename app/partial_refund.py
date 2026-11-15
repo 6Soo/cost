@@ -27,17 +27,23 @@ __all__ = ["count_held_cancellations", "refund_group", "refund_links", "refund_r
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
 _READ_ANALYSIS = ContextVar('refund_read_analysis', default=None)
-# The last analysis of committed data; a commit anywhere or a local write moves its key.
+# Analyses of committed data by content digest; _STAMPS maps a cheap connection stamp to its digest.
 _COMMITTED = {}
+_STAMPS = {}
+_COMMITTED_RUST = {}
+_LAST_CHANGES = {}
 _COMMITTED_LOCK = threading.Lock()
 
 
 @contextmanager
 def read_only_scope():
     """Reuse global refund evidence within one display, including uncommitted reads."""
+    from . import core_links
     token = _READ_ANALYSIS.set({})
     try:
-        yield
+        # A display reads one snapshot; another connection's commit must not fail it under the Rust producer.
+        with core_links.uncommitted_rows():
+            yield
     finally:
         _READ_ANALYSIS.reset(token)
 
@@ -45,25 +51,80 @@ def read_only_scope():
 def _read_analysis(conn):
     memo = _READ_ANALYSIS.get()
     # Also discard display evidence after a local write or another connection's commit.
-    key = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
+    stamp = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
     if memo is not None:
-        if key not in memo:
-            memo[key] = _analyse(conn)
-        return memo[key]
-    if conn.in_transaction:
-        # Uncommitted evidence can be rolled back without moving the key, so it is never kept.
-        return _analyse(conn)
+        if stamp not in memo:
+            memo[stamp] = _committed_analysis(conn, stamp)
+        return memo[stamp]
+    return _committed_analysis(conn, stamp)
+
+
+def _committed_analysis(conn, stamp):
+    from . import core_links
+    if core_links.selected() == 'rust':
+        # costcore keeps its own content-digest cache; this layer must not mask its error and binary checks.
+        if conn.in_transaction:
+            # Uncommitted evidence can be rolled back without moving the key, so it is never kept.
+            return _analyse(conn)
+        with _COMMITTED_LOCK:
+            if stamp in _COMMITTED_RUST:
+                return _COMMITTED_RUST[stamp]
+        result = _analyse(conn)
+        with _COMMITTED_LOCK:
+            _COMMITTED_RUST.clear()
+            _COMMITTED_RUST[stamp] = result
+        return result
+    return _python_analysis(conn, stamp)
+
+
+def _python_analysis(conn, stamp):
+    """Python derivation keyed by the content of the columns it reads: only a change to them recomputes.
+
+    A commit elsewhere (a worker finishing a job) moves the stamp but not the digest and keeps the entry.
+    A write on this connection still recomputes once. The stamp only skips re-reading an unchanged database.
+    Nothing is stored from inside an open transaction, so a rollback cannot leave rows that never existed.
+    """
+    from . import core_links
+    settled = not conn.in_transaction
     with _COMMITTED_LOCK:
-        if key in _COMMITTED:
-            return _COMMITTED[key]
+        digest = _STAMPS.get(stamp) if settled else None
+        local_write = settled and _LAST_CHANGES.get(id(conn), (conn, stamp[1]))[1] != stamp[1]
+        if settled:
+            if len(_LAST_CHANGES) >= 8 and id(conn) not in _LAST_CHANGES:
+                _LAST_CHANGES.clear()
+            _LAST_CHANGES[id(conn)] = (conn, stamp[1])
+    if digest is None:
+        digest = core_links.source_digest(conn)
+        if settled:
+            with _COMMITTED_LOCK:
+                if len(_STAMPS) >= 8:
+                    _STAMPS.clear()
+                _STAMPS[stamp] = digest
+    key = (id(conn) if not core_links._database(conn) else core_links._database(conn), digest)
+    if not local_write:
+        with _COMMITTED_LOCK:
+            if key in _COMMITTED:
+                return _COMMITTED[key]
     result = _analyse(conn)
-    with _COMMITTED_LOCK:
-        _COMMITTED.clear()
-        _COMMITTED[key] = result
+    # A commit during the derivation makes the result belong to another state: use it once, do not keep it.
+    if settled and core_links.source_digest(conn) == digest:
+        with _COMMITTED_LOCK:
+            while len(_COMMITTED) >= 4:
+                _COMMITTED.pop(next(iter(_COMMITTED)))
+            _COMMITTED[key] = result
     return result
 
 
 def _analyse(conn):
+    """(links, held, extra): Python derivation, or the Rust core's when WEBLEDGER_LINKS_PRODUCER=rust (extra is None for Python)."""
+    from . import core_links
+    if core_links.selected() == 'rust':
+        # A costcore error propagates on purpose: falling back would let two producers disagree unnoticed.
+        return core_links.analyse(conn)
+    return (*_analyse_python(conn), None)
+
+
+def _analyse_python(conn):
     numbered = _number_links(conn)
     taken = {link['original_id'] for link in numbered.values()}
     foreign = _foreign_links(conn, taken)
@@ -96,6 +157,11 @@ def refund_group(conn, original_id: str) -> list:
     return [original_id] + sorted(siblings)
 
 
+def all_refund_links(conn) -> dict:
+    """{refund_transaction_id: link} for every linked cancellation, without naming the ids."""
+    return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items()}
+
+
 def refund_links(conn, transaction_ids) -> dict:
     """{refund_transaction_id: link} for cancellation rows among the ids."""
     ids = [str(i) for i in transaction_ids]
@@ -103,6 +169,50 @@ def refund_links(conn, transaction_ids) -> dict:
         return {}
     wanted = set(ids)
     return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items() if tid in wanted}
+
+
+def is_numbered_partial(link) -> bool:
+    """A partial refund tied to exactly one original by approval number (RFND-004), never inferred."""
+    return (not link.get('inferred') and 'basis' not in link
+            and link.get('status') == 'partial' and link.get('net_krw', 0) > 0)
+
+
+def partial_group_exclusion(conn, original_id: str) -> str:
+    """Why a numbered partial group must not be extended across files ('' when allowed).
+
+    PROC-072 completed periods come first; an errored, duplicate or conflicted
+    cancel of the same original (dropped from the net) holds the whole group.
+    """
+    extra = _read_analysis(conn)[2]
+    if extra is not None:
+        # Only linked originals are judged by the Rust core; every caller passes one from a link.
+        if original_id not in extra['group_exclusions']:
+            raise RuntimeError('CORE_LINKS_ORIGINAL_NOT_LINKED')
+        return extra['group_exclusions'][original_id]
+    from .closed_period import completed_period
+    for tid in refund_group(conn, original_id):
+        row = conn.execute(
+            "SELECT approval_date, posting_date FROM transactions WHERE transaction_id=?", (tid,)).fetchone()
+        if row and completed_period({'approval_date': row[0], 'posting_date': row[1]}):
+            return 'completed_period'
+    unclean = conn.execute(
+        "SELECT 1 FROM transactions o JOIN transactions c ON c.issuer=o.issuer AND c.card_tail=o.card_tail"
+        " AND c.transaction_direction='cancellation'"
+        " AND TRIM(COALESCE(c.original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')"
+        "   =TRIM(COALESCE(o.approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')"
+        " WHERE o.transaction_id=? AND (c.duplicate_of IS NOT NULL OR COALESCE(c.conflict_reason,'')!=''"
+        " OR COALESCE(c.parse_error,'')!='') LIMIT 1", (original_id,)).fetchone()
+    return 'unclean_member' if unclean else ''
+
+
+def refund_original_links(conn, transaction_ids) -> dict:
+    """{original_transaction_id: one confirmed link} for requested originals."""
+    wanted = {str(i) for i in transaction_ids}
+    if not wanted:
+        return {}
+    links = _read_analysis(conn)[0]
+    return {link['original_id']: dict(link) for link in links.values()
+            if link['original_id'] in wanted}
 
 
 def _number_links(conn, transaction_ids=None) -> dict:
@@ -357,6 +467,9 @@ def refund_review_originals(conn):
     This is a read-only queue boundary, not a new pairing or refund decision.
     Ambiguous candidates remain visible without being promoted to links.
     """
+    extra = _read_analysis(conn)[2]
+    if extra is not None:
+        return list(extra['review_originals'])
     refund_ids = [row[0] for row in conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction IN ('cancellation','refund')")]
     links = refund_links(conn, refund_ids)

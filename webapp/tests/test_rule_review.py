@@ -118,7 +118,9 @@ class RuleReviewTests(unittest.TestCase):
                 self.assertTrue(any(r['conditions']['merchant_normalized'] == merchant
                                     and r['effects']['item'] == '현지잡비'
                                     for r in self.flow.pipeline.list_rules()))
-                new_card = CARD.replace(b'A123', b'FUTURE-SYNTHETIC')
+                # 여행 기간(2026-10-10~13) 안의 거래여야 규칙 항목이 남는다 (PROC-004).
+                new_card = CARD.replace(b'A123', b'FUTURE-SYNTHETIC').replace(
+                    b'2026-10-01,2026-10-02', b'2026-10-11,2026-10-12')
                 batch = self.flow.pipeline.receive(new_card, 'future-synthetic.csv')['batch_id']
                 self.flow.classify(batch)
                 state = self.flow.state(batch)

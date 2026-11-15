@@ -146,7 +146,9 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
             params.extend(cursor_values)
         rows = conn.execute(select + where + ' ORDER BY ' + order + ' LIMIT ?', params + [per_page + 1]).fetchall()
         items = [dict(zip(fields, row)) for row in rows[:per_page]]
-        enrich_status(conn, items)
+        from app import core_links
+        with core_links.uncommitted_rows():  # the snapshot's rows, even if another connection committed since BEGIN
+            enrich_status(conn, items)
         return {'date': day, 'filter_semantics': 'USER_DATE_FILTER', 'items': items,
                 'count': len(items), 'total_count': total, 'has_more': len(rows) > per_page,
                 'cursor': f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if len(rows) > per_page else None,
@@ -247,6 +249,10 @@ def enrich_status(conn, items):
     if not items:
         return
     from .card_actions import next_action
+    from app.partial_refund import refund_links, refund_original_links
+    transaction_ids = [item['transaction_id'] for item in items]
+    refund_by_id = refund_links(conn, transaction_ids)
+    refund_original_by_id = refund_original_links(conn, transaction_ids)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     joins = ''
     held = "NULL,NULL"
@@ -273,10 +279,14 @@ def enrich_status(conn, items):
                     transaction_direction=direction, company_excluded=bool(excluded))
         if kind:
             item['review_hold'] = dict(kind=kind, reason=reason or '')
-        source = dict(item, trip_name='환불' if item.get('refund_tab_member') else '')
+        refund_link = (refund_by_id.get(item['transaction_id'])
+                       or refund_original_by_id.get(item['transaction_id']))
+        if refund_link:
+            item['refund_link'] = refund_link
+        source = dict(item, trip_name='환불' if refund_link or item.get('refund_tab_member') else '')
         item['next_action'] = next_action(
             source,
-            dict(already_booked=bool(recorded)),
+            dict(already_booked=bool(recorded), refund_link=refund_link),
         )
 
 

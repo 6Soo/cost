@@ -10,6 +10,7 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -17,9 +18,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SELECTOR = ROOT / "tools" / "select_targeted_tests.py"
+CORE_DIR = "core"
+CARGO_STEPS = (
+    ("cargo-fmt", ["fmt", "--all", "--check"]),
+    ("cargo-clippy", ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]),
+    ("cargo-test", ["test", "--workspace"]),
+)
+# C: has little free space; keep Rust build output off it unless the caller chose a dir.
+COSTCORE_MARKER = "costcore_bin"  # pytest marker: the test needs COSTCORE_TEST_BIN
+DEFAULT_WINDOWS_TARGET_DIR = Path("D:/cargo-target")  # 작업 폴더 이름별 하위 폴더를 쓴다
 QA_OWNED_PATHS = {
     "tools/run_quality_checks.py", "tests/test_quality_checks.py",
-    ".github/workflows/quality.yml", "requirements-dev.txt",
+    "config/known-test-failures.txt", ".github/workflows/quality.yml", "requirements-dev.txt",
 }
 
 
@@ -29,6 +39,19 @@ def _git(args: list[str], *, root: Path = ROOT) -> str:
     if result.returncode:
         raise ValueError("GIT_COMMAND_FAILED")
     return result.stdout.strip()
+
+
+GATE_FILES = ("config/tracked-data-policy.json", "tools/check_tracked_data.py",
+              "tools/run_quality_checks.py")
+
+
+def gate_changes(base_sha: str, *, root: Path = ROOT) -> list[str]:
+    """Gate files differing from base, computed here so a PR cannot hide its own change."""
+    try:
+        names = _git(["-c", "core.quotepath=false", "diff", "--name-only", base_sha], root=root).splitlines()
+    except Exception:
+        return ["DIFF_UNAVAILABLE"]
+    return sorted(set(names) & set(GATE_FILES))
 
 
 def changed_paths(base: str, head: str, *, root: Path = ROOT) -> list[str]:
@@ -77,6 +100,10 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
         # Unknown product changes require an explicit impact-map entry; never run
         # hundreds of unrelated tests or report a skipped route as a pass.
         raise ValueError(f"UNKNOWN_IMPACT:{len(unknown)}")
+    if not targets:
+        # Only unmapped deletions: run the gate's own tests so 0 cases never counts as a pass.
+        targets.add("tests/test_quality_checks.py")
+    rust_required = any(p.startswith(CORE_DIR + "/") for p in normalized)
     if qa_unknown:
         targets.add("tests/test_quality_checks.py")
     missing = sorted(t for t in targets if not (root / t.split("::", 1)[0]).is_file())
@@ -85,9 +112,10 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
     browser_tests = collect_browser_tests(sorted(targets), root=root)
     return {"status": "SELECTED",
             "changed_paths": normalized, "document_paths": docs, "unknown_paths": unknown,
-            "steps": ["tracked-data-guard", "selected-pytest"],
+            "steps": ["tracked-data-guard", "selected-pytest",
+                      *([step for step, _ in CARGO_STEPS] if rust_required else [])],
             "pytest_targets": sorted(targets), "browser_required": bool(browser_tests),
-            "browser_tests": browser_tests,
+            "browser_tests": browser_tests, "rust_required": rust_required,
             "fallback": None}
 
 
@@ -235,6 +263,38 @@ def _validate_guard(payload_text: str, returncode: int) -> None:
         raise ValueError("DATA_GUARD_FAILED")
 
 
+def load_known_failures(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    names = (line.split("  # ", 1)[0].strip()
+             for line in path.read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#"))
+    return {name for name in names if name}
+
+
+def classify_known_failures(known: set[str], failed: set[str], executed: set[str]) -> dict:
+    known_failed = sorted(known & failed)
+    new_failures = sorted(failed - known)
+    resolved = sorted((known & executed) - failed)
+    return {"known_failed_test_cases": known_failed,
+            "new_failed_test_cases": new_failures,
+            "resolved_known_test_cases": resolved,
+            "known_failure_count": len(known_failed)}
+
+
+def _junit_node_id(case: ET.Element) -> str:
+    classname = case.get("classname", "")
+    name = case.get("name", "")
+    parts = classname.split(".") if classname else []
+    module_end = max((index for index, part in enumerate(parts) if part.startswith("test_")),
+                     default=-1)
+    if module_end < 0:
+        return f"{classname}::{name}"
+    module = "/".join(parts[:module_end + 1]) + ".py"
+    classes = parts[module_end + 1:]
+    return "::".join([module, *classes, name])
+
+
 def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
     try:
         root = ET.parse(junit_path).getroot()
@@ -242,7 +302,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
         return {"test_case_count": 0, "executed_case_count": 0,
                 "browser_executed": [], "browser_skipped": list(browser_tests),
                 "missing_browser_tests": list(browser_tests), "skipped_test_cases": [],
-                "nonbrowser_skipped_test_cases": [], "skip_count": 0}
+                "nonbrowser_skipped_test_cases": [], "skip_count": 0,
+                "failed_test_cases": [], "executed_test_cases": [], "error_count": 0}
     cases = list(root.iter("testcase"))
     executed: set[str] = set()
     skipped: set[str] = set()
@@ -265,6 +326,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
             skipped.add(target)
     executed_count = sum(1 for case in cases if case.find("skipped") is None)
     skipped_cases = [case for case in cases if case.find("skipped") is not None]
+    failed_cases = [case for case in cases if case.find("failure") is not None]
+    error_cases = [case for case in cases if case.find("error") is not None]
     skipped_test_cases = sorted(f"{case.get('classname', '')}::{case.get('name', '')}"
                                 for case in skipped_cases)
     nonbrowser_skipped_test_cases = sorted(
@@ -277,12 +340,82 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
             "missing_browser_tests": sorted(set(browser_tests) - executed),
             "skipped_test_cases": skipped_test_cases,
             "nonbrowser_skipped_test_cases": nonbrowser_skipped_test_cases,
-            "skip_count": len(skipped_test_cases)}
+            "skip_count": len(skipped_test_cases),
+            "failed_test_cases": sorted(_junit_node_id(case) for case in failed_cases),
+            "executed_test_cases": sorted(_junit_node_id(case) for case in cases
+                                           if case.find("skipped") is None),
+            "error_count": len(error_cases) + int(root.get("errors", "0"))}
+
+
+def find_cargo() -> str | None:
+    found = shutil.which("cargo")
+    if found:
+        return found
+    exe = (Path(os.environ.get("USERPROFILE") or Path.home()) / ".cargo" / "bin"
+           / ("cargo.exe" if os.name == "nt" else "cargo"))
+    return str(exe) if exe.is_file() else None
+
+
+def _cargo_env(cargo: str, root: Path) -> dict:
+    env = {**os.environ, "PATH": str(Path(cargo).parent) + os.pathsep + os.environ.get("PATH", "")}
+    if (not env.get("CARGO_TARGET_DIR") and os.name == "nt"
+            and Path(DEFAULT_WINDOWS_TARGET_DIR.parent.drive + "/").exists()):
+        env["CARGO_TARGET_DIR"] = str(DEFAULT_WINDOWS_TARGET_DIR / (root.resolve().name or "cost"))
+    return env
+
+
+def needs_costcore(targets: list[str], *, root: Path = ROOT) -> bool:
+    """True when a selected test file carries the `costcore_bin` marker (it compares against the real binary)."""
+    for path in {t.split("::", 1)[0] for t in targets}:
+        file = root / path
+        if path.endswith(".py") and file.is_file() and COSTCORE_MARKER in file.read_text(encoding="utf-8", errors="replace"):
+            return True
+    return False
+
+
+def build_costcore(log, *, root: Path = ROOT) -> dict:
+    """`cargo build --release -p costcore` and the path for COSTCORE_TEST_BIN. A failed build fails the check."""
+    cargo = find_cargo()
+    if cargo is None:
+        log.write("$ cargo\nCARGO_NOT_FOUND: install rustup (see core/README.md)\n")
+        return {"status": "FAILED", "reason": "CARGO_NOT_FOUND", "bin": None}
+    env = _cargo_env(cargo, root)
+    log.write("\n$ cargo build --release -p costcore\n")
+    log.flush()
+    done = subprocess.run([cargo, "build", "--release", "-p", "costcore"], cwd=root / CORE_DIR, stdout=log,
+                          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                          shell=False, env=env)
+    target = Path(env.get("CARGO_TARGET_DIR") or root / CORE_DIR / "target")
+    binary = target / "release" / ("costcore.exe" if os.name == "nt" else "costcore")
+    ok = done.returncode == 0 and binary.is_file()
+    return {"status": "PASSED" if ok else "FAILED", "exit_code": done.returncode,
+            "bin": str(binary) if ok else None}
+
+
+def run_cargo_steps(log, *, root: Path = ROOT) -> dict:
+    """Run fmt/clippy/test in core/. A missing cargo is a failure, never a skip."""
+    cargo = find_cargo()
+    if cargo is None:
+        log.write("$ cargo\nCARGO_NOT_FOUND: install rustup (see core/README.md)\n")
+        print("CARGO_NOT_FOUND: install rustup (see core/README.md)", file=sys.stderr)
+        return {"status": "FAILED", "reason": "CARGO_NOT_FOUND", "steps": []}
+    env = _cargo_env(cargo, root)
+    results = []
+    for name, args in CARGO_STEPS:
+        log.write(f"\n$ cargo {' '.join(args)}\n")
+        log.flush()
+        done = subprocess.run([cargo, *args], cwd=root / CORE_DIR, stdout=log,
+                              stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                              errors="replace", shell=False, env=env)
+        results.append({"step": name, "exit_code": done.returncode})
+    ok = all(item["exit_code"] == 0 for item in results)
+    return {"status": "PASSED" if ok else "FAILED", "steps": results,
+            "target_dir": env.get("CARGO_TARGET_DIR")}
 
 
 def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha: str,
                          head_sha: str, *, head_tree_sha: str | None = None,
-                         root: Path = ROOT) -> int:
+                         rust_required: bool = False, root: Path = ROOT) -> int:
     artifact_dir = root / "quality-artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     summary_path = artifact_dir / "run-summary.json"
@@ -301,6 +434,7 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
         log_path.write_text(guard.stdout + "\n" + guard.stderr, encoding="utf-8")
         print("DATA_GUARD_FAILED", file=sys.stderr)
         return 1
+    gate_changed = gate_changes(base_sha, root=root)
 
     py_targets = sorted(p for p in {t.split("::", 1)[0] for t in targets}
                         if p.endswith(".py") and (root / p).is_file())
@@ -315,20 +449,40 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
         # A redirected stdout is written by the child itself. The parent's
         # encoding= option does not control Python/pytest's Windows encoding.
         child_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+        costcore_build = build_costcore(log, root=root) if needs_costcore(targets, root=root) else None
+        if costcore_build and costcore_build["bin"]:
+            child_env["COSTCORE_TEST_BIN"] = costcore_build["bin"]
+        log.flush()
         tests = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
                                text=True, encoding="utf-8", errors="replace", shell=False,
                                env=child_env)
+        cargo_result = run_cargo_steps(log, root=root) if rust_required else None
     junit_result = summarize_junit(junit_path, browser_tests)
+    known_failures = load_known_failures(root / "config" / "known-test-failures.txt")
+    failure_classification = classify_known_failures(
+        known_failures, set(junit_result["failed_test_cases"]),
+        set(junit_result["executed_test_cases"]))
     browser_executed = junit_result["browser_executed"]
     browser_skipped = junit_result["browser_skipped"]
     nonbrowser_skipped = junit_result["nonbrowser_skipped_test_cases"]
     missing_browser = junit_result["missing_browser_tests"]
     case_count = junit_result["test_case_count"]
     executed_case_count = junit_result["executed_case_count"]
-    status = "PASSED" if (tests.returncode == 0 and compile_result.returncode == 0
+    known_failures_only = (tests.returncode == 1
+                           and failure_classification["known_failure_count"] > 0
+                           and not failure_classification["new_failed_test_cases"]
+                           and junit_result["error_count"] == 0
+                           and set(junit_result["failed_test_cases"])
+                               == set(failure_classification["known_failed_test_cases"]))
+    status = "PASSED" if ((tests.returncode == 0 or known_failures_only)
+                          and compile_result.returncode == 0
                           and case_count > 0 and executed_case_count > 0
                           and not missing_browser and not browser_skipped
-                          and not nonbrowser_skipped) else "FAILED"
+                          and not nonbrowser_skipped and not junit_result["error_count"]
+                          and not failure_classification["new_failed_test_cases"]
+                          and (cargo_result is None or cargo_result["status"] == "PASSED")
+                          and (costcore_build is None or costcore_build["status"] == "PASSED")
+                          ) else "FAILED"
     if head_tree_sha is None:
         head_tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
     summary = {"status": status, "base_sha": base_sha, "head_sha": head_sha,
@@ -340,10 +494,22 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                "skip_count": junit_result["skip_count"],
                "skipped_test_cases": junit_result["skipped_test_cases"],
                "nonbrowser_skipped_test_cases": nonbrowser_skipped,
+               **failure_classification,
+               "known_failures_configured": len(known_failures),
+               "junit_error_count": junit_result["error_count"],
                "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
-               "pytest_targets": targets}
+               "pytest_targets": targets, "rust_required": rust_required,
+               "cargo": cargo_result, "costcore_build": costcore_build,
+               "policy_changed": bool(gate_changed), "policy_changed_files": gate_changed}
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(log_path.read_text(encoding="utf-8"), end="")
+    print(f"알려진 실패 {failure_classification['known_failure_count']}건")
+    if gate_changed:
+        print("정책·가드 변경 — opus 검수 필요: " + ", ".join(gate_changed))
+    if failure_classification["resolved_known_test_cases"]:
+        print(f"해소됨 {len(failure_classification['resolved_known_test_cases'])}건")
+    if failure_classification["new_failed_test_cases"]:
+        print(f"목록 밖 실패 {len(failure_classification['new_failed_test_cases'])}건")
     if status != "PASSED":
         print("QUALITY_RUN_FAILED: see quality-artifacts/run-summary.json and pytest.log", file=sys.stderr)
         return tests.returncode or compile_result.returncode or 1
@@ -369,7 +535,8 @@ def main(argv: list[str] | None = None) -> int:
                 check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
             return _write_run_artifacts(result["pytest_targets"], result["browser_tests"],
                                         result["base_sha"], result["head_sha"],
-                                        head_tree_sha=result["head_tree_sha"])
+                                        head_tree_sha=result["head_tree_sha"],
+                                        rust_required=result.get("rust_required", False))
         if args.run and result["status"] == "DOCS_ONLY":
             check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
             print(json.dumps({"status": "DOCS_CHECKED", "tests_executed": 0}, ensure_ascii=False))

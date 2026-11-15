@@ -10,7 +10,7 @@ import path from "node:path";
 import { SOURCES } from "../../tools/kb_card_collection/policy.mjs";
 import entry, { resetEntryRuntime, setEntryRuntime } from "../../tools/kb_card_collection/entry_kb.mjs";
 
-const ENV_KEYS = ["KB_CARD_BROWSER_CONTEXT", "KB_CARD_SELECTORS", "KB_CARD_SPACE_NAME"];
+const ENV_KEYS = ["KB_CARD_BROWSER_CONTEXT", "KB_CARD_SELECTORS", "KB_CARD_SPACE_NAME", "WEBLEDGER_DATA_ROOT"];
 const SELECTORS = {
   session: "session-marker",
   dateFloor: "floor-marker",
@@ -108,6 +108,20 @@ await check("probeSession: true only when the session role is present", async ()
   });
 });
 
+await check("LOGIN_REQUIRED writes only the minimal collection-run contract", async () => {
+  await withCleanEnv(async () => {
+    const dataRoot = await tempDir("kb-summary-");
+    process.env.WEBLEDGER_DATA_ROOT = dataRoot;
+    setEntryRuntime({ browserContext: (await newFake({ sessionPresent: false })).bindings, selectors: SELECTORS, spaceName: "synthetic-space" });
+    assert.deepEqual(await entry.probeSession({ spaceName: "synthetic-space" }), { authenticated: false });
+    const summary = JSON.parse(await readFile(path.join(dataRoot, "collection-runs", "kb.json"), "utf8"));
+    assert.deepEqual(Object.keys(summary).sort(), ["finished_at", "login_required", "schema", "source", "status"]);
+    assert.equal(summary.status, "LOGIN_REQUIRED");
+    assert.equal(summary.login_required, true);
+    resetEntryRuntime();
+  });
+});
+
 // 2) allowed dates: observed pair / null / non-ISO error
 await check("readScreenAllowedDates: pair, null when missing, protocol error on non-ISO", async () => {
   await withCleanEnv(async () => {
@@ -127,6 +141,8 @@ await check("readScreenAllowedDates: pair, null when missing, protocol error on 
 await check("download: fill -> lookup -> observation -> arm -> activate -> same-round save", async () => {
   await withCleanEnv(async () => {
     const dir = await tempDir("kb-entry-");
+    const dataRoot = await tempDir("kb-summary-");
+    process.env.WEBLEDGER_DATA_ROOT = dataRoot;
     const fake = await newFake({
       controlPresent: true,
       summaryPresent: true,
@@ -149,6 +165,9 @@ await check("download: fill -> lookup -> observation -> arm -> activate -> same-
     const info = await stat(result.savedPath);
     assert.ok(info.isFile() && info.size > 0);
     assert.equal(await readFile(result.savedPath, "utf8"), "synthetic-entry-bytes");
+    const summary = JSON.parse(await readFile(path.join(dataRoot, "collection-runs", "kb.json"), "utf8"));
+    assert.equal(summary.status, "ok");
+    assert.equal(summary.login_required, false);
     resetEntryRuntime();
   });
 });

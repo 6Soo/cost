@@ -89,6 +89,13 @@ class EvaluateTests(unittest.TestCase):
         self.assertIn('판정 없는 정상 거래', markup)
         _assert_clean(markup)
 
+    def test_schedule_unavailable_from_google_sync_is_shown_inline(self):
+        markup = render_html({'now': NOW, 'sources': [], 'p2': None,
+                              'normal_undecided': 0,
+                              'trip_import': {'schedule_unavailable': 1}})
+        self.assertIn('Google 여행 일정 근거 파일을 읽지 못했습니다.', markup)
+        self.assertIn("aria-label='수집 상태'", markup)
+
 
 class GatherTests(unittest.TestCase):
     def setUp(self):
@@ -151,6 +158,14 @@ class GatherTests(unittest.TestCase):
         (config / 'card-flow.json').write_text(
             json.dumps({'p2_batch_archive': str(archive)}), encoding='utf-8-sig')
 
+    def _write_collection_run(self, source, *, login_required, status='LOGIN_REQUIRED'):
+        (self.data / 'collection-runs').mkdir(exist_ok=True)
+        (self.data / 'collection-runs' / f'{source}.json').write_text(json.dumps({
+            'schema': 'cost.collection-run-summary.v1', 'source': source,
+            'finished_at': '2026-11-13T01:00:00Z', 'status': status,
+            'login_required': login_required,
+        }), encoding='utf-8')
+
     def _labels(self, data):
         return {record['label']: record for record in data['sources']}
 
@@ -162,6 +177,27 @@ class GatherTests(unittest.TestCase):
         self.assertIsNone(data['p2'])
         self.assertEqual(data['normal_undecided'], 0)
         _assert_clean(render_html(data))
+
+    def test_fixed_data_root_p2_summary_precedes_legacy_archive(self):
+        root = self.data
+        latest = root / 'p2-runs' / 'latest.json'
+        latest.parent.mkdir(parents=True)
+        latest.write_text(json.dumps({'schema': 1, 'finished_at': '2026-11-13T02:30:00+00:00',
+            'target_groups': 4, 'successful_calls': 2, 'failed_calls': 1}), encoding='utf-8')
+        self._write_p2({'merchants': 99, 'successful_calls': 88, 'failed_attempts': 77})
+        status = collection_status._p2_status(root, self.root / 'config' / 'card-flow.json')
+        self.assertEqual(status['merchants'], 4)
+        self.assertEqual(status['success'], 2)
+        self.assertEqual(status['failed'], 1)
+
+    def test_render_marks_p2_failure_and_safe_reason(self):
+        data = {'now': NOW, 'sources': [], 'normal_undecided': 0,
+            'p2': {'last_at': NOW, 'merchants': 0, 'success': 0, 'failed': 1,
+                   'status': 'failed', 'failure_reason_code': 'VERIFIED_LAYER1_HISTORY_REQUIRED'}}
+        markup = render_html(data)
+        self.assertIn('P2 실패', markup)
+        self.assertIn('VERIFIED_LAYER1_HISTORY_REQUIRED', markup)
+        _assert_clean(markup)
 
     def test_card_last_collection_per_issuer_and_warning(self):
         self.flow.pipeline.receive(CARD, '합성.csv')
@@ -208,6 +244,39 @@ class GatherTests(unittest.TestCase):
         self.assertTrue(record['login_required'])
         self.assertEqual(evaluate(record, NOW)['status'], '로그인 필요')
 
+    def test_collection_run_login_required_shows_source_and_success_clears_it(self):
+        self._write_collection_run('agoda', login_required=True)
+        self._write_collection_run('kb', login_required=True)
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
+
+        self._write_collection_run('agoda', login_required=False, status='ok')
+        self._write_collection_run('kb', login_required=False, status='ok')
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertNotEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertNotEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
+
+    def test_collection_run_change_invalidates_status_cache_immediately(self):
+        collection_status._cache_clear()
+        self.assertNotEqual(evaluate(self._labels(gather(self.board))['Agoda'], NOW)['status'], '로그인 필요')
+        self._write_collection_run('agoda', login_required=True)
+        self.assertEqual(evaluate(self._labels(gather(self.board))['Agoda'], NOW)['status'], '로그인 필요')
+        collection_status._cache_clear()
+
+    def test_broken_or_extra_key_collection_run_is_ignored_without_error(self):
+        runs = self.data / 'collection-runs'
+        runs.mkdir()
+        (runs / 'agoda.json').write_text('{broken', encoding='utf-8')
+        (runs / 'kb.json').write_text(json.dumps({
+            'schema': 'cost.collection-run-summary.v1', 'source': 'kb',
+            'finished_at': '2026-11-13T01:00:00Z', 'status': 'LOGIN_REQUIRED',
+            'login_required': True, 'booking_number': 'must-not-be-accepted',
+        }), encoding='utf-8')
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertNotEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertNotEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
+
     def test_google_ok_uses_oldest_success_and_no_login_flag(self):
         self._write_google({
             'main': {'status': 'ok', 'error_code': None, 'last_ok_at': '2026-11-13T01:14:50+09:00'},
@@ -241,6 +310,14 @@ class GatherTests(unittest.TestCase):
 
     def test_gather_uses_sixty_second_cache(self):
         collection_status._cache_clear()
+
+    def test_schedule_unavailable_is_read_from_persisted_data_root_status(self):
+        from webapp.google_ledger_page import TRIP_IMPORT_STATUS_FILENAME
+        collection_status._cache_clear()
+        state_path = Path(self.board.path).parent / TRIP_IMPORT_STATUS_FILENAME
+        state_path.write_text('{"schedule_unavailable":true}', encoding='utf-8')
+        data = gather(self.board, now=NOW)
+        self.assertEqual(data['trip_import'], {'schedule_unavailable': True})
         calls = []
         real_card_last = collection_status._card_last
 

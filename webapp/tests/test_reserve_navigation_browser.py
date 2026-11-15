@@ -114,38 +114,16 @@ class OwnerNavigationTests(NavigationBrowserFixture):
                                timeout=SETTLE_MS)
 
         board = page.query_selector("#back-board")
-        review = page.query_selector("#back-review")
+        self.assertIsNone(page.query_selector("#back-review"))
         self.assertIsNotNone(board, "no return link to the ledger")
-        self.assertIsNotNone(review, "no return link to the source review")
         self.assertEqual(board.get_attribute("href"), "/board?tab=" + self.trip_id)
-        self.assertEqual(review.get_attribute("href"), "/review")
         self.assertIn("여행별 비용", board.inner_text())
-        self.assertIn("실제 자료", review.inner_text())
 
         # The ledger really answers. A link that 404s reads as a broken button.
         board.click()
         page.wait_for_function(
             "() => document.readyState === 'complete'", timeout=SETTLE_MS)
         self.assertIn("/board", page.url)
-
-    def test_the_review_return_link_answers_with_a_document(self):
-        """Not a 404.
-
-        The comparison is unconfigured in this environment, so the answer is the
-        unconfigured page rather than the comparison itself. Either is a served
-        document; a 404 would mean the link names an address that does not exist.
-        """
-        _response, page = self.board_page()
-        self.wait_ready(page)
-        page.goto(f"http://127.0.0.1:{self.port}/reserve-links?trip={self.trip_id}")
-        page.wait_for_function("() => window.__reserveLink !== undefined",
-                               timeout=SETTLE_MS)
-        page.click("#back-review")
-        page.wait_for_function(
-            "() => document.readyState === 'complete'", timeout=SETTLE_MS)
-        body = page.inner_text("body")
-        self.assertNotIn("Not Found", body)
-        self.assertTrue(body.strip(), "the review route returned an empty body")
 
     def test_the_return_links_survive_the_configuration_required_state(self):
         """The links are in the document, not added by the fetch.
@@ -168,7 +146,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
             page.wait_for_function(
                 "() => window.__reserveLink !== undefined", timeout=SETTLE_MS)
             self.assertIsNotNone(page.query_selector("#back-board"))
-            self.assertIsNotNone(page.query_selector("#back-review"))
+            self.assertIsNone(page.query_selector("#back-review"))
             # The state line names the configuration-required code, and the
             # screen invents no source to avoid saying it. The code is asserted
             # rather than the sentence: the wording is a copy decision and the

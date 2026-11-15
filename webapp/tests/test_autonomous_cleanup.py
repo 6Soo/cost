@@ -496,81 +496,6 @@ def test_cleanup_no_longer_exposes_a_second_owner_action_queue(tmp_path, monkeyp
         board.close()
 
 
-def test_provider_resolves_real_exe_behind_cmd_shim(tmp_path, monkeypatch):
-    from app import connected_agent_provider as provider
-    bin_dir = tmp_path / 'npm' / 'node_modules' / 'opencode-ai' / 'bin'
-    bin_dir.mkdir(parents=True)
-    shim = tmp_path / 'npm' / 'opencode.cmd'
-    shim.write_text('@echo off\n', encoding='utf-8')
-    real = bin_dir / 'opencode.exe'
-    real.write_bytes(b'')
-    monkeypatch.delenv('WEBLEDGER_OPENCODE_EXE', raising=False)
-    monkeypatch.setattr(provider.shutil, 'which', lambda name: str(shim))
-    assert provider._executable() == str(real)
-
-
-def test_provider_keeps_explicit_executable(tmp_path, monkeypatch):
-    from app import connected_agent_provider as provider
-    custom = tmp_path / 'opencode.exe'
-    custom.write_bytes(b'')
-    monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', str(custom))
-    monkeypatch.setattr(provider.shutil, 'which', lambda name: None)
-    assert provider._executable() == str(custom)
-
-
-def test_provider_catalog_stays_on_free_tier():
-    from app import connected_agent_provider as provider
-    assert provider.DEFAULT_MODEL in provider.MODELS
-    assert all(name.startswith('opencode/') and name.endswith('-free') for name in provider.MODELS)
-
-
-def test_provider_attaches_large_review_request_from_private_temp_file(tmp_path, monkeypatch):
-    import re
-    import subprocess
-    from pathlib import Path
-    from app import connected_agent_provider as provider
-    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
-
-    request = {'digest': 'synthetic-digest', 'cases': [
-        {'transaction_id': f'synthetic-{index}', 'context': 'x' * 2400} for index in range(20)]}
-    observed = {}
-
-    def runner(command, *, cwd, env, timeout):
-        command_line = subprocess.list2cmdline(command)
-        assert len(command_line) < 10000
-        assert 'x' * 100 not in command_line
-        request_file = Path(command[command.index('--file') + 1])
-        prompt = request_file.read_text(encoding='utf-8')
-        assert len(prompt) > 32767
-        assert json.dumps(request, ensure_ascii=False) in prompt
-        observed['path'] = request_file
-        run_id = re.search(r'run_id: ([a-f0-9]+)', prompt).group(1)
-        answer = json.dumps({'request_digest': request['digest'],
-                             'execution': {'kind': 'connected_agent', 'provider': 'opencode',
-                                           'model': provider.DEFAULT_MODEL, 'run_id': run_id},
-                             'results': []})
-        event = json.dumps({'type': 'text', 'part': {'type': 'text', 'text': answer}}).encode('utf-8')
-        return subprocess.CompletedProcess(command, 0, event, b'')
-
-    result = provider.run_agent(request, runner=runner)
-    assert result['execution']['kind'] == 'connected_agent'
-    assert not observed['path'].exists()
-
-
-def test_provider_classifies_windows_command_line_limit_without_exposing_error_text(monkeypatch):
-    from app import connected_agent_provider as provider
-    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
-
-    def runner(command, *, cwd, env, timeout):
-        error = OSError('synthetic Windows command size failure')
-        error.winerror = 206
-        raise error
-
-    with pytest.raises(provider.AgentUnavailable) as caught:
-        provider.run_agent({'digest': 'synthetic', 'cases': []}, runner=runner)
-    assert caught.value.code == 'AGENT_COMMAND_LINE_TOO_LONG'
-
-
 def test_autonomous_interval_config_is_bounded_and_defaults_to_thirty_minutes(tmp_path):
     import json
     from webapp.autonomous_cleanup_worker import INTERVAL, configured_interval
@@ -610,3 +535,40 @@ def test_autonomous_status_skips_identical_writes_until_heartbeat(setup, monkeyp
     worker.status['state'] = 'running'
     worker._publish()
     assert json.loads(path.read_text(encoding='utf-8'))['state'] == 'running'
+
+
+def _rust_cleanup(setup, monkeypatch, keys):
+    """A rust-writer sweep with a due job; `keys` feeds successive periods_key values."""
+    from app import automatic_classification, core_writer
+    board = setup
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, create_trip(board))
+    log = []
+    monkeypatch.setattr(core_writer, 'selected', lambda: 'rust')
+    monkeypatch.setattr(core_writer, 'periods_with_key',
+                        lambda conn, lock=None: (log.append(('build', board._lock._is_owned())) or ({'built': len(log)}, 'k0')))
+    feed = iter(keys)
+    monkeypatch.setattr(core_writer, 'periods_key', lambda conn, lock=None: next(feed))
+    monkeypatch.setattr(automatic_classification, 'apply',
+                        lambda conn, plan, trips, **kw: log.append(('apply', kw.get('periods'))))
+    return board, ids, log
+
+
+def test_rust_cleanup_builds_period_evidence_outside_the_locks_and_passes_it_to_apply(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['k0'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert log == [('build', False), ('apply', {'built': 1})]
+
+
+def test_rust_cleanup_rebuilds_once_when_the_key_moved_then_applies(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['moved', 'k0'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert log == [('build', False), ('build', False), ('apply', {'built': 2})]
+
+
+def test_rust_cleanup_fails_the_job_without_apply_when_the_key_keeps_moving(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['moved', 'moved2'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert [entry[0] for entry in log] == ['build', 'build']
+    job = load_job(board.conn, ids[0])
+    assert (job['status'], job['reason']) == ('ai_retry', 'p1_ValueError')

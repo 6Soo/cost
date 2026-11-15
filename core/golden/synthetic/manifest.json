@@ -1,0 +1,41 @@
+{
+  "files": {
+    "classify.jsonl": {
+      "cases": 178,
+      "sha256": "12aea9b9aa845e87c6ef92f1c9591e8a90584df3beefe94b4943c5b2f56bcaa1"
+    },
+    "ota_candidates.jsonl": {
+      "cases": 111,
+      "sha256": "bfd6eeefe1257cc82a00e608b65bcffdcd8cb8632d4e6ff0cdaea26de43a444f"
+    },
+    "ota_links.jsonl": {
+      "cases": 55,
+      "sha256": "d51764365554963d68a6f2468680fbed2887648fa8e1e606e77da46fc6eca6ea"
+    },
+    "ota_mn.jsonl": {
+      "cases": 46,
+      "sha256": "0cd7ce0bf79d65aaa8efeca0e2305754652d35fb5c06c87839a95d0dff653b03"
+    },
+    "period.jsonl": {
+      "cases": 76,
+      "sha256": "3de43c1db9b5f0ed84a5aff290d1efaf689305f3e9583519edb14af9d90eb59f"
+    },
+    "plan.jsonl": {
+      "cases": 107,
+      "sha256": "c0091c1e4fb88b9ae7369aeead93530a035d1457ef8085f57b2eddbe60f0ee4f"
+    },
+    "refund_groups.jsonl": {
+      "cases": 53,
+      "sha256": "bdcfd66ad2759b317270c09f37691db4e59bfc74b28666e5210e39da9a31fad4"
+    },
+    "refund_pairing.jsonl": {
+      "cases": 42,
+      "sha256": "85c680dc1499a8b178fc52826fb71468f31c109af5f0781af2336106e5d3ed29"
+    },
+    "trips.jsonl": {
+      "cases": 382,
+      "sha256": "0670c005dc7dbc76f24bc8ffe88e0230813be6f98e8d96e2091ade35e15ac420"
+    }
+  },
+  "protocol": "core-bridge/1"
+}

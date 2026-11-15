@@ -1,0 +1,138 @@
+[
+  {
+    "alias": "agoda",
+    "provider": "agoda"
+  },
+  {
+    "alias": "아고다",
+    "provider": "agoda"
+  },
+  {
+    "alias": "trip.com",
+    "provider": "trip"
+  },
+  {
+    "alias": "trip.com korea",
+    "provider": "trip"
+  },
+  {
+    "alias": "트립닷컴",
+    "provider": "trip"
+  },
+  {
+    "alias": "트립",
+    "provider": "trip"
+  },
+  {
+    "alias": "klook",
+    "provider": "klook"
+  },
+  {
+    "alias": "클룩",
+    "provider": "klook"
+  },
+  {
+    "alias": "booking.com",
+    "provider": "booking"
+  },
+  {
+    "alias": "booking",
+    "provider": "booking"
+  },
+  {
+    "alias": "부킹닷컴",
+    "provider": "booking"
+  },
+  {
+    "alias": "gotogate",
+    "provider": "gotogate"
+  },
+  {
+    "alias": "고투게이트",
+    "provider": "gotogate"
+  },
+  {
+    "alias": "아시아나항공",
+    "provider": "asiana"
+  },
+  {
+    "alias": "flyasiana",
+    "provider": "asiana"
+  },
+  {
+    "alias": "제주항공",
+    "provider": "jeju"
+  },
+  {
+    "alias": "jejuair",
+    "provider": "jeju"
+  },
+  {
+    "alias": "jeju air",
+    "provider": "jeju"
+  },
+  {
+    "alias": "traveloka",
+    "provider": "traveloka"
+  },
+  {
+    "alias": "트래블로카",
+    "provider": "traveloka"
+  },
+  {
+    "alias": "skyticket",
+    "provider": "skyticket"
+  },
+  {
+    "alias": "스카이티켓",
+    "provider": "skyticket"
+  },
+  {
+    "alias": "주식회사 어드벤처코리아",
+    "provider": "skyticket"
+  },
+  {
+    "alias": "어드벤처코리아",
+    "provider": "skyticket"
+  },
+  {
+    "alias": "AGODA.COM",
+    "provider": "agoda"
+  },
+  {
+    "alias": "agoda",
+    "provider": "agoda"
+  },
+  {
+    "alias": "AGODA_NICE-Agoda",
+    "provider": "agoda"
+  },
+  {
+    "alias": "대표_카카오페이-트립닷컴",
+    "provider": "trip"
+  },
+  {
+    "alias": "트립닷컴(구)_NICE",
+    "provider": "trip"
+  },
+  {
+    "alias": "나이스정보통신",
+    "provider": "trip"
+  },
+  {
+    "alias": "klook",
+    "provider": "klook"
+  },
+  {
+    "alias": "booking.com",
+    "provider": "booking"
+  },
+  {
+    "alias": "이니시스(일반)-고투게이트코리아유",
+    "provider": "gotogate"
+  },
+  {
+    "alias": "어드벤처코리아",
+    "provider": "skyticket"
+  }
+]

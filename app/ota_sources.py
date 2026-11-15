@@ -54,10 +54,22 @@ def read_manifest(path, *, required=False):
 
 
 def content_stamp(path):
-    """내용 기준 표식. 크기와 시각이 같아도 내용이 다르면 달라진다."""
+    """내용 기준 표식. 크기와 시각이 같아도 내용이 다르면 달라진다.
+
+    통합 OTA DB는 바이트 대신 커밋된 상태 표식을 쓴다(수 GB 해시와 커밋 전 WAL 변동 방지).
+    통합 DB의 -wal 파일은 표식에서 뺀다.
+    """
     path=Path(path)
     if not path.is_file():
         return None
+    from app.ota_store import commit_state
+    if path.name.endswith('-wal'):
+        if commit_state(path.with_name(path.name[:-4])) is not None:
+            return None
+    else:
+        state=commit_state(path)
+        if state is not None:
+            return {'path':str(path.resolve()),'ota_store_state':state}
     digest=hashlib.sha256()
     with path.open('rb') as handle:
         for block in iter(lambda:handle.read(1<<20),b''):

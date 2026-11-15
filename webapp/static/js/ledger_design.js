@@ -7,6 +7,7 @@
    var syncTripMore=function(){if(tripMoreSummary)tripMoreSummary.setAttribute('aria-expanded',String(tripMore.open));};
    tripMore.addEventListener('toggle',syncTripMore);
    syncTripMore();
+   tripMore.addEventListener('keydown',function(e){if(e.key==='Escape'&&tripMore.open){e.preventDefault();tripMore.open=false;if(tripMoreSummary)tripMoreSummary.focus();}});
   }
   if(!document.querySelector('.trip-actions'))return;
   document.documentElement.classList.add('trip-actions-ready');

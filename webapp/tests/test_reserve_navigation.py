@@ -218,9 +218,9 @@ class ReturnLinkTests(unittest.TestCase):
         checks that decision against the actual records. Without this link the
         owner verifies one at a time and has to remember the other's address.
         """
-        self.assertIn("id=\"back-review\"", self.document)
-        self.assertIn('href="/review"', self.document)
-        self.assertIn("실제 자료 검토", self.document)
+        # 2026-11-15: the retired review link is gone from this screen.
+        self.assertNotIn("back-review", self.document)
+        self.assertNotIn("실제 자료 검토", self.document)
 
     def test_both_links_are_anchors_not_script_handlers(self):
         """A link the owner cannot open in a new tab is not really a link.
@@ -229,7 +229,7 @@ class ReturnLinkTests(unittest.TestCase):
         status bar, the middle click and the browser history entry.
         """
         import re
-        for link_id in ("back-board", "back-review"):
+        for link_id in ("back-board",):
             anchor = re.search(rf"<a\b[^>]*id=\"{link_id}\"[^>]*>", self.document)
             self.assertIsNotNone(anchor, link_id)
             self.assertIn("href=", anchor.group(0))
@@ -263,7 +263,7 @@ class ReturnLinkTests(unittest.TestCase):
         the existing server-side gate, so neither link widens what is reachable.
         """
         self.assertIn('href="/board"', self.document)
-        self.assertIn('href="/review"', self.document)
+        self.assertNotIn('href="/review"', self.document)
 
 
 class EntryPointIsTheOnlyRouteTests(unittest.TestCase):

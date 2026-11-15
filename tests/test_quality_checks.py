@@ -289,6 +289,72 @@ def test_unknown_path_without_any_test_fails_closed(tmp_path):
         quality.build_plan(["new/product_area.py"], selector(["new/product_area.py"], "UNKNOWN_IMPACT"), root=tmp_path)
 
 
+def _git_repo_with_deletion(tmp_path, monkeypatch, *, delete, add=()):
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    for name in ("gone/old.py", "app/mapped.py"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                          capture_output=True, text=True).stdout.strip()
+    for name in delete:
+        (tmp_path / name).unlink()
+    for name in add:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("y = 2\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "change")
+    monkeypatch.setattr(selector_tool, "ROOT", tmp_path)
+    return base
+
+
+def _selector_with_map(tmp_path, monkeypatch, base, capsys):
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    for name in ("test_a.py", "test_b.py"):
+        (tmp_path / "tests" / name).write_text("", encoding="utf-8")
+    impact = tmp_path / "map.json"
+    impact.write_text(json.dumps({
+        "schema": "cost-test-impact-map-v1", "safe_fallback_tests": ["tests/test_b.py"],
+        "groups": [{"name": "g", "paths": ["app/mapped.py"], "tests": ["tests/test_a.py"]}],
+    }), encoding="utf-8")
+    monkeypatch.setattr(selector_tool, "MAP_PATH", impact)
+    code = selector_tool.main(["--base", base])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_deleted_unmapped_only_diff_is_not_unknown_impact(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["gone/old.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 0 and payload["unknown_files"] == []
+    assert payload["deleted_unmapped_files"] == ["gone/old.py"]
+    (tmp_path / "tests" / "test_quality_checks.py").write_text("", encoding="utf-8")
+    plan = quality.build_plan(["gone/old.py"], payload, root=tmp_path)
+    assert plan["status"] == "SELECTED"
+    assert plan["pytest_targets"] == ["tests/test_quality_checks.py"]
+
+
+def test_deleted_mapped_file_still_selects_its_group(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["app/mapped.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 0 and payload["unknown_files"] == []
+    assert payload["deleted_unmapped_files"] == []
+    assert payload["pytest_commands"][0][3:-1] == ["tests/test_a.py"]
+
+
+def test_added_unmapped_file_is_still_unknown_impact(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["gone/old.py"],
+                                   add=["new/product.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 2 and payload["unknown_files"] == ["new/product.py"]
+    with pytest.raises(ValueError, match="UNKNOWN_IMPACT:1"):
+        quality.build_plan(["gone/old.py", "new/product.py"], payload, root=tmp_path)
+
+
 def test_documentation_check_rejects_broken_local_link(tmp_path):
     doc = tmp_path / "docs/change.md"
     doc.parent.mkdir()
@@ -446,6 +512,41 @@ def test_selected_nonbrowser_skip_fails_quality_run_even_when_another_case_passe
     assert summary["nonbrowser_skipped_test_cases"] == ["synthetic.required::skipped"]
 
 
+@pytest.mark.parametrize(("failed_name", "expected_status", "expected_exit"), [
+    ("known", "PASSED", 0),
+    ("new", "FAILED", 1),
+])
+def test_quality_run_accepts_only_baseline_failures(tmp_path, capsys, failed_name,
+                                                   expected_status, expected_exit):
+    from unittest.mock import patch
+
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "known-test-failures.txt").write_text(
+        "# baseline sha: " + "a" * 40 + "\nsynthetic.test::known\n", encoding="utf-8")
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text(
+            f'<testsuite><testcase classname="synthetic.test" name="{failed_name}">'
+            '<failure message="synthetic"/></testcase></testsuite>', encoding="utf-8")
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert result == expected_exit
+    assert summary["status"] == expected_status
+    assert summary["known_failure_count"] == (1 if failed_name == "known" else 0)
+    assert ("알려진 실패 1건" in capsys.readouterr().out) is (failed_name == "known")
+
+
 def test_deleted_paths_are_retained_in_impact_plan():
     assert "app/ledger.py" in quality.build_plan(["app/ledger.py"], selector([]))["changed_paths"]
 
@@ -481,3 +582,169 @@ def test_selector_malformed_and_unknown_status_fail_closed():
         quality.build_plan(["app/file.py"], {"status": "SELECTED", "pytest_commands": []})
     with pytest.raises(ValueError, match="SELECTOR_FAILED"):
         quality.build_plan(["app/file.py"], {"status": "ERROR", "unknown_files": [], "pytest_commands": []})
+
+
+def test_known_failure_classification_allows_only_failures_in_baseline():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_known"}, {"tests/test_old.py::test_known"},
+        {"tests/test_old.py::test_known"})
+    assert result == {"known_failed_test_cases": ["tests/test_old.py::test_known"],
+                      "new_failed_test_cases": [], "resolved_known_test_cases": [],
+                      "known_failure_count": 1}
+
+
+def test_known_failure_classification_rejects_one_failure_outside_baseline():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_known"}, {"tests/test_old.py::test_known",
+                                             "tests/test_new.py::test_regression"}, set())
+    assert result["new_failed_test_cases"] == ["tests/test_new.py::test_regression"]
+
+
+def test_known_failure_classification_reports_resolved_executed_items():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_fixed"}, set(), {"tests/test_old.py::test_fixed"})
+    assert result["known_failed_test_cases"] == []
+    assert result["resolved_known_test_cases"] == ["tests/test_old.py::test_fixed"]
+
+
+def test_empty_known_failure_list_does_not_hide_a_failure(tmp_path):
+    config = tmp_path / "known-test-failures.txt"
+    config.write_text("# baseline sha: abc\n", encoding="utf-8")
+    known = quality.load_known_failures(config)
+    result = quality.classify_known_failures(known, {"tests/test_new.py::test_new"}, set())
+    assert known == set()
+    assert result["new_failed_test_cases"] == ["tests/test_new.py::test_new"]
+
+
+def test_known_failure_list_accepts_intermittent_marker_and_comments(tmp_path):
+    config = tmp_path / "known-test-failures.txt"
+    config.write_text("# baseline\ntests/a.py::A::test_one\ntests/b.py::test_two  # 간헐\n",
+                      encoding="utf-8")
+    assert quality.load_known_failures(config) == {"tests/a.py::A::test_one", "tests/b.py::test_two"}
+
+
+def test_committed_known_failure_list_is_sorted_and_marks_baseline():
+    path = quality.ROOT / "config" / "known-test-failures.txt"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert "기준 SHA" in lines[0]
+    names = [line.split("  # ", 1)[0] for line in lines if not line.startswith("#")]
+    assert names == sorted(names) and len(names) == len(set(names))
+
+
+def test_known_failure_inventory_change_selects_its_quality_gate():
+    plan = quality.build_plan(["config/known-test-failures.txt"],
+                              selector(["config/known-test-failures.txt"]))
+    assert "tests/test_quality_checks.py" in plan["pytest_targets"]
+
+
+def test_core_change_requires_cargo_steps():
+    plan = quality.build_plan(["core/Cargo.toml"], selector([], targets=["tests/test_quality_checks.py"]))
+    assert plan["rust_required"] is True
+    assert {"cargo-fmt", "cargo-clippy", "cargo-test"} <= set(plan["steps"])
+    other = quality.build_plan(["app/ledger.py"], selector([]))
+    assert other["rust_required"] is False and "cargo-test" not in other["steps"]
+
+
+def test_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
+    monkeypatch.setattr(quality, "find_cargo", lambda: None)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=tmp_path)
+    assert result["status"] == "FAILED" and result["reason"] == "CARGO_NOT_FOUND"
+
+
+def _fake_cargo(monkeypatch, failing_step):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command[1:])
+        code = 1 if command[1] == failing_step else 0
+        return subprocess.CompletedProcess(command, code)
+
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setattr(quality.subprocess, "run", fake_run)
+    return calls
+
+
+@pytest.mark.parametrize("failing", ["fmt", "clippy", "test", None])
+def test_cargo_step_failure_marks_run_failed(monkeypatch, tmp_path, failing):
+    calls = _fake_cargo(monkeypatch, failing)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=tmp_path)
+    assert [c[0] for c in calls] == ["fmt", "clippy", "test"]
+    assert result["status"] == ("FAILED" if failing else "PASSED")
+    if failing:
+        failed = [s["step"] for s in result["steps"] if s["exit_code"] != 0]
+        assert failed == [f"cargo-{failing}"]
+
+
+def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setattr(quality.os, "name", "nt")
+    monkeypatch.setattr(quality, "DEFAULT_WINDOWS_TARGET_DIR", tmp_path / "cargo-target")
+    monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: (
+        seen.append(kw["env"].get("CARGO_TARGET_DIR")) or subprocess.CompletedProcess(command, 0)))
+    work = tmp_path / "wt-a"
+    work.mkdir()
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=work)
+    assert result["target_dir"] == str(tmp_path / "cargo-target" / "wt-a")
+    assert set(seen) == {result["target_dir"]}
+
+
+def test_selected_files_with_the_costcore_marker_need_the_binary(tmp_path):
+    (tmp_path / "t_real.py").write_text("import pytest\npytestmark = pytest.mark.costcore_bin\n", encoding="utf-8")
+    (tmp_path / "t_plain.py").write_text("def test_a(): pass\n", encoding="utf-8")
+    assert quality.needs_costcore(["t_real.py::test_x"], root=tmp_path) is True
+    assert quality.needs_costcore(["t_plain.py", "missing.py"], root=tmp_path) is False
+
+
+def test_costcore_build_failure_or_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
+    monkeypatch.setattr(quality, "find_cargo", lambda: None)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        assert quality.build_costcore(log, root=tmp_path)["status"] == "FAILED"
+    seen = []
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "target"))
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: (
+        seen.append(command[1:]) or subprocess.CompletedProcess(command, 1)))
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        failed = quality.build_costcore(log, root=tmp_path)
+    assert seen == [["build", "--release", "-p", "costcore"]]
+    assert failed["status"] == "FAILED" and failed["bin"] is None
+    binary = tmp_path / "target" / "release" / ("costcore.exe" if quality.os.name == "nt" else "costcore")
+    binary.parent.mkdir(parents=True)
+    binary.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 0))
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        built = quality.build_costcore(log, root=tmp_path)
+    assert built == {"status": "PASSED", "exit_code": 0, "bin": str(binary)}
+
+
+def test_quality_run_records_policy_and_guard_changes_without_failing(tmp_path, capsys):
+    from unittest.mock import patch
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if command[0] == "git":
+            return subprocess.CompletedProcess(
+                command, 0, "config/tracked-data-policy.json\ntools/check_tracked_data.py\nREADME.md\n", "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text('<testsuite><testcase classname="s" name="ok"/></testsuite>',
+                               encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
+    assert result == 0
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert summary["policy_changed"] is True
+    assert summary["policy_changed_files"] == [
+        "config/tracked-data-policy.json", "tools/check_tracked_data.py"]
+    assert "정책·가드 변경 — opus 검수 필요" in capsys.readouterr().out

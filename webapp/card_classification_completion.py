@@ -18,7 +18,7 @@ def context(flow):
     return trips, _google_nets()
 
 
-def completed_period_evidence(board, trips=None):
+def completed_period_evidence(board, trips=None, flow=None):
     """Read only the fresh published core; no match recomputation or source writes."""
     from app.closed_period import completed_period, formal_facts
     dates = board.conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
@@ -26,7 +26,7 @@ def completed_period_evidence(board, trips=None):
     if not completed:
         return {}
     from .card_flow import CardFlow
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     current,fresh = flow._held_ota_snapshot()
     if not current or not fresh:
         return {}
@@ -34,6 +34,31 @@ def completed_period_evidence(board, trips=None):
         trips = [dict(t,trip_id=t['tab_id']) for t in board.list_trips() if flow.trip_valid(t['tab_id'])]
     return {k:v for k,v in formal_facts(flow._canonical_snapshot_report(current).get('matches',[]),trips).items()
             if k in completed}
+
+
+def open_period_evidence(board, trips=None, flow=None):
+    """Confirmed reservation periods for open-period purchases; read-only, fresh core snapshot only."""
+    from app.closed_period import booking_period_evidence, completed_period
+    from app import automatic_classification as policy
+    from .card_flow import CardFlow
+    flow = flow or CardFlow(board)
+    current, fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return {}
+    if trips is None:
+        trips = [dict(t, trip_id=t['tab_id']) for t in board.list_trips() if flow.trip_valid(t['tab_id'])]
+    matches = flow._canonical_snapshot_report(current).get('matches', [])
+    ids = {m.get('transaction_id') for m in matches if m.get('transaction_id')}
+    if not ids:
+        return {}
+    rows = {r['transaction_id']: r for r in policy._read(board.conn, ids)}
+    found, _ = booking_period_evidence(matches, rows, trips)
+    return {k: v for k, v in found.items() if not completed_period(rows[k])}
+
+
+def classification_evidence(board, trips=None, flow=None):
+    """Closed-period exceptions plus open-period booking evidence; the two key sets are disjoint."""
+    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow)}
 
 
 def complete(flow, batch_id, transaction_ids=None):
@@ -44,13 +69,17 @@ def complete(flow, batch_id, transaction_ids=None):
     return complete_scope(flow, selected)
 
 
-def complete_scope(flow, selected=None):
-    with flow.board._lock:
-        trips, nets = context(flow)
-        evidence = completed_period_evidence(flow.board,trips)
-        preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
-        return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,evidence=evidence)
+def complete_scope(flow, selected=None, backfill=False):
+    from app import core_writer
 
+    def run(periods):
+        trips, nets = context(flow)
+        evidence = classification_evidence(flow.board,trips,flow)
+        preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
+        extra = {'backfill': True} if backfill else {}
+        return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,
+                            evidence=evidence, periods=periods, **extra)
+    return core_writer.run_with_periods(flow.board, run)
 
 def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
     """An explicit classification write may repair an old automatic calendar guess.
@@ -109,6 +138,10 @@ def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
         return 0
     trips, nets = context(flow)
     options = dict(nets=nets, transaction_ids=set(evidence), reconsider=True, evidence=evidence)
-    preview = policy.plan(conn, trips, **options)
-    policy.apply(conn, preview, trips, **options)
-    return sum(bool(target.get('booking_trip_correction')) for target in preview['targets'])
+
+    def run(periods):
+        preview = policy.plan(conn, trips, **options)
+        policy.apply(conn, preview, trips, periods=periods, **options)
+        return sum(bool(target.get('booking_trip_correction')) for target in preview['targets'])
+    from app import core_writer
+    return core_writer.run_with_periods(flow.board, run)

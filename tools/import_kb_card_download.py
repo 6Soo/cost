@@ -7,6 +7,7 @@ preserved originals). File validation reuses the production upload preflight
 handling and the import itself are the existing Pipeline.receive path (content
 idempotency, identity dedup, keyless multiset matching, conflict protection).
 This tool adds no new import logic.
+It writes only board.sqlite, so `verify_operational_backup_restore.py --scope board` is enough for its backup check.
 
 Preview rehearses receive on a scratch copy of the target database and never
 writes the target. --apply additionally requires the real single-writer gate

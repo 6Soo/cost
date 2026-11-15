@@ -566,6 +566,46 @@
       "status": "confirmed",
       "evidence": "default_db_path returns the configured Path or this static local archive path.",
       "source_refs": "app/participant_roster.py:default_db_path"
+    },
+    {
+      "name": "WEBLEDGER_CLASSIFICATION_WRITER",
+      "owner": "app.core_writer",
+      "role": "switch:classification-writer",
+      "required": "optional; only the value rust selects the Rust core",
+      "default": "python (unset or any other value)",
+      "status": "confirmed",
+      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. The production launcher and worker set it only from card-flow.json classification_writer.",
+      "source_refs": "app/core_writer.py:selected; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_LINKS_PRODUCER",
+      "owner": "app.core_links",
+      "role": "switch:links-producer",
+      "required": "optional; only the value rust selects the Rust core for refund pairs",
+      "default": "python (unset or any other value)",
+      "status": "confirmed",
+      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. Independent of WEBLEDGER_CLASSIFICATION_WRITER.",
+      "source_refs": "app/core_links.py:selected; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_COSTCORE_BIN",
+      "owner": "app.core_writer",
+      "role": "path:costcore-binary",
+      "required": "required only when the writer or the links producer is rust",
+      "default": "none; rust writer refuses without it",
+      "status": "confirmed",
+      "evidence": "apply() refuses with CORE_WRITER_NOT_CONFIGURED when absent.",
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_CORE_DB",
+      "owner": "app.core_writer",
+      "role": "path:core-database",
+      "required": "required when the writer is rust or stored periods are read",
+      "default": "none; refused when absent",
+      "status": "confirmed",
+      "evidence": "Path of core.sqlite (decisions, decision_history); read-only for stored_service_period.",
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
     }
   ]
 }

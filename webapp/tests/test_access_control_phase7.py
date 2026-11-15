@@ -945,6 +945,50 @@ class AccessStoreTests(unittest.TestCase):
         self.assertEqual(status_owner, 404)
         self.assertEqual(status_viewer, 404)
 
+    def test_the_owner_admin_profile_tab_link_is_well_formed(self):
+        from html.parser import HTMLParser
+
+        class Probe(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.in_nav = False
+                self.a_stack = 0
+                self.tabs = []
+                self.section_in_a = False
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "nav":
+                    self.in_nav = True
+                if tag == "a":
+                    self.a_stack += 1
+                    if self.in_nav:
+                        self.tabs.append((dict(attrs), []))
+                if tag == "section" and self.a_stack:
+                    self.section_in_a = True
+
+            def handle_data(self, data):
+                if self.in_nav and self.tabs and self.a_stack:
+                    self.tabs[-1][1].append(data)
+
+            def handle_endtag(self, tag):
+                if tag == "a":
+                    self.a_stack -= 1
+                if tag == "nav":
+                    self.in_nav = False
+
+        self.seed_accounts()
+        status, page = self.api("/access/admin", user=OWNER)
+        self.assertEqual(status, 200)
+        probe = Probe()
+        text = page.decode("utf-8")
+        start = text.index("class='section-tabs'")
+        probe.feed(text[text.rfind("<nav", 0, start):])
+        self.assertFalse(probe.section_in_a)
+        tab = [a for a, label in probe.tabs if "".join(label) == "기본 정보"]
+        self.assertEqual(len(tab), 1)
+        self.assertEqual(tab[0]["href"], "/access/admin?view=profile&return_to=/access/admin")
+        self.assertRegex(text, r"<a href='/access/admin\?view=profile[^'<>]*'[^>]*>기본 정보</a>")
+
     def test_the_owner_admin_screen_lists_pending_and_candidates(self):
         self.seed_accounts()
         self.api("/access/applications", {

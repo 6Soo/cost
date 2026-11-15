@@ -193,6 +193,12 @@ def main(argv=None) -> int:
         use_venv(Path(config["venv"]))
     sys.path.insert(0, str(ROOT))
     os.chdir(ROOT)
+    # Same card-flow.json switches as the board launcher, so one writer serves every host process.
+    from app import core_switch_config
+    try:
+        core_switch_config.apply_from_host(args.config.resolve().parent, args.config.resolve().parent.parent / "data")
+    except core_switch_config.CoreSwitchRefused as exc:
+        raise SystemExit(f"WORKER_{exc.code}")
     log = Log(Path(config["log"]))
     # Tools print their results; with pythonw there is no console to print to.
     sys.stdout = sys.stderr = log
@@ -201,6 +207,10 @@ def main(argv=None) -> int:
         log.note("worker", "refused", reason="ALREADY_RUNNING")
         return 75
     own_children()
+    try:
+        core_switch_config.record_applied('worker', args.config.resolve().parent, ROOT.name)
+    except OSError:
+        pass  # the deploy check then fails on the missing record
     log.note("worker", "ready", release=ROOT.name, jobs=[job["name"] for job in config["jobs"]])
     stop = threading.Event()
     threads = []
