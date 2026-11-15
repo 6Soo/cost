@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS board_rows (
     revision INTEGER NOT NULL,
     payload_json TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_board_rows_display_tab ON board_rows(display_tab_id, row_id);
 CREATE TABLE IF NOT EXISTS board_revisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     row_id TEXT NOT NULL,
