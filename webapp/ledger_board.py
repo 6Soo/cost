@@ -525,7 +525,7 @@ def access_control_render_owner_admin(session, store, view: str = "", return_to:
     profile = store.owner_profile() if hasattr(store, "owner_profile") else {"company_name": "", "assignee_name": "", "revision": 0}
     tabs = ("<nav class='section-tabs' aria-label='관리 하위 메뉴'>"
             f"<a href='/access/admin' aria-current={'page' if view != 'profile' else 'false'}>계정·권한</a>"
-            f"<a href='/access/admin?view=profile&return_to={esc(return_to or '/access/admin')}"
+            f"<a href='/access/admin?view=profile&return_to={esc(return_to or '/access/admin')}'"
             f" aria-current={'page' if view == 'profile' else 'false'}>기본 정보</a></nav>")
     if view == "profile":
         body = ("<section class='sect'><h2>기본 정보</h2>"

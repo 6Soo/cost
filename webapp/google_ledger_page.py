@@ -286,7 +286,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in google_authority.SPREADSHEET_IDS:
-            return panel('사용할 장부 사본을 선택해 주세요.')
+            return panel('수입 장부를 확인하지 못했습니다. 동기화 후 다시 확인하고, 같으면 Google 시트 탭을 확인해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
             return panel('수입 내역을 불러오지 못했습니다.')
