@@ -232,6 +232,21 @@ def _remember(core, digest, response, seconds) -> None:
         pass
 
 
+def _refund_links(conn, transaction_ids) -> dict:
+    """`context.links` for `costcore apply`: the links `automatic_classification.plan` uses, over the same ids.
+
+    Same function and id scope as the preview, read at apply time, so a link that moved since the preview changes
+    the plan and the digest check stops it; costcore then starts no Python bridge of its own.
+    """
+    if not {'issuer', 'original_approval_number'} <= {c[1] for c in conn.execute('PRAGMA table_info(transactions)')}:
+        return None  # not a board: costcore keeps its own bridge lookup
+    ids = (sorted(transaction_ids) if transaction_ids is not None
+           else [row[0] for row in conn.execute('SELECT transaction_id FROM transactions ORDER BY transaction_id')])
+    from .partial_refund import refund_links
+    return {tid: {'original_id': link['original_id'], 'inferred': bool(link.get('inferred')),
+                  'status': link.get('status') or ''} for tid, link in refund_links(conn, ids).items()}
+
+
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None,
           backfill=False):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
@@ -244,6 +259,9 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     if conn.in_transaction:
         raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
     request = {'trips': trips, 'nets': nets or {}, 'evidence': evidence or {}, 'reconsider': bool(reconsider)}
+    links = _refund_links(conn, transaction_ids)
+    if links is not None:
+        request['links'] = links
     if periods is not None:
         request['periods'] = periods
     if transaction_ids is not None:

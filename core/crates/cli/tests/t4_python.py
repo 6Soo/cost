@@ -126,5 +126,10 @@ if __name__ == '__main__':
         create(*rest)
     elif mode == 'plan':
         run_apply(rest[0], rest[1], '', dry=True)
+    elif mode == 'links':
+        from app.partial_refund import refund_links
+        c = sqlite3.connect(rest[0])
+        ids = [r[0] for r in c.execute('SELECT transaction_id FROM transactions')]
+        print(json.dumps(refund_links(c, ids)))
     else:
         run_apply(*rest)

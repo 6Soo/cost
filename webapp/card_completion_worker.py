@@ -36,9 +36,12 @@ def queue_batch(board, batch_id, transaction_ids=None, *, commit=True):
 
 def finish_jobs(board):
     with board._lock:
-        pending = {row[0] for row in candidates(board.conn)}
-        for key, raw in board.conn.execute('SELECT request_id,response_json FROM requests WHERE scope=?',(JOB_SCOPE,)).fetchall():
-            state = json.loads(raw)
+        jobs = [(key, json.loads(raw)) for key, raw in board.conn.execute(
+            'SELECT request_id,response_json FROM requests WHERE scope=?',(JOB_SCOPE,)).fetchall()]
+        waiting = {tid for _, state in jobs if state.get('pending') for tid in state['ids']}
+        # Only the ids a pending job names can keep it open: look at those rows, not the whole queue.
+        pending = {row[0] for row in candidates(board.conn, waiting)} if waiting else set()
+        for key, state in jobs:
             if state.get('pending') and not pending.intersection(state['ids']):
                 state['pending'] = False
                 board.conn.execute('UPDATE requests SET response_json=? WHERE request_id=? AND scope=?',(json.dumps(state),key,JOB_SCOPE))
@@ -56,13 +59,15 @@ def enabled_for(board):
         return False
 
 
-def candidates(conn):
+def candidates(conn, ids=None):
+    """Rows still to complete; with `ids`, only among those rows (the scan then skips the rest of the batch)."""
     from .card_classification_completion import missing_assignment_sql
+    scope = '' if ids is None else ' WHERE transaction_id IN (SELECT value FROM json_each(?))'
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
     return conn.execute(
         "WITH imported AS MATERIALIZED (SELECT transaction_id,MIN(batch_id) batch_id"
-        " FROM import_batch_rows GROUP BY transaction_id),"
+        " FROM import_batch_rows" + scope + " GROUP BY transaction_id),"
         " queued AS MATERIALIZED (SELECT j.value transaction_id FROM requests q, json_each(q.response_json,'$.ids') j"
         " WHERE q.scope='card_completion_job' AND json_extract(q.response_json,'$.pending')=1),"
         " refund_originals AS MATERIALIZED (SELECT DISTINCT issuer,card_tail,original_approval_number"
@@ -88,7 +93,8 @@ def candidates(conn):
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND f.original_approval_number IS NULL"
-        " ORDER BY b.batch_id,t.row_index,t.transaction_id").fetchall()
+        " ORDER BY b.batch_id,t.row_index,t.transaction_id",
+        () if ids is None else (json.dumps(sorted(ids)),)).fetchall()
 
 
 def _digest(value):
@@ -216,17 +222,16 @@ class CardCompletionWorker:
                 queue_batch(self.board,batch,ids)
                 unfinished = {row[0] for row in selected if row[4]!='guide_airfare_evidence'
                               and (row[3]!='classified' or not row[5])}
-                if unfinished:
-                    flow._classify(batch, transaction_ids=unfinished, snapshot_only=True)
+                # A category-only legacy/interrupted result is incomplete.
+                # Reuse current published OTA service dates before falling
+                # back to card-date inference. Fully assigned rows above
+                # keep their saved evidence and only resume recording.
                 missing_assignment = {row[0] for row in selected if row[0] not in unfinished
                     and row[4]!='guide_airfare_evidence' and row[5]!='분기 기타비용'
                     and row[6] in (None,'','unclassified') and row[7] in (None,'','unclassified')}
-                if missing_assignment:
-                    # A category-only legacy/interrupted result is incomplete.
-                    # Reuse current published OTA service dates before falling
-                    # back to card-date inference. Fully assigned rows above
-                    # keep their saved evidence and only resume recording.
-                    flow._classify(batch, transaction_ids=missing_assignment, snapshot_only=True)
+                # The two sets are disjoint and fixed before any write: one classification (one evidence build).
+                if unfinished or missing_assignment:
+                    flow._classify(batch, transaction_ids=unfinished | missing_assignment, snapshot_only=True)
                 result = flow._auto_record_locked(batch, include_state=False, transaction_ids=ids)
             except Exception as exc:
                 self.status.update(state='retry', error=type(exc).__name__)
@@ -241,7 +246,7 @@ class CardCompletionWorker:
                 self.status.pop('error', None)
                 # A genuine policy/authority hold is retried when its evidence
                 # changes, or after five minutes, without monopolizing a batch.
-                for row in candidates(self.board.conn):
+                for row in candidates(self.board.conn, ids):
                     if row[0] in ids:
                         self._attempts[row[0]] = (_digest((row, inputs)), now + 300, 0)
                 finish_jobs(self.board)
