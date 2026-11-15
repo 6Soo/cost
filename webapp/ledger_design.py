@@ -259,14 +259,14 @@ def _trip_kpi_html(tab_id: str) -> str:
         text = _money(value)
         return text.replace('-', '−', 1) if text.startswith('-') else text
 
-    income_note = ("장부 사본 선택 필요"
+    income_note = ("장부 확인 필요"
                    if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
     balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
     income_kpi = ui_components.kpi('수입', amount(income), income_note)
     if income is None:
         income_kpi = income_kpi.replace(
-            "<small>장부 사본 선택 필요</small>",
-            "<small>장부 사본 선택 필요</small>",
+            "<small>장부 동기화 필요</small>",
+            "<small>장부 동기화 필요</small>",
             1)
     return (
         "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
@@ -1843,7 +1843,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     elif not available:
         from .expense_copy_state import source_message
         reason = (preview.get('source_info') or {}).get('reason')
-        description = source_message(reason)
+        description = source_message(reason, actions=True)
     else:
         recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
         held_results = [item for item in (preview.get('results') or [])
