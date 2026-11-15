@@ -544,6 +544,11 @@
       "name": "full-only-backup-gate-tools",
       "paths": ["tools/apply_ota_owner_answers.py", "tools/deploy_reserve_trips.py", "tools/verify_operational_backup_restore.py"],
       "tests": ["tests/card_pipeline/test_operational_backup_scope.py", "tests/card_pipeline/test_reserve_trips.py"]
+    },
+    {
+      "name": "ota-evidence-compaction",
+      "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
+      "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
     }
   ]
 }
