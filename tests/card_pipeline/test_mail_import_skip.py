@@ -89,3 +89,17 @@ def test_retry_after_failed_import_is_not_skipped(env, monkeypatch):
     monkeypatch.setattr(OtaStore, 'import_mail', real)
     mail_collect.sync_unified_store(directory)
     assert calls == ['m1']
+
+
+def test_parser_modules_the_import_depends_on_are_watched(env):
+    directory, _ = env
+    names = {row[0] for row in OtaStore.mail_stamp(directory)}
+    assert {'code:ota_store.py', 'code:ota_mail.py', 'code:toyoko_mail.py', 'code:ota_sources.py'} <= names
+
+
+def test_failing_stamp_write_is_logged_not_raised(env, monkeypatch, caplog):
+    directory, _ = env
+    monkeypatch.setattr('app.ota_store.os.replace', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+    with caplog.at_level('WARNING'):
+        mail_collect.sync_unified_store(directory)
+    assert 'mail stamp not written' in caplog.text

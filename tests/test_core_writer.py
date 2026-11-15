@@ -512,3 +512,29 @@ def test_audit_entries_and_reviews_do_not_invalidate_the_period_evidence(env, tm
     conn.commit()
     core_writer.periods_for(conn)
     assert len(calls) == 1
+
+
+def test_period_evidence_takes_no_p2_periods_so_it_matches_the_cache_key(env, tmp_path, monkeypatch):
+    from tools.core_bridge import periods as bridge
+    seen = []
+    real = bridge.evidence_from_snapshot
+    monkeypatch.setattr(bridge, 'evidence_from_snapshot', lambda *args, **kw: seen.append((args, kw)) or real(*args, **kw))
+    conn, _ = _periods_env(env, tmp_path, [])
+    facts = core_writer.periods_for(conn)
+    (args, kw), = seen
+    assert len(args) == 2 and not kw and 'syn-t1' in facts
+    assert not hasattr(core_writer, '_p2_periods')
+
+
+def test_status_writes_are_serialised_so_a_stale_state_cannot_overwrite_a_newer_one(env, tmp_path):
+    import threading
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    monkeypatch.setitem(core_writer._PUBLISHED, 'key', None)
+    done = threading.Event()
+    with core_writer._PUBLISH_LOCK:
+        worker = threading.Thread(target=lambda: (core_writer._publish_status(), done.set()))
+        worker.start()
+        assert not done.wait(0.3)
+    worker.join(5)
+    assert done.is_set() and (tmp_path / core_writer.STATUS_FILE).is_file()

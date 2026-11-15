@@ -83,31 +83,13 @@ def _board_reader(board_path):
     return closing(sqlite3.connect(Path(board_path).resolve().as_uri() + '?mode=ro', uri=True))
 
 
-def _p2_ids(conn) -> list:
-    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
-        return []
-    return [r[0] for r in conn.execute(
-        "SELECT transaction_id FROM transactions WHERE classification_source='ai_inference' "
-        "AND item IN ('숙박비','항공료','렌터카') ORDER BY transaction_id")]
-
-
 def _evidence_key(board_path, manual) -> str:
-    # P2 inputs are not in the key: ai_inference rows are kept by the planner, so a P2 period is not stored yet.
-    # When the P2 write path moves to Rust, add a fingerprint narrowed to that row's own inputs here.
+    # P2 periods are neither in the key nor in the evidence: ai_inference rows are kept by the planner, so none is stored.
+    # When the P2 write path moves to Rust, feed that row's own inputs to both here.
     from tools.core_bridge import periods as bridge
     return hashlib.sha256(json.dumps(
         [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
          bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
-
-
-def _p2_periods(board_path) -> dict:
-    """Audited P2 periods bound to the current source and decision (`webapp.ledger_stay_evidence._p2_index`)."""
-    from .ai_classification import service_metadata
-    try:
-        with _board_reader(board_path) as conn:
-            return {tid: metadata for tid in _p2_ids(conn) if (metadata := service_metadata(conn, tid))}
-    except sqlite3.Error:
-        return {}
 
 
 def _configured() -> str:
@@ -134,7 +116,7 @@ def period_facts(board_path, manual, core) -> tuple:
             return saved['facts'], key
     except (OSError, ValueError):
         pass
-    facts = bridge.evidence_from_snapshot(_period_snapshot(board_path), set(manual), _p2_periods(board_path))
+    facts = bridge.evidence_from_snapshot(_period_snapshot(board_path), set(manual))
     scratch = cache.with_name(cache.name + '.tmp')
     scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
     os.replace(scratch, cache)
@@ -220,6 +202,7 @@ def run_with_periods(board, work):
 RUNS_DIR = 'core-apply-runs'
 RUNS_KEPT = 50
 RUN_COUNTS = ('written', 'skipped_mismatch', 'skipped_unjudged', 'backfilled')
+# Nothing in production reads LAST_RUN. A reader on a long-lived thread must clear it before the apply or compare `digest`.
 LAST_RUN: ContextVar = ContextVar('core_writer_last_run', default=None)
 
 
@@ -343,6 +326,7 @@ def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
 
 _FALLBACK: dict = {}
 _TIMER_LOCK = threading.Lock()
+_PUBLISH_LOCK = threading.Lock()
 _READ_ERROR = {'error': '', 'stale': False}
 _LAST_READ: dict = {'periods': None}
 _PUBLISHED = {'key': None}
@@ -429,6 +413,11 @@ def publish_status() -> None:
 
 def _publish_status() -> None:
     """Write the status beside core.sqlite when it changed, so operations can read it from the data root."""
+    with _PUBLISH_LOCK:
+        _publish_status_locked()
+
+
+def _publish_status_locked() -> None:
     core = os.environ.get(CORE_DB_ENV, '')
     status = period_read_status()
     key = json.dumps(status, sort_keys=True)
