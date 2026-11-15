@@ -1,9 +1,9 @@
-"""Lessons that Muse wrote during a re-analysis, kept in one local JSONL file.
+"""Lessons that the reading model wrote during a re-analysis, kept in one local JSONL file.
 
 A lesson is saved only after the owner registers a receipt that the re-analysis found. It must pass a check that
 keeps it general: no digits, no contact details, no merchant name from the photo and no customer or payment
 wording. A lesson that does not pass is not saved, and nothing is edited to make it pass. The file is set by
-WEBLEDGER_RECEIPT_LEARNING. Muse reads saved notes as guidance; the attached photo stays the source of truth.
+WEBLEDGER_RECEIPT_LEARNING. The reading model gets saved notes as guidance; the attached photo stays the source of truth.
 """
 import datetime as dt
 import hashlib
@@ -132,7 +132,7 @@ def delete_note(note_id: str) -> dict:
 
 
 def notes_for_prompt() -> list:
-    """The newest few distinct notes. A missing or unreadable file gives none, and Muse still runs."""
+    """The newest few distinct notes. A missing or unreadable file gives none, and reading still runs."""
     p = path()
     if p is None:
         return []
