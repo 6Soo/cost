@@ -482,3 +482,123 @@ def test_narrowed_chunk_equals_the_old_result_after_a_full_drain(setup):
     assert worker.status['failures'] == 0
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 9
     assert candidates(board.conn) == []
+
+
+def _refund_cases(board):
+    """Multi partial refunds, an inferred link, an excess refund and a group with sibling cancellations."""
+    batch, rows = receive(board, 14, card='1234')
+    ids = [r['transaction_id'] for r in rows]
+    c = board.conn
+    c.execute("UPDATE transactions SET classification_state='classified',classification_source='rule',item='식비',"
+              "display_tab_id='quarter:2026:4',trip_id='',amount_krw=100000")
+    def cancel(index, original_index, amount, original_number=True):
+        c.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=?,original_approval_number=?"
+                  " WHERE transaction_id=?", (amount, rows[original_index]['approval_number'] if original_number else '', ids[index]))
+    cancel(1, 0, -25000); cancel(2, 0, -25000)                       # two partial refunds of one original
+    cancel(4, 3, -150000)                                            # excess
+    c.execute("UPDATE transactions SET merchant='INFER SHOP',merchant_normalized='INFER SHOP'"
+              " WHERE transaction_id IN (?,?)", (ids[5], ids[6]))
+    cancel(6, 5, -100000, original_number=False)                     # inferred (same card, day, merchant, amount)
+    cancel(8, 7, -50000); cancel(9, 7, -50000)                       # full offset by two sibling cancellations
+    c.execute("UPDATE transactions SET merchant='FX SHOP',merchant_normalized='FX SHOP',foreign_currency='USD',foreign_amount='50'"
+              " WHERE transaction_id IN (?,?)", (ids[12], ids[13]))
+    cancel(13, 12, -100000, original_number=False)                   # inferred by foreign amount
+    c.execute("UPDATE transactions SET classification_state='needs_review',item='' WHERE transaction_id=?", (ids[11],))
+    c.commit()
+    return batch, ids
+
+
+def test_refund_cases_are_really_linked(setup):
+    from app.partial_refund import all_refund_links
+    _, ids = _refund_cases(setup)
+    links = all_refund_links(setup.conn)
+    assert {links[ids[1]]['status'], links[ids[4]]['status'], links[ids[8]]['status']} == {'partial', 'excess', 'full'}
+    assert links[ids[1]]['refund_count'] == 2 and links[ids[8]]['refund_count'] == 2
+    assert 'basis' in links[ids[6]] and links[ids[6]]['original_id'] == ids[5]
+    assert links[ids[13]]['basis'] == 'merchant_card_foreign_amount' and links[ids[13]]['original_id'] == ids[12]
+
+
+@pytest.mark.parametrize('booked_first', [False, True])
+def test_narrowed_preview_matches_the_whole_batch_for_refund_groups(setup, booked_first):
+    board = setup
+    batch, ids = _refund_cases(board)
+    flow = CardFlow(board)
+    if booked_first:
+        flow._auto_record_locked(batch, include_state=False, transaction_ids={ids[0], ids[1], ids[2], ids[7], ids[8], ids[9]})
+        assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] >= 1
+    selections = [{i} for i in ids] + [{ids[1], ids[2]}, {ids[8]}, {ids[0], ids[3], ids[5], ids[7]},
+                                       {ids[2], ids[4], ids[6], ids[9], ids[10]}, set(ids[:4]), set(ids[4:9]), {ids[12]}, {ids[13]}, set(ids)]
+    for selected in selections:
+        old = {r['transaction_id']: r for r in _unnarrowed_preview(flow, batch, selected)}
+        new = {r['transaction_id']: r for r in _narrowed_preview(flow, batch, selected)}
+        assert set(new) == set(old), selected
+        assert {k: (v['item'], v['display_tab_id'], v['amount_krw'], v.get('refund_link', {}).get('status')) for k, v in new.items()} == \
+               {k: (v['item'], v['display_tab_id'], v['amount_krw'], v.get('refund_link', {}).get('status')) for k, v in old.items()}
+
+
+def test_merged_classification_and_narrow_refresh_leave_the_same_database(setup, tmp_path, monkeypatch):
+    """One `_classify` over unfinished + category-only rows equals the old two calls."""
+    def build(path):
+        board = LedgerStore(path, seed_demo=False)
+        batch, rows = receive(board, 8, card='1234')
+        board.create_trip(starts_on='2026-10-14', ends_on='2026-10-17', destination='결제일 여행', client_request_id='t')
+        board.conn.execute("UPDATE transactions SET classification_state='classified',classification_source='rule',item='숙박비',trip_id='',display_tab_id=''"
+                           " WHERE rowid%2=0")
+        board.conn.commit()
+        return board
+    def dump(board):
+        return (board.conn.execute('SELECT transaction_id,classification_state,classification_source,item,display_tab_id,trip_id,revision FROM transactions ORDER BY transaction_id').fetchall(),
+                board.conn.execute('SELECT transaction_id,item,display_tab_id,trip_id,amount_krw FROM ledger_entries ORDER BY transaction_id').fetchall())
+    def same(a, b):
+        # Trip ids are generated per database: compare them by role.
+        def norm(dump_):
+            return [[('TRIP' if isinstance(v, str) and v.startswith('trip-') else v) for v in row] for part in dump_ for row in part]
+        return norm(a) == norm(b)
+    merged = build(tmp_path / 'a.sqlite')
+    split = build(tmp_path / 'b.sqlite')
+    try:
+        original = CardFlow._classify
+
+        def two_calls(self, batch, *, transaction_ids=None, **kw):
+            rows = {r[0]: r for r in self.board.conn.execute('SELECT transaction_id,classification_state,item FROM transactions')}
+            first = {t for t in transaction_ids if rows[t][1] != 'classified' or not rows[t][2]}
+            result = None
+            for part in (first, set(transaction_ids) - first):
+                if part:
+                    result = original(self, batch, transaction_ids=part, **kw)
+            return result
+        calls = []
+        def counted(self, batch, **kw):
+            calls.append(len(kw['transaction_ids']))
+            return original(self, batch, **kw)
+        monkeypatch.setattr(CardFlow, '_classify', counted)
+        w = CardCompletionWorker(merged, threading.RLock())
+        while w.sweep_once():
+            pass
+        monkeypatch.setattr(CardFlow, '_classify', two_calls)
+        w = CardCompletionWorker(split, threading.RLock())
+        while w.sweep_once():
+            pass
+        assert len(calls) == 1 and calls[0] == 8
+        assert same(dump(merged), dump(split)) and len(dump(merged)[1]) == 8
+    finally:
+        merged.close(); split.close()
+
+
+def test_finish_jobs_looks_only_at_the_rows_a_pending_job_names(setup):
+    from webapp.card_completion_worker import finish_jobs
+    board = setup
+    batch, rows = receive(board, 4, card='1234')
+    ids = [r['transaction_id'] for r in rows]
+    queue_batch(board, batch, set(ids[:2]))
+    pending = lambda: json.loads(board.conn.execute("SELECT response_json FROM requests WHERE scope='card_completion_job'").fetchone()[0])['pending']
+    finish_jobs(board)
+    assert pending()  # its rows are still unfinished
+    for tid, source_hash in board.conn.execute('SELECT transaction_id,source_hash FROM transactions WHERE transaction_id IN (?,?)', ids[:2]).fetchall():
+        board.conn.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)', (tid, source_hash, 'user_hold', 'synthetic'))
+    board.conn.commit()
+    assert {r[0] for r in candidates(board.conn)} == set(ids[2:])  # the other rows are unfinished but not this job's
+    finish_jobs(board)
+    assert not pending()
+    assert candidates(board.conn, set(ids[:2])) == []
+    assert {r[0] for r in candidates(board.conn, set(ids[2:]))} == set(ids[2:])
