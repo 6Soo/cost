@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import uuid
 
-from . import local_receipt_ocr, receipt_trip_match
+from . import local_receipt_ocr, receipt_trip_match, receipt_image
 from .connected_agent_provider import AgentUnavailable, _run_bounded
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,11 +60,11 @@ def enabled():
 
 
 def _media_type(data):
-    if data.startswith(b'\x89PNG\r\n\x1a\n'):
-        return 'image/png'
-    if data.startswith(b'\xff\xd8\xff') and data.rstrip().endswith(b'\xff\xd9'):
-        return 'image/jpeg'
-    raise VisionUnavailable('VISION_IMAGE_REQUIRED')
+    # The stored file can change after upload, so keep the model boundary on the same structural checks.
+    try:
+        return receipt_image.sniff_image(data)
+    except ValueError:
+        raise VisionUnavailable('VISION_IMAGE_REQUIRED') from None
 
 
 def playbook_prompt(path=PLAYBOOK):

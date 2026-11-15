@@ -2,6 +2,7 @@
 import base64
 import json
 import subprocess
+import struct
 import sys
 from types import SimpleNamespace
 
@@ -263,3 +264,38 @@ def test_one_billing_refusal_locks_claude_until_restart(ready, caplog):
     assert calls == [1]  # the second photo never reaches claude
     assert first["fallback_reason"] == second["fallback_reason"] == "VISION_BILLING_PATH_REFUSED"
     assert caplog.text.count("VISION_BILLING_LOCKED") == 1
+
+
+def make_phone_jpeg(trailer=b""):
+    sof = b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, 1, 1, 1) + b"\x01\x11\x00"
+    sos = b"\xff\xda" + struct.pack(">HB", 8, 1) + b"\x01\x00\x00\x3f\x00"
+    return b"\xff\xd8" + sof + sos + b"\x12\xff\x00\x34\xff\xd0\x56" + b"\xff\xd9" + trailer
+
+
+def test_a_signature_only_malformed_image_never_reaches_model(ready):
+    ready.write_bytes(b"\xff\xd8\xffnot a jpeg and no EOI")
+    called = False
+
+    def runner(command, *, cwd, env, timeout, input_bytes):
+        nonlocal called
+        called = True
+        return stream(answer())
+
+    with pytest.raises(vision.VisionUnavailable) as raised:
+        vision.recognize(ready, runner=runner)
+    assert raised.value.code == "VISION_IMAGE_REQUIRED"
+    assert called is False
+
+
+
+def test_a_phone_jpeg_with_data_after_eoi_is_still_read(ready):
+    phone = make_phone_jpeg(b"SEFT trailer from the camera")
+    ready.write_bytes(phone)
+    seen = {}
+
+    def runner(command, *, cwd, env, timeout, input_bytes):
+        seen.update(json.loads(input_bytes)["message"]["content"][0]["source"])
+        return stream(answer())
+    assert vision.recognize(ready, runner=runner)["engine"] == "claude"
+    assert seen["media_type"] == "image/jpeg"
+    assert base64.b64decode(seen["data"]) == phone

@@ -454,10 +454,34 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 self.assertEqual(len(pending), 1)
                 pending[0].continue_()
                 page.wait_for_function("document.querySelectorAll('#upload-results p')[1].textContent.includes('원본 저장됨')")
-                page.wait_for_function("[...document.querySelectorAll('#upload-results button')].filter(b=>b.textContent==='다시 시도'||b.textContent==='실패 파일 제거').every(b=>!b.disabled)")
+                page.wait_for_function("[...document.querySelectorAll('#upload-results button')].filter(b=>b.dataset.uploadRecovery).every(b=>!b.disabled)")
                 remove.click()
                 self.assertEqual(page.locator('#upload-results p').count(), 1)
                 self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+            finally:
+                browser.close()
+
+    def test_failed_uploads_are_compact_cards_with_bulk_actions_at_375px(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 375, 'height': 800})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', [
+                    {'name': '20261012_161558_a_very_long_receipt_file_name_from_phone.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xffbroken'},
+                    {'name': 'bad.png', 'mimeType': 'image/png', 'buffer': b'invalid'},
+                ])
+                page.click('#img-go')
+                bulk = page.locator('#upload-bulk')
+                bulk.wait_for()
+                self.assertIn('실패 2개', bulk.inner_text())
+                self.assertEqual(page.locator('#upload-results .is-fail').count(), 2)
+                self.assertTrue(page.evaluate("document.documentElement.scrollWidth<=375"))
+                box = page.locator('#upload-results .upload-name').first.bounding_box()
+                self.assertLess(box['height'], 30)
+                page.get_by_role('button', name='모두 제거').click()
+                self.assertEqual(page.locator('#upload-results .is-fail').count(), 0)
+                self.assertTrue(bulk.is_hidden())
             finally:
                 browser.close()
 

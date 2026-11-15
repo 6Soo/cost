@@ -1,5 +1,7 @@
 import importlib
 import json
+import struct
+import zlib
 import sys
 from unittest.mock import patch
 
@@ -10,7 +12,18 @@ from app import receipt_learning as rl
 from webapp import receipt_review as rr
 from webapp import receipt_vision_jobs as jobs
 
-PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 32
+def _png_chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+
+
+def make_png():
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr)
+            + _png_chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))
+            + _png_chunk(b"IEND", b""))
+
+
+PNG = make_png()
 SHA = 'c' * 64
 TRIP = 'trip-syn'
 LESSON = '작은 승선권도 별개의 지출 증빙인지 확인할 것.'
