@@ -206,10 +206,24 @@ fn fresh_digest(p: &Pair) -> String {
 }
 
 /// 두 DB의 모든 테이블이 행 단위로 같다. 달라지면 테이블과 행을 알려 준다.
+/// `right`는 Rust 결과다. 요구에 따라 Rust 작성 `card.automatic_classification` 기록에만 `detail_json.writer="costcore"`
+/// 표식이 더 있으므로, 표식이 있음을 확인하고 떼어 낸 뒤 비교한다(나머지 내용은 Python과 같아야 한다).
 fn tables_differ(left: &Dump, right: &Dump) -> Vec<String> {
     let mut diffs = Vec::new();
     for ((name, rows_a), (_, rows_b)) in left.iter().zip(right) {
-        if rows_a != rows_b {
+        let mut rows_b = rows_b.clone();
+        if name == "change_log" {
+            for row in rows_b
+                .iter_mut()
+                .filter(|r| r[2] == "card.automatic_classification")
+            {
+                let mut detail: Value = serde_json::from_str(&row[4]).unwrap();
+                let mark = detail.as_object_mut().unwrap().remove("writer");
+                assert_eq!(mark, Some(Value::String("costcore".into())), "{row:?}");
+                row[4] = cost_core::digest::python_json(&detail);
+            }
+        }
+        if *rows_a != rows_b {
             diffs.push(format!("{name}: {} vs {} rows", rows_a.len(), rows_b.len()));
         }
     }

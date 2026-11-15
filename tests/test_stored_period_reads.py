@@ -10,6 +10,7 @@ from webapp import ledger_design, ledger_stay_evidence, read_scope
 
 KNOWN = {'kind': 'known', 'starts_on': '2026-10-01', 'ends_on': '2026-10-03'}
 UNKNOWN = {'kind': 'unknown', 'reason': 'no_evidence'}
+INFERRED = {'kind': 'inferred', 'starts_on': '2026-10-05', 'ends_on': '2026-10-06', 'basis': 'reservation_period_inferred'}
 COMPUTED = {'booking_ref': 'R1', 'service_period': '2026-08-01~2026-08-03',
             'ota_evidence': {'kind': 'exact', 'payment_verified': True}}
 
@@ -28,7 +29,7 @@ def core(monkeypatch, tmp_path):
     with sqlite3.connect(path) as conn:
         conn.execute('CREATE TABLE decisions(transaction_id TEXT, service_period_json TEXT)')
         conn.executemany('INSERT INTO decisions VALUES (?, ?)',
-                         [('known', json.dumps(KNOWN)), ('unknown', json.dumps(UNKNOWN))])
+                         [('known', json.dumps(KNOWN)), ('unknown', json.dumps(UNKNOWN)), ('inf', json.dumps(INFERRED))])
     monkeypatch.setenv(core_writer.CORE_DB_ENV, str(path))
     core_writer._FALLBACK.clear()
     core_writer._LAST_READ['periods'] = None
@@ -132,14 +133,14 @@ def test_paste_pack_reads_stored_periods_without_evidence(core):
 def test_fallback_is_split_into_not_judged_and_missing_and_published_without_ids(core, tmp_path):
     rust(core)
     stored = core_writer.load_stored_periods()
-    never = [card('closed', occurred_on='2025-05-01'), card('wait', display_tab_id=None),
+    never = [card('closed', occurred_on='2025-05-01'), card('p2', classification_source='ai_inference'), card('wait', display_tab_id=None),
              card('flagged', classification_state='unclassified')]
     for row in never + [card('lost')]:
         ledger_stay_evidence.read_period(row, stored, set(), lambda: '')
     status = core_writer.period_read_status()
-    assert (status['not_judged_count'], status['missing_decision_count']) == (3, 1)
+    assert (status['not_judged_count'], status['missing_decision_count']) == (4, 1)
     published = json.loads((tmp_path / core_writer.STATUS_FILE).read_text(encoding='utf-8'))
-    assert (published['not_judged_count'], published['missing_decision_count']) == (3, 1)
+    assert (published['not_judged_count'], published['missing_decision_count']) == (4, 1)
     assert 'lost' not in json.dumps(published)
 
 
@@ -155,3 +156,29 @@ def test_busy_core_reuses_the_last_successful_read_and_says_so(core, monkeypatch
     status = core_writer.period_read_status()
     assert status['stale_read'] and 'locked' in status['core_read_error']
     assert core_writer.READ_TIMEOUT <= 1
+
+
+def test_inferred_period_is_shown_on_screen_but_never_exported(core, monkeypatch):
+    rust(core)
+    stored = core_writer.load_stored_periods()
+    calls = []
+    assert ledger_stay_evidence.read_period(card('inf'), stored, set(), counting(calls)) == (
+        '2026-10-05~2026-10-06', 'decision_inferred')
+    assert ledger_stay_evidence.read_period(card('inf'), stored, set(), counting(calls), export=True) == ('', 'decision')
+    assert calls == []
+    monkeypatch.setattr(ledger_design, '_ledger_stay_index', lambda: pytest.fail('index built'))
+    monkeypatch.setattr(ledger_design, '_manual_period_rows', lambda: set())
+    monkeypatch.setattr(ledger_design, '_preauthorization_labels', lambda row: None)
+    shown, copied = read_scope.scoped(lambda: (ledger_design._service_date_labels(card('inf')),
+                                               ledger_design._export_period(card('inf'))))()
+    assert shown[0].endswith('추론') or '추론' in shown[0] + shown[1]
+    assert copied == ''
+    assert paste_pack.apply_verified_periods([card('inf')], {}, stored, set()) == 0
+
+
+def test_flight_decision_range_is_shown_without_the_departure_index(core, monkeypatch):
+    rust(core)
+    monkeypatch.setattr(ledger_design, '_manual_period_rows', lambda: set())
+    monkeypatch.setattr(ledger_design, '_load_flight_dates', lambda: pytest.fail('flight index read'))
+    label = read_scope.scoped(lambda: ledger_design._service_date_labels(card('known', item='항공료')))()
+    assert label[0] == '10.01–10.03'

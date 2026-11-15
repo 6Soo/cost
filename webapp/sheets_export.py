@@ -412,7 +412,8 @@ def _export_rows(store, tab_id: str):
 
 
 def build_workbook(store, tab_ids: list, template_version: str = TEMPLATE_VERSION):
-    with store._lock:
+    from app import core_links
+    with store._lock, core_links.uncommitted_rows():
         own_transaction = not store.conn.in_transaction
         if own_transaction:
             store.conn.execute("BEGIN")

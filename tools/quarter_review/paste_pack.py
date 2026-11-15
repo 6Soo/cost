@@ -124,7 +124,7 @@ def apply_verified_periods(rows: list[dict], stay_index: dict, stored: dict | No
         if (row.get("service_period") or row.get("period") or "").strip() or not str(
                 row.get("row_id") or "").startswith("card-"):
             continue
-        period, _source = read_period(row, stored, manual or set(), lambda: verified_period_for(row, stay_index))
+        period, _source = read_period(row, stored, manual or set(), lambda: verified_period_for(row, stay_index), export=True)
         if period:
             row["service_period"] = period
             filled += 1

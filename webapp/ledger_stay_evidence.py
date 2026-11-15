@@ -1066,12 +1066,14 @@ def manual_period_rows(store) -> set:
             "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
 
 
-def read_period(row, stored, manual, compute):
+def read_period(row, stored, manual, compute, *, export=False):
     """(period, source) for a screen or export. A person's value wins; then the stored decision; computing is the fallback.
 
     `stored` is `core_writer.load_stored_periods()` (None while Python writes: `compute()` as before). With a Rust
     decision the period is only read, never recomputed; a card without one is computed and counted until backfilled.
-    source: 'row' | 'manual' | 'decision' | 'computed'.
+    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred period is read only by
+    a screen (`export=False`, source 'decision_inferred'); copies, the paste pack and reconciliation (`export=True`)
+    take verified periods only (DATE-109).
     """
     value = str(row.get('service_period') or '').strip()
     if value:
@@ -1087,9 +1089,32 @@ def read_period(row, stored, manual, compute):
     from app import core_writer
     if tid in stored:
         core_writer.note_period_source(tid, True)
-        return stored[tid], 'decision'
+        found = stored[tid]
+        if found.get('kind') == 'inferred' and not export:
+            return core_writer.period_text(found, inferred=True), 'decision_inferred'
+        return core_writer.period_text(found), 'decision'
     core_writer.note_period_source(tid, False, row)
     return compute(), 'computed'
+
+
+def flight_departure_days(found):
+    """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
+
+    Shared by the flight label on screen and the Rust period rule's flight evidence.
+    """
+    from datetime import date
+    if (not found or found.get('conflict') or not found.get('source_digests')
+            or found.get('cancellation_status') != 'NONE'
+            or any(found.get(flag) for flag in
+                   ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+        return None
+    legs = found.get('legs') or []
+    if not legs or any(not leg.get('departure_on') for leg in legs):
+        return None
+    try:
+        return sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
+    except (ValueError, TypeError):
+        return None
 
 
 def export_index(store):

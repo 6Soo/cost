@@ -1,13 +1,15 @@
 //! 이용기간 규칙·근거 digest·재판정 선택·판정 저장(설계 §2.7). 합성 값만 쓴다.
 
-use cost_core::domain::{Judgement, ServicePeriod, UnknownPeriodReason};
+use cost_core::dates::parse_iso;
+use cost_core::domain::{InferredBasis, Judgement, ServicePeriod, UnknownPeriodReason};
 use cost_core::period::{
-    PERIOD_FN_VERSION, PeriodEvidence, PeriodRow, changed_since, current_digests, evidence_digest,
+    FLIGHTS_KEY, Found, PERIOD_FN_VERSION, PeriodEvidence, PeriodRow, changed_since,
+    current_digests, decided_period, evidence_digest, evidence_digest_with, period_for,
     service_period, verified_period_for,
 };
 use cost_core::plan::{BoardRow, Outcome, PlanInput, RefundLink, Row, plan_with_periods};
 use cost_core::store::decisions::{
-    save_decision, stored_digests, stored_digests_readonly, stored_period,
+    period_json, save_decision, stored_digests, stored_digests_readonly, stored_period,
 };
 use cost_core::store::open_core;
 use serde_json::{Value, json};
@@ -415,4 +417,182 @@ fn a_period_only_change_rejudges_even_when_the_seven_columns_are_equal() {
         panic!("{:?}", loud.outcomes)
     };
     assert!(matches!(d.service_period(), ServicePeriod::Known { .. }));
+}
+
+fn inferred_evidence(basis: &str, booking_ref: &str) -> Value {
+    json!({"candidates": [], "inferred": {
+        "period": "2026-10-04~2026-10-06", "booking_ref": booking_ref, "booking_refs": [], "basis": basis}})
+}
+
+#[test]
+fn an_inferred_period_is_stored_with_its_basis_and_is_never_verified() {
+    let hotel = input(vec![base_row("syn-t1", json!({}))]);
+    let facts = BTreeMap::from([(
+        "syn-t1".to_owned(),
+        inferred_evidence("reservation_only", ""),
+    )]);
+    let d = decided(&hotel, &facts, "syn-t1");
+    assert!(matches!(
+        d.service_period(),
+        ServicePeriod::Inferred { starts_on, ends_on, basis: InferredBasis::ReservationOnly }
+            if starts_on.to_string() == "2026-10-04" && ends_on.to_string() == "2026-10-06"
+    ));
+    assert_eq!(
+        period_json(d.service_period()),
+        json!({"kind": "inferred", "starts_on": "2026-10-04", "ends_on": "2026-10-06", "basis": "reservation_only"})
+    );
+    // 화면 전용 추론은 검증 경로에 들어가지 않는다(DATE-109).
+    assert_eq!(verified_period_for(&row(""), &facts["syn-t1"]), "");
+    // 검증된 연결이 있으면 그것이 먼저다.
+    let both = json!({"candidates": candidate(fact(json!({}))), "inferred": inferred_evidence("p2_run", "")["inferred"]});
+    assert!(matches!(
+        decided(&hotel, &BTreeMap::from([("syn-t1".to_owned(), both)]), "syn-t1").service_period(),
+        ServicePeriod::Known { starts_on, .. } if starts_on.to_string() == "2026-10-01"
+    ));
+    // 다른 예약번호의 행은 추론 기간을 받지 않는다.
+    assert_eq!(
+        period_for(
+            &row("SYN-BOOK-9"),
+            &inferred_evidence("reservation_only", "SYN-BOOK-1"),
+            &Value::Null
+        ),
+        Found::None
+    );
+    assert_eq!(
+        decided_period(&Found::None, "숙박비"),
+        ServicePeriod::unknown(UnknownPeriodReason::NoEvidence)
+    );
+}
+
+#[test]
+fn a_p2_period_needs_the_same_source_and_item_as_the_row() {
+    let evidence = json!({"candidates": [], "inferred": {
+        "period": "2026-10-04~2026-10-06", "booking_ref": "", "booking_refs": [], "basis": "p2_run",
+        "p2": {"run_id": "syn-run-1", "model": "syn-model", "source_hash": "syn-hash", "item": "숙박비"}}});
+    let mut ok = row("");
+    ok.item = "숙박비".into();
+    ok.source_fact_digest = "syn-hash".into();
+    assert!(matches!(
+        period_for(&ok, &evidence, &Value::Null),
+        Found::Inferred {
+            basis: InferredBasis::P2Run,
+            ..
+        }
+    ));
+    let mut other_source = ok.clone();
+    other_source.source_fact_digest = "syn-other".into();
+    assert_eq!(
+        period_for(&other_source, &evidence, &Value::Null),
+        Found::None
+    );
+    let mut other_item = ok;
+    other_item.item = "항공료".into();
+    assert_eq!(
+        period_for(&other_item, &evidence, &Value::Null),
+        Found::None
+    );
+}
+
+#[test]
+fn flight_legs_of_the_reservation_number_give_a_verified_period() {
+    let mut plan_input = input(vec![base_row(
+        "syn-t1",
+        json!({"merchant": "파라타항공", "merchant_normalized": "파라타항공"}),
+    )]);
+    plan_input.boards.insert(
+        "card-syn-t1".into(),
+        BoardRow {
+            display_tab_id: String::new(),
+            payload_json: r#"{"reservation_no": "SYN-BOOK-1"}"#.into(),
+            revision: 1,
+        },
+    );
+    let flights = |manual: &[&str]| {
+        BTreeMap::from([(
+            FLIGHTS_KEY.to_owned(),
+            json!({"days": {"SYN-BOOK-1": ["2026-10-01", "2026-10-05"]}, "manual": manual}),
+        )])
+    };
+    let d = decided(&plan_input, &flights(&[]), "syn-t1");
+    assert_eq!(d.item().as_str(), "항공료");
+    assert!(matches!(
+        d.service_period(),
+        ServicePeriod::Known { starts_on, ends_on }
+            if starts_on.to_string() == "2026-10-01" && ends_on.to_string() == "2026-10-05"
+    ));
+    // 수동 교정한 거래는 항공 구간을 쓰지 않는다.
+    let blocked = decided(&plan_input, &flights(&["syn-t1"]), "syn-t1");
+    assert_eq!(
+        *blocked.service_period(),
+        ServicePeriod::unknown(UnknownPeriodReason::NoEvidence)
+    );
+}
+
+#[test]
+fn the_digest_follows_the_inferred_and_flight_evidence_and_the_version_bump_rejudges() {
+    let plain = evidence_digest(&row(""), &Value::Null);
+    let inferred = inferred_evidence("reservation_only", "");
+    assert_ne!(plain, evidence_digest(&row(""), &inferred));
+    assert_ne!(
+        evidence_digest(&row(""), &inferred),
+        evidence_digest(&row(""), &inferred_evidence("p2_run", ""))
+    );
+    let flights = json!({"days": {"SYN-BOOK-1": ["2026-10-01"]}, "manual": []});
+    assert_ne!(
+        evidence_digest(&row("SYN-BOOK-1"), &Value::Null),
+        evidence_digest_with(&row("SYN-BOOK-1"), &Value::Null, &flights, "syn-t1")
+    );
+    // 다른 예약번호의 항공 구간은 이 행의 digest를 바꾸지 않는다.
+    assert_eq!(
+        evidence_digest(&row("SYN-BOOK-2"), &Value::Null),
+        evidence_digest_with(&row("SYN-BOOK-2"), &Value::Null, &flights, "syn-t1")
+    );
+    // 버전 1로 저장된 판정은 근거가 같아도 다시 고른다.
+    assert_eq!(PERIOD_FN_VERSION, 2);
+    let dir = Scratch::new("bump");
+    let conn = open_core(&dir.0.join("core.sqlite")).unwrap();
+    let hotel = input(vec![base_row("syn-t1", json!({}))]);
+    let facts = BTreeMap::from([("syn-t1".to_owned(), candidate(fact(json!({}))))]);
+    let digests = digests_for(&hotel, &facts);
+    save_decision(
+        &conn,
+        "main",
+        &decided(&hotel, &facts, "syn-t1"),
+        "inference",
+        &digests["syn-t1"],
+        1,
+        "2026-11-15T00:00:00Z",
+        "",
+    )
+    .unwrap();
+    conn.execute("UPDATE decisions SET period_fn_version = 1", [])
+        .unwrap();
+    assert_eq!(
+        changed_since(&stored_digests(&conn).unwrap(), &digests),
+        vec!["syn-t1"]
+    );
+}
+
+#[test]
+fn old_stored_period_json_still_reads_and_no_source_text_is_stored() {
+    // 이전 판정의 저장 표기(`known`)는 그대로 읽힌다: 같은 모양을 새 코드도 만든다.
+    let d = decided(
+        &input(vec![base_row("syn-t1", json!({}))]),
+        &BTreeMap::from([("syn-t1".to_owned(), candidate(fact(json!({}))))]),
+        "syn-t1",
+    );
+    assert_eq!(
+        period_json(d.service_period()),
+        json!({"kind": "known", "starts_on": "2026-10-01", "ends_on": "2026-10-03"})
+    );
+    let text = period_json(
+        &ServicePeriod::inferred(
+            parse_iso("2026-10-04").unwrap(),
+            parse_iso("2026-10-06").unwrap(),
+            InferredBasis::P2Run,
+        )
+        .unwrap(),
+    )
+    .to_string();
+    assert!(!text.contains("run_id") && !text.contains("merchant"));
 }

@@ -776,7 +776,7 @@ def _read_period(row, *, verified: bool):
         return pick(row, index)
     stored = _stored_periods()
     manual = _manual_period_rows() if stored is not None else set()
-    return ledger_stay_evidence.read_period(row, stored, manual, compute)
+    return ledger_stay_evidence.read_period(row, stored, manual, compute, export=verified)
 
 
 def _stay_period(row) -> str:
@@ -809,7 +809,10 @@ def _stay_text(row) -> str:
     nights = (end - start).days
     stay = f"{nights}박" if nights else "당일"
     text = f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
-    if _read_period(row, verified=False)[1] == 'computed' and str(row.get('row_id') or '').startswith('card-'):
+    source = _read_period(row, verified=False)[1]
+    if source == 'decision_inferred':
+        text += ' · 예약 근거 추론'
+    elif source == 'computed' and str(row.get('row_id') or '').startswith('card-'):
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
         tid = str(row.get('source_event_id') or str(row['row_id'])[5:])
         if ((index.get(tid) or {}).get('ota_evidence') or {}).get('kind') == 'reservation_period_inferred':
@@ -911,18 +914,9 @@ def _flight_date_labels(row):
             return unknown
         # A number mentioned in prose is not a saved reservation relationship.
         ref = str(row.get('reservation_no') or '').strip()
-        found = index.get(ref) if ref else None
-        if (not found or found.get('conflict') or not found.get('source_digests')
-                or found.get('cancellation_status') != 'NONE'
-                or any(found.get(flag) for flag in
-                       ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
-            return unknown
-        legs = found.get('legs') or []
-        if not legs or any(not leg.get('departure_on') for leg in legs):
-            return unknown
-        try:
-            days = sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
-        except (ValueError, TypeError):
+        from .ledger_stay_evidence import flight_departure_days
+        days = flight_departure_days(index.get(ref) if ref else None)
+        if days is None:
             return unknown
         separator = ' · '
     crosses_year = len({day.year for day in days}) > 1

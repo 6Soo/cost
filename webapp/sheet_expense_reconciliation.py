@@ -329,7 +329,7 @@ def export_for_trip(board, preview_rows, trip_id, *, allow_total_mismatch=False)
         tid = row['transaction_id']
         card = {**row, 'row_id': 'card-' + str(tid), 'source_event_id': tid, 'reservation_no': row.get('booking_ref')}
         return ledger_stay_evidence.read_period(
-            card, stored, manual, lambda: ledger_stay_evidence.verified_period_for(card, stay))[0]
+            card, stored, manual, lambda: ledger_stay_evidence.verified_period_for(card, stay), export=True)[0]
 
     exported = {**expense_tsv([{
         'transaction_id': row['transaction_id'], 'date': row.get('occurred_on') or row.get('date'),

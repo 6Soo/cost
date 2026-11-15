@@ -35,9 +35,12 @@ _COMMITTED_LOCK = threading.Lock()
 @contextmanager
 def read_only_scope():
     """Reuse global refund evidence within one display, including uncommitted reads."""
+    from . import core_links
     token = _READ_ANALYSIS.set({})
     try:
-        yield
+        # A display reads one snapshot; another connection's commit must not fail it under the Rust producer.
+        with core_links.uncommitted_rows():
+            yield
     finally:
         _READ_ANALYSIS.reset(token)
 
