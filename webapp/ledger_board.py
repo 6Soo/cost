@@ -1248,7 +1248,7 @@ def allocation_detail_body(allocation, edit: bool) -> str:
 
 
 STYLE = (
-    "<style>body{font-family:'Malgun Gothic',sans-serif;margin:0;background:var(--c-bg);color:var(--c-text)}"
+    "<style>body{margin:0;background:var(--c-bg);color:var(--c-text)}"
     ".top{background:var(--c-surface);border-bottom:1px solid var(--c-border);padding:10px 16px;position:sticky;top:0;z-index:5}"
     ".top h1{font-size:var(--t-h3);margin:0}.synth{display:inline-block;background:var(--c-warn-subtle);border:1px solid var(--c-warn-text);"
     "font-size:var(--t-caption);padding:1px 8px;border-radius:var(--r-md);margin-left:8px}"
