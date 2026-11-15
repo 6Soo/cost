@@ -60,7 +60,7 @@ PARTICIPANT_EVIDENCE = {
 #: 이름 인덱스를 못 읽는 이유.
 INDEX_BLOCKERS = {
     "CHOSEN_COPY_MISSING": "선택한 장부 사본을 찾지 못함",
-    "CHOICE_REQUIRED": "사용할 장부 사본을 선택해야 함",
+    "CHOICE_REQUIRED": "장부 사본을 확인하지 못함 · 장부 동기화 후 다시 확인",
     "COPY_NOT_VERIFIED": "선택한 장부 사본이 검증되지 않음",
     "SOURCE_NOT_CURRENT": "Google 동기화가 최신이 아님",
     "CLOSURE_NOT_CURRENT": "여행 마감 상태가 최신이 아님",

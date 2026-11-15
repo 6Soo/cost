@@ -29,3 +29,10 @@ def test_copy_guidance_points_only_to_existing_recovery_actions():
         text = expense_copy_state.source_message(reason)
         assert '연결 설정' not in text and '선택해 주세요' not in text
         assert '동기화' in text
+
+
+def test_participant_index_blocker_guides_to_sync():
+    from webapp import participant_income_page
+
+    text = participant_income_page.INDEX_BLOCKERS['CHOICE_REQUIRED']
+    assert '선택해야' not in text and '동기화' in text
