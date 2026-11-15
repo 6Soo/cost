@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-16 04:38·05:14 창 — `25966b21`·`77865bfa` 배포, 1차 전환 재측정 C1·C2 통과
+
+- **배포 1단계(#963):** `e2164607` → `25966b217e243b5896a007453bd613594eefdb2d`(OTA 대사 시간 제한 1,800초 상향·동일 입력 실행 공유로 재판정 차단 해소), Board 8752, 보호 13표 불변, readyz 200, 릴리스 1,730파일 blob 불일치 0, 런타임 SHA 검증. 독립 검수 antigravity Claude Opus 4.6 Thinking(high) APPROVE — CI 결제 한도 미시작 예외, 표적 130건 재실행·영향 게이트 765건 확인.
+- **C2 측정 실패와 회귀 수정(#964):** 첫 재측정(`c1c2-20261116/`)에서 C1은 통과했으나 C2가 증거 캐시 재빌드 중 `webapp/card_flow.py` stamps 정렬의 `None['path']` TypeError로 실패. 근본 원인은 회귀 `8c5e618d`(통합 OTA 저장소 WAL을 의도적으로 제외한 `content_stamp`의 None 반환에 인라인 정렬 필터 누락). 수정 `eae080e94cb0c4ca8a05e887d3a6a66cdacd4b80`(정렬 `if stamp` 필터 + 회귀 테스트 2건), 영향 게이트 532건 통과, 독립 검수 APPROVE(표적 115건+28 subtests 재실행).
+- **배포 2단계(#964):** `25966b21` → `77865bfadce7cc96336cf751d1dbd41964549388`, Board 8751, 보호 13표 불변, readyz 200, 릴리스 1,731파일 blob 불일치 0, 런타임 SHA 검증.
+- **재측정 통과(`c1c2-20261116b/`, 신선 사본 7,336행 quick_check ok):** C1 그림자 PASS — B↔C 차이 0, 목록 밖 0(A↔B·C 4행은 반영 전 계획, 11/15와 동일). C2 PASS — 185사례 Rust·Python 전부 동일(same 185, different 0), 과거 검수 교정 대조 일치 131·불일치 40(11/15와 동일)·원천 보호 not_rejudged 14, 증거 재빌드 443.8초·재판정 26.1초.
+- **전환 상태:** 소유자 승인 ① 대기. `card-flow.json`에 전환 키 없음(Python 작성자 유지), 운영 `core.sqlite`는 11/15 생성분 유지. 승인 ① → C3 신선 백업·복원 확인·되돌림 예행 → 승인 ② → `costcore migrate`·전환 키 3개 추가·`core_switch_config.py --check`·Board/Worker 재시작·첫 창 대조([전환 절차서](playbooks/core-cutover.md)). 되돌림은 키 제거+재시작(Rust가 쓴 행 보존). 2차 전환(연결)은 OTA 목록 밖 차이 1,648건(11/15 측정) 해소 전까지 별도 보류.
+- 근거: `D:/WebLedgerHost/data/backups/`의 `c1c2-20261116/`(첫 측정, C2 실패 로그)·`c1c2-20261116b/`(재측정 PASS), `D:/WebLedgerHost/releases/deploy-evidence-25966b21….json`·`deploy-evidence-77865bfa….json`, 검수 보고서 `C:/AX/cost-wt-ota-perf/.local-archive/review-963-70b7c759.md`·`review-964-eae080e9.md`.
+
 ## 2026-11-16 02:40 창 — `e2164607` 영수증 UI/UX 통합 배포
 
 - **배포:** #961 병합 `e2164607c110d4c57240fec7b5c5a68e5d74ea95`를 `tools/deploy_verified_release.ps1`로 배포 완료 (Previous SHA: `aa803824b30737a97bc760c352c6cb8a897e6045`).

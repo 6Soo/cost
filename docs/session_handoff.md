@@ -1,3 +1,13 @@
+## 2026-11-16 Rust 1차 전환 준비 완료 — 소유자 승인 ① 대기 (세션 e89543ab)
+
+- **1차 전환 차단 3건 모두 해소·배포:** ① 호스트 런처 전환 키 처리(#951·#952, `e2164607` 배포), ② OTA 대사 900초 제한 초과(#963, `25966b21` 배포), ③ C2 측정 차단 회귀(`8c5e618d`의 stamps None 정렬 누락, #964 `eae080e9` 수정 → `77865bfa` 배포). 운영 SHA `77865bfadce7cc96336cf751d1dbd41964549388`, Board 8751, 보호 13표 불변, readyz 200.
+- **재측정 통과(신선 사본 7,336행 quick_check ok):** C1 그림자 B↔C 차이 0·목록 밖 0. C2 185사례 Rust·Python 전부 동일(과거 교정 대조 일치 131·불일치 40은 11/15와 동일, 원천 보호 14건 재판정 제외). 근거 `D:/WebLedgerHost/data/backups/c1c2-20261116b/`, [운영 기록](operations.md) 맨 위 절.
+- **현재 상태:** Python 작성자 유지(`card-flow.json` 전환 키 없음), 운영 `core.sqlite`는 11/15 생성분 유지. **소유자 승인 ① 전까지 운영 core 변경·플래그 전환 없음.**
+- **다음 순서([전환 절차서](playbooks/core-cutover.md)):** 소유자 승인 ① → C3 신선 백업·복원 확인(`--scope board core.sqlite`) + 사본 되돌림 예행(Rust/Python, 재실행 written=0) → 소유자 승인 ② → `costcore migrate`·전환 키 3개·`core_switch_config.py --check`·Board/Worker 재시작 → 첫 창 대조. 되돌림은 키 제거+재시작(Rust 기록 행 보존).
+- **2차 전환(연결)은 별도 보류:** OTA 목록 밖 차이 1,648건(11/15 측정) 해소 필요. 이번 승인 범위 아님.
+- **위임 경과:** 구현 위임 Luna xhigh → Codex 한도(11/20 09:18까지) → ANUS Free Auto 대체(수정 2파일, 컨트롤 타워가 커밋 `eae080e9`). 검수는 opus 경로 한도/결제 차단 → 소유자 결정(2026-11-16)대로 agy(antigravity Claude Opus 4.6 Thinking) 독립 검수 APPROVE 2건(#963·#964).
+- 체크포인트: `C:/AX/cost-wt-ota-perf/.local-archive/rust-cutover-resume-20261116.md`(진행 경과 1~25).
+
 ## 2026-11-16 미결 작업 진행 현황 — 통합 관리자
 
 - **영수증 UI/UX 및 배포 완료:** PR #961(`e2164607c110d4c57240fec7b5c5a68e5d74ea95`) 병합 및 운영 배포(`deploy_verified_release.ps1`) 완료. Board 포트 8751 unpaused, Gateway 8790 `readyz` 200 OK, 13개 보호 테이블 불변 검증.
