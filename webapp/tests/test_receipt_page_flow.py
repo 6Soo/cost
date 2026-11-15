@@ -3,8 +3,9 @@
 The reading model is replaced by a fixed answer per photo, so the flow is checked without a model call. Screenshots of each step
 are written to WEBLEDGER_FLOW_SHOTS when that variable names a folder.
 """
-import os
 import hashlib
+import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -536,6 +537,90 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         if name == self.photos[1]:
             return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Claude opus', 'lesson': None}
         return {'receipts': [], 'label': 'Claude opus', 'lesson': None}
+
+    def test_rescan_retry_uses_rescan_for_failed_group_and_keeps_original_candidate(self):
+        analysis_calls = []
+        rescan_payloads = []
+        original = receipt('ORIGINAL SHOP', '2026-10-11', 12000)
+        retried = receipt('RESCAN SHOP', '2026-10-12', 900)
+
+        def analysis_route(route):
+            if route.request.method != 'POST':
+                route.continue_()
+                return
+            analysis_calls.append(route.request.method)
+            route.fulfill(status=202, content_type='application/json', body=json.dumps({
+                'job_id': 'a' * 32, 'status': 'done', 'result': {'receipts': [original]},
+            }))
+
+        def rescan_route(route):
+            rescan_payloads.append(json.loads(route.request.post_data or '{}'))
+            if len(rescan_payloads) == 1:
+                state = {'job_id': 'b' * 32, 'status': 'failed',
+                         'code': 'VISION_ALL_MODELS_UNAVAILABLE'}
+            else:
+                state = {'job_id': 'c' * 32, 'status': 'done',
+                         'result': {'engine': 'windows_ocr'}}
+            route.fulfill(status=202, content_type='application/json', body=json.dumps(state))
+
+        def new_route(route):
+            route.fulfill(status=200, content_type='application/json',
+                          body=json.dumps({'new': [retried]}))
+
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.route('**/api/receipts/vision', analysis_route)
+                page.route('**/api/receipts/vision/rescan', rescan_route)
+                page.route('**/api/receipts/vision/new', new_route)
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', {
+                    'name': 'synthetic-rescan.png', 'mimeType': 'image/png', 'buffer': review.PNG,
+                })
+                page.click('#img-go')
+                page.locator('[data-image-sha]').first.wait_for()
+                page.click('#vision-go')
+                page.wait_for_function(
+                    "document.getElementById('vision-summary').textContent.includes('후보 1건')"
+                )
+
+                page.locator('[data-image-sha]').first.click()
+                page.locator('details.rescan > summary').click()
+                page.fill('#feedback', '누락 영수증 한 장을 더 찾아')
+                page.click('#rescan-go')
+                page.wait_for_function(
+                    "document.getElementById('vision-summary').textContent.includes('영수증 다시 분석에 실패했습니다.')"
+                )
+                self.assertNotIn('새 후보 0건', page.locator('#vision-results').inner_text())
+                page.locator('#vision-results').get_by_role(
+                    'button', name='이 사진 다시 분석'
+                ).click()
+                page.locator('#vision-results .result-group h4').filter(
+                    has_text='새 후보 1건'
+                ).wait_for(timeout=15000)
+
+                self.assertEqual(len(analysis_calls), 1)
+                self.assertEqual(len(rescan_payloads), 2)
+                self.assertEqual([payload['feedback'] for payload in rescan_payloads],
+                                 ['누락 영수증 한 장을 더 찾아'] * 2)
+                self.assertIn('Windows OCR 참고값을 사용한 사진 1장입니다.',
+                              page.locator('#vision-summary').inner_text())
+                merchants = [
+                    page.locator('.receipt-card').nth(index)
+                    .get_by_role('textbox', name='상호', exact=True).input_value()
+                    for index in range(page.locator('.receipt-card').count())
+                ]
+                self.assertEqual(merchants, ['ORIGINAL SHOP', 'RESCAN SHOP'])
+
+                page.reload()
+                page.get_by_text(
+                    'Claude 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.',
+                    exact=True,
+                ).wait_for()
+                self.assertEqual(page.locator('.receipt-card').count(), 2)
+            finally:
+                browser.close()
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
         from webapp import receipt_vision_jobs

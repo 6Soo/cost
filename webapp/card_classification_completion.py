@@ -81,32 +81,15 @@ def complete_scope(flow, selected=None, backfill=False):
                             evidence=evidence, periods=periods, **extra)
     return core_writer.run_with_periods(flow.board, run)
 
-def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
-    """An explicit classification write may repair an old automatic calendar guess.
-
-    Only the fresh central match supplies dates. Reading a board, restarting a
-    server, or completing an unrelated import never migrates recorded expenses.
-    """
+def verified_booking_facts(flow, current, selected):
+    """([(tid, fact, row, event)], blocked tids) of central matches that pass the payment, period and source checks."""
     conn = flow.board.conn
-    selected = {row[0] for row in conn.execute(
-        "SELECT t.transaction_id FROM import_batch_rows r JOIN transactions t USING(transaction_id)"
-        " WHERE r.batch_id=? AND t.classification_source='inference'"
-        " AND EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)", (batch_id,))}
-    if transaction_ids is not None:
-        selected.intersection_update(transaction_ids)
-    if not selected:
-        return 0
-    current, fresh = flow._held_ota_snapshot()
-    if not current or not fresh:
-        return 0
     report = flow._canonical_snapshot_report(current)
-    facts = report.get('matches', [])
     blocked_sources = set(report.get('evidence_gate', {}).get('blocked_inference_sources', ()))
     events = {str(e.get('ota_event_id')): e for e in (current.get('data') or {}).get('events', [])}
     from app.ota_payments import _event_is_paid
-    choices = {}
-    blocked = set()
-    for fact in facts:
+    checked, blocked = [], set()
+    for fact in report.get('matches', []):
         tid = fact.get('transaction_id')
         if tid not in selected:
             continue
@@ -125,6 +108,32 @@ def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
         if not row or row['source_hash'] != fact.get('source_hash'):
             blocked.add(tid)
             continue
+        checked.append((tid, fact, row, event))
+    return checked, blocked
+
+
+def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
+    """An explicit classification write may repair an old automatic calendar guess.
+
+    Only the fresh central match supplies dates. Reading a board, restarting a
+    server, or completing an unrelated import never migrates recorded expenses.
+    """
+    conn = flow.board.conn
+    selected = {row[0] for row in conn.execute(
+        "SELECT t.transaction_id FROM import_batch_rows r JOIN transactions t USING(transaction_id)"
+        " WHERE r.batch_id=? AND t.classification_source='inference'"
+        " AND EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)", (batch_id,))}
+    if transaction_ids is not None:
+        selected.intersection_update(transaction_ids)
+    if not selected:
+        return 0
+    current, fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return 0
+    checked, blocked = verified_booking_facts(flow, current, selected)
+    choices = {}
+    for tid, fact, row, _event in checked:
+        period = fact['period']
         trip = flow.booking_trip(row, dict(period, service=fact.get('item') != '숙박비'))
         evidence = dict(source_hash=fact['source_hash'], trip_id=trip, item=fact.get('item') or '',
                         basis=f"검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']}",

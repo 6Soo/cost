@@ -328,6 +328,7 @@ OTA 예약 관계·실제 카드 결제 검증·여행 귀속·COST 내부 기�
 명시적인 카드 재분류에서 최신 중앙 대사의 원본 해시·유효 결제·이용기간·실제 여행을 검증하면 기기록 자동 추론 귀속만 예약 이용기간에 맞게 원자 교정한다. 수동 결정·수동 필드·owner 기장·금융 보호를 유지하고 단순 조회·재시작·무관한 가져오기는 이동하지 않는다.
 
 - 조건·예외: 거래·장부·표시 귀속과 이력은 같은 트랜잭션에서 저장한다.
+- 예 (소유자 승인 2026-11-15): 일괄 검수 도구·자동 저장처럼 owner가 아닌 작성자의 저장이 남긴 수동 표시는 수동 교정이 아니다(기록은 보존). 그런 기록 행도 예약 근거가 바뀌면 교정하며, 현재 여행이 이용기간과 하루도 겹치지 않는 숙박·항공 기록은 보관 여행을 포함한 이용기간 여행으로 옮기고 Google 붙여넣기 목록을 만든다. 겹치지만 다른 여행인 건은 AI 검수자가 판정한다.
 - 출처: `docs/history/session_handoff-through-20261107.md:401`, `docs/specs/recorded-booking-period-correction-20261103.md:9`, `docs/specs/recorded-booking-period-correction-20261103.md:11`, `docs/specs/remaining-acceptance-20261030.md:28`, `소유자 지시 메모:feedback-classify-records-automatically.md:15`
 
 ### TRIP-034 · 재시작과 기분류 유지
@@ -351,6 +352,8 @@ OTA 예약 관계·실제 카드 결제 검증·여행 귀속·COST 내부 기�
 *일반 · 결정 2026-10-29*
 
 검증된 OTA 실제 이용기간이 있으면 카드 결제일·승인일 근접성보다 우선해 여행을 고른다. 저장된 여행 이름이나 과거 추론이 이용기간과 맞지 않으면 기간으로 다시 찾되 사용자 명시 귀속은 보존한다.
+
+- 예 (소유자 승인 2026-11-15): 예약 가맹점명에 든 국가·지명으로 고른 옛 귀속이 이용기간과 맞지 않으면 이용기간 여행이 우선한다(TRIP-045).
 
 - 출처: `AGENTS.md:45`, `소유자 지시 메모:owner-rules.md:11`, `소유자 지시 메모:owner-rules.md:13`, `docs/history/implementation-and-audits.md:91`, `docs/history/product-and-handoffs.md:94`
 

@@ -514,10 +514,10 @@ class CardFlow:
                 board._card_pipeline=pipeline
             self.pipeline=pipeline
 
-    def trip_valid(self, trip_id):
+    def trip_valid(self, trip_id, include_archived=False):
         return card_trip_authority.trip_valid(
             self, trip_id, google_periods=_google_periods, trip_authority=_trip_authority,
-            unchanged_workbook_schedule=_unchanged_workbook_schedule)
+            unchanged_workbook_schedule=_unchanged_workbook_schedule, include_archived=include_archived)
 
     def tab_valid(self, tab):
         from app import quarter_tab
@@ -527,9 +527,10 @@ class CardFlow:
     def retail_trip(self, transaction, country):
         return card_trip_authority.retail_trip(self, transaction, country, google_nets=_google_nets)
 
-    def booking_trip(self, transaction, period):
+    def booking_trip(self, transaction, period, include_archived=False):
         return card_trip_authority.booking_trip(self, transaction, period, google_nets=_google_nets,
-            handover_days=handover_days, overlaps_stay=overlaps_stay, stay_trip=stay_trip)
+            handover_days=handover_days, overlaps_stay=overlaps_stay, stay_trip=stay_trip,
+            include_archived=include_archived)
 
     def classify(self, batch_id, *, transaction_ids=None):
         from app import core_writer
@@ -546,7 +547,8 @@ class CardFlow:
     def sync_ledger_rows(self):
         """규칙 결과를 장부 행에 반영한다. 사용자가 고친 필드(`board_manual_overrides`)는 건드리지 않고, 배정이 있던 자리를 비우지 않는다."""
         conn = self.board.conn
-        overridden = {(row_id, field) for row_id, field in conn.execute('SELECT row_id, field FROM board_manual_overrides')}
+        from app.manual_overrides import manual_fields
+        overridden = manual_fields(conn)
         rows = conn.execute(
             "SELECT b.row_id, b.revision, b.display_tab_id, b.payload_json, t.display_tab_id, t.item, t.description"
             " FROM board_rows b JOIN transactions t ON b.row_id = 'card-' || t.transaction_id"
@@ -1826,6 +1828,7 @@ class CardFlow:
 
     def _pending_reclassification(self, batch_id):
         from .card_classification_completion import missing_assignment_sql
+        from app.manual_overrides import exists_sql as manual_exists_sql
         return {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
                 " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
@@ -1848,7 +1851,7 @@ class CardFlow:
                 " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e"
                 " WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
                 " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
-                " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides o WHERE o.row_id='card-'||t.transaction_id)", (batch_id,))}
+                " AND NOT " + manual_exists_sql(self.board.conn, "'card-'||t.transaction_id"), (batch_id,))}
 
     def _auto_record(self, batch_id):
         from app import core_writer
@@ -2653,6 +2656,7 @@ def _sync_booked_authority_inferences(flow):
 def assign_existing_local_expenses(flow, *, failures=None):
     """기존 미배정 장부의 현지 사용만 원문과 검증된 일정으로 연결한다."""
     from app.classify import _verified_local_trip
+    from app.manual_overrides import exists_sql as manual_exists_sql
     from .ledger_store import SaveError
     conn = flow.board.conn
     rows = conn.execute(
@@ -2663,7 +2667,7 @@ def assign_existing_local_expenses(flow, *, failures=None):
         " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
         " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
-        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT " + manual_exists_sql(conn, 'b.row_id', 'display_tab_id') +
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
@@ -2734,7 +2738,7 @@ def _cleanup_population(board):
     """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
     owners = _cleanup_owner_breakdown(board)
-    ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where(board.conn)).fetchone()[0]
     counts = dict(card, classification=card.get('classification', 0) + ledger,
                   all=sum(card.values()) + ledger,
                   owner_user=owners.get('user', 0),
@@ -2746,11 +2750,11 @@ def _cleanup_counts(board):
     return _cleanup_population(board)[2]
 
 
-def _cleanup_unassigned_where():
+def _cleanup_unassigned_where(conn):
+    from app.manual_overrides import exists_sql
     return (
         " FROM board_rows b WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
-        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m"
-        " WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT " + exists_sql(conn, 'b.row_id', 'display_tab_id') +
         " AND NOT (COALESCE(json_extract(b.payload_json,'$.confirmed_by'),'') IN ('owner','automatic')"
         " AND COALESCE(json_extract(b.payload_json,'$.classification_state'),'') IN ('confirmed','classified'))"
     )
@@ -2800,7 +2804,7 @@ def prewarm_booking_evidence(board):
 
 def cleanup_total(board) -> int:
     """정리할 지출 건수. 지출 정리 목록과 메인 화면이 같은 기준으로 센다."""
-    unassigned = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    unassigned = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where(board.conn)).fetchone()[0]
     return _cleanup_card_count(board) + unassigned
 
 
@@ -3368,7 +3372,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         )
         items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
-        "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
+        "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where(board.conn) +
         " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
         (ledger_limit, ledger_offset)).fetchall() if ledger_limit else []
     for row_id, revision, payload in ledger:
