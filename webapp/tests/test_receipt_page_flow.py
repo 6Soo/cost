@@ -615,7 +615,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
 
                 page.reload()
                 page.get_by_text(
-                    'Claude 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.',
+                    'AI 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.',
                     exact=True,
                 ).wait_for()
                 self.assertEqual(page.locator('.receipt-card').count(), 2)

@@ -424,8 +424,28 @@
       "required": "optional",
       "default": "disabled unless provider selected",
       "status": "confirmed",
-      "evidence": "Optional; Windows-only and exact provider selector claude-opus (subscription Claude opus, medium effort, tool-free).",
-      "source_refs": "app/receipt_vision.py:enabled"
+      "evidence": "Optional; Windows-only exact provider selector. claude-opus = subscription Claude opus medium, tool-free, photo sent. paseo-qwen4-max = local Windows OCR then Paseo qwen4-max-preview structures the text (image stays local); owner decision 2026-11-16.",
+      "source_refs": "app/receipt_vision.py:provider/enabled; app/paseo_receipt_vision.py:enabled"
+    },
+    {
+      "name": "WEBLEDGER_NODE_EXE",
+      "owner": "app.paseo_receipt_vision",
+      "role": "path:executable",
+      "required": "optional",
+      "default": "PATH discovery",
+      "status": "confirmed",
+      "evidence": "Optional node executable path for the Paseo receipt reader; when unset searches PATH. Used to invoke the Paseo CLI entry directly so a multi-line prompt is not re-parsed by a .cmd shim.",
+      "source_refs": "app/paseo_receipt_vision.py:_paseo_command"
+    },
+    {
+      "name": "WEBLEDGER_PASEO_CLI",
+      "owner": "app.paseo_receipt_vision",
+      "role": "path:executable",
+      "required": "optional",
+      "default": "APPDATA npm global @getpaseo/cli entry",
+      "status": "confirmed",
+      "evidence": "Optional Paseo CLI JS entry path; when unset uses %APPDATA%/npm/node_modules/@getpaseo/cli/bin/paseo. Absent or non-file disables the Paseo reader (VISION_PASEO_NOT_FOUND).",
+      "source_refs": "app/paseo_receipt_vision.py:_paseo_command"
     },
     {
       "name": "WEBLEDGER_CLAUDE_EXE",

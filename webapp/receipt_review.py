@@ -1418,7 +1418,7 @@ const completeJob=async(group,state)=>{
    payment:r.payment,category:r.category_hint,note:r.note??null,reading:r.reading,ordinal:r.ordinal,include:true}));
  group.jobId=state.job_id;
  if(state.result?.header_text){group.headerText=state.result.header_text;group.headerSource=state.result.engine==='windows_ocr'?'ocr':'model'}
- if(state.result?.engine==='windows_ocr')group.fallbackNotice='Claude 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.';
+ if(state.result?.engine==='windows_ocr')group.fallbackNotice='AI 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.';
  delete group.status;delete group.failure;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
@@ -1704,6 +1704,15 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         for pdf in data.get('pdfs', []) if pdf['sha256'] not in recorded_pdfs
     )
     ai = receipt_vision.enabled()
+    if receipt_vision.provider() == 'paseo-qwen4-max':
+        vision_notice_summary = '분석 안내'
+        vision_notice = ('체크한 사진은 이 PC의 Windows OCR로 글자만 읽습니다. 사진 원본은 외부로 전송되지 않으며, '
+                         '읽힌 글자 텍스트가 QwenCloud의 Qwen4 Max Preview로 전송되어 영수증 후보를 만듭니다. '
+                         '실패하면 이 PC의 Windows OCR 참고값으로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.')
+    else:
+        vision_notice_summary = '사진 전송 안내'
+        vision_notice = ('체크한 사진을 Claude(구독 opus)가 한 장씩 읽습니다. 원본 사진은 Anthropic으로 전송되며, '
+                         '실패하면 이 PC의 Windows OCR 결과로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.')
     script = (
         f"const csrf={json.dumps(csrf)};const aiAvailable={json.dumps(ai)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -1829,8 +1838,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
            "<p id='receipt-ocr-disabled'>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>")
     ai_section = ("<section id='step-ai'><h3>사진 분석 결과</h3>"
                   + ("<p id='vision-summary' class='vision-summary' tabindex='-1' role='region' aria-label='분석 결과 요약'>선택한 사진에서 영수증 내용을 읽습니다.</p>"
-                     "<details class='analysis-disclosure'><summary>사진 전송 안내</summary>"
-                     "<p>체크한 사진을 Claude(구독 opus)가 한 장씩 읽습니다. 원본 사진은 Anthropic으로 전송되며, 실패하면 이 PC의 Windows OCR 결과로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.</p></details>" if ai else
+                     f"<details class='analysis-disclosure'><summary>{vision_notice_summary}</summary>"
+                     f"<p>{vision_notice}</p></details>" if ai else
                      "<p>자동 분석을 사용할 수 없습니다. 저장된 결과를 확인하거나 직접 입력해 주세요.</p>")
                   + "<p id='draft-status' role='status' aria-live='polite'></p><div id='draft-recovery'></div>"
                   "<div id='vision-results'></div>"
