@@ -1468,7 +1468,8 @@ class CardFlow:
         # 크기와 시각이 같아도 내용이 다르면 다르다. 그래서 내용 해시를 쓴다.
         stamps = tuple(sorted(
             (stamp for stamp in (ota_sources.content_stamp(path) for path in
-                                 {Path(item) for item in watched if Path(item).is_file()})),
+                                 {Path(item) for item in watched if Path(item).is_file()})
+             if stamp),
             key=lambda stamp: stamp['path']))
         columns=('transaction_id','source_hash','merchant','merchant_normalized','card_kind','card_tail',
                  'transaction_direction','approval_date','amount_krw','foreign_currency','foreign_amount',
