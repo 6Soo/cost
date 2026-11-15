@@ -399,3 +399,86 @@ def test_resume_keeps_saved_guide_evidence_and_its_live_recording_guard(setup, m
     assert worker.status['failures']==0
     assert board.conn.execute('SELECT * FROM transactions').fetchall()==before
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
+
+
+def _unnarrowed_preview(flow, batch, selected):
+    """The preview an automatic chunk used before it was narrowed: the whole batch, everything else held."""
+    from app.ledger import recordable_rows
+    options = dict(trip_validator=flow.trip_valid, tab_validator=flow.tab_valid, review_from=None,
+                   entry_metadata=flow.preview_metadata(), include_verified_full_refunds=False,
+                   additional_holds=flow.automatic_holds(batch))
+    options['additional_holds'].update({row[0]: {'kind': 'completion_scope', 'reason': 'x'}
+        for row in flow.board.conn.execute('SELECT transaction_id FROM transactions') if row[0] not in selected})
+    return recordable_rows(flow.pipeline.preview(batch, **options)['rows'])
+
+
+def _narrowed_preview(flow, batch, selected):
+    from app.ledger import recordable_rows
+    scope = flow._refund_scope(batch, selected)
+    options = dict(trip_validator=flow.trip_valid, tab_validator=flow.tab_valid, review_from=None,
+                   entry_metadata=flow.preview_metadata(), include_verified_full_refunds=False,
+                   additional_holds=flow.automatic_holds(batch, scope=scope), transaction_ids=frozenset(scope[0]))
+    options['additional_holds'].update({tid: {'kind': 'completion_scope', 'reason': 'x'}
+                                        for tid in scope[0] if tid not in selected})
+    return recordable_rows(flow.pipeline.preview(batch, **options)['rows'])
+
+
+@pytest.mark.parametrize('booked_original', [False, True])
+def test_narrowed_preview_records_exactly_what_the_whole_batch_preview_did(setup, booked_original):
+    board = setup
+    batch, rows = receive(board, 6, card='1234')
+    ids = [r['transaction_id'] for r in rows]
+    c = board.conn
+    c.execute("UPDATE transactions SET classification_state='classified',classification_source='rule',item='식비',"
+              "display_tab_id='quarter:2026:4',trip_id=''")
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',original_approval_number=?,amount_krw=?"
+              " WHERE transaction_id=?", (rows[0]['approval_number'], -rows[0]['amount_krw'], ids[1]))
+    c.execute("UPDATE transactions SET classification_state='needs_review',item='' WHERE transaction_id=?", (ids[2],))
+    c.commit()
+    flow = CardFlow(board)
+    if booked_original:
+        scope = flow._refund_scope(batch, {ids[0]})
+        assert set(ids[:2]) <= scope[0]
+        flow._auto_record_locked(batch, include_state=False, transaction_ids={ids[0], ids[1]})
+    for selected in ({ids[0]}, {ids[1]}, {ids[0], ids[1]}, {ids[2]}, {ids[3], ids[4]}, set(ids)):
+        old = {r['transaction_id']: r for r in _unnarrowed_preview(flow, batch, selected)}
+        new = {r['transaction_id']: r for r in _narrowed_preview(flow, batch, selected)}
+        assert set(new) == set(old), selected
+        assert {k: (v['item'], v['display_tab_id'], v['amount_krw']) for k, v in new.items()} == \
+               {k: (v['item'], v['display_tab_id'], v['amount_krw']) for k, v in old.items()}
+
+
+def test_worker_chunk_reads_and_previews_only_the_selected_rows(setup):
+    board = setup
+    batch, rows = receive(board, 12, card='1234')
+    seen = {'get_batch': [], 'preview': [], 'commit': []}
+
+    def instrumented(store):
+        flow = CardFlow(store)
+        pipeline = flow.pipeline
+        for name in seen:
+            original = getattr(pipeline, name)
+
+            def wrapper(*args, _original=original, _name=name, **kwargs):
+                seen[_name].append(kwargs.get('transaction_ids'))
+                return _original(*args, **kwargs)
+            setattr(pipeline, name, wrapper)
+        return flow
+
+    worker = CardCompletionWorker(board, threading.RLock(), chunk=4, flow_factory=instrumented)
+    assert worker.sweep_once() and worker.status['failures'] == 0
+    assert seen['preview'] and seen['get_batch']
+    # No call under the store lock reads or previews the whole batch.
+    assert all(value is not None and len(value) <= 4 for value in seen['get_batch'] + seen['preview'] + seen['commit'])
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 4
+
+
+def test_narrowed_chunk_equals_the_old_result_after_a_full_drain(setup):
+    board = setup
+    receive(board, 9, card='1234')
+    worker = CardCompletionWorker(board, threading.RLock(), chunk=4)
+    while worker.sweep_once():
+        pass
+    assert worker.status['failures'] == 0
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 9
+    assert candidates(board.conn) == []
