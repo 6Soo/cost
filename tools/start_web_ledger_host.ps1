@@ -858,8 +858,8 @@ if (-not [string]::IsNullOrWhiteSpace($ParticipantSyncConfig)) {
 if (-not [string]::IsNullOrWhiteSpace($ParticipantDb)) {
     $env:WEBLEDGER_PARTICIPANT_DB = $ParticipantDb
 }
-# Muse receipt reading is an explicit opt-in: the free model only, tools refused, never a paid fallback.
-$env:WEBLEDGER_RECEIPT_VISION = 'opencode-muse-free'
+# Receipt reading: subscription Claude opus (medium), tool-free, API keys stripped; Windows OCR when it fails.
+$env:WEBLEDGER_RECEIPT_VISION = 'claude-opus'
 # Owner-confirmed reading notes. The file is data, not release content, so it survives every release.
 $env:WEBLEDGER_RECEIPT_LEARNING = 'D:/WebLedgerHost/data/receipt_learning.jsonl'
 # Collections received from this moment on are classified and recorded automatically; older ones are left as they are.

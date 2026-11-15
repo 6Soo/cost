@@ -25,9 +25,11 @@ from contextlib import contextmanager
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
-from app import opencode_receipt_vision
+from app import receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
+from app import receipt_trip_match as trip_match
+from app.receipt_image import sniff_image
 from . import receipt_vision_jobs, ui_icons, site_assets
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
@@ -252,60 +254,6 @@ def _save(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def sniff_image(body: bytes) -> str:
-    """The media type the bytes really are, checked structurally. Anything else is refused."""
-    if body.startswith(b"\x89PNG\r\n\x1a\n"):
-        pos, first, ended = 8, True, False
-        while pos + 8 <= len(body) and not ended:
-            length = int.from_bytes(body[pos:pos + 4], "big")
-            kind = body[pos + 4:pos + 8]
-            if first and (kind != b"IHDR" or length != 13):
-                raise ValueError("IMAGE_CORRUPT")
-            first = False
-            pos += 12 + length
-            ended = kind == b"IEND"
-        if not ended or pos != len(body):
-            raise ValueError("IMAGE_CORRUPT")
-        return "image/png"
-    if body.startswith(b"\xff\xd8\xff"):
-        # Phone cameras append data after the EOI marker, so the end of the file is not the end of the picture.
-        if _jpeg_has_eoi(body) or body.rstrip().endswith(b"\xff\xd9"):
-            return "image/jpeg"
-        raise ValueError("IMAGE_CORRUPT")
-    if body[4:8] == b"ftyp" and body[8:12] in (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1", b"avif"):
-        raise ValueError("IMAGE_HEIC")
-    raise ValueError("IMAGE_TYPE_UNSUPPORTED")
-
-
-def _jpeg_has_eoi(body: bytes) -> bool:
-    """Follows the JPEG segments to the end of the scan; data after that EOI is not inspected."""
-    pos, size, framed = 2, len(body), False
-    while pos + 1 < size:
-        if body[pos] != 0xFF:
-            return False
-        marker = body[pos + 1]
-        if marker == 0xFF:
-            pos += 1
-            continue
-        if marker == 0x01 or 0xD0 <= marker <= 0xD8:
-            pos += 2
-            continue
-        if marker == 0xD9 or pos + 4 > size:
-            return False
-        framed = framed or (0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC))
-        pos += 2 + int.from_bytes(body[pos + 2:pos + 4], "big")
-        if marker != 0xDA:
-            continue
-        if not framed:
-            return False
-        while pos + 1 < size:
-            if body[pos] == 0xFF and body[pos + 1] not in (0x00, 0xFF) and not 0xD0 <= body[pos + 1] <= 0xD7:
-                break
-            pos += 1
-        if pos + 1 < size and body[pos + 1] == 0xD9:
-            return True
-    return False
-
 
 @_serialized
 def store_image(path: Path, body: bytes) -> dict:
@@ -410,6 +358,13 @@ def _validate_draft_groups(groups, images):
         if group.get('feedback') is not None and (not isinstance(group['feedback'], str) or len(group['feedback']) > 4096):
             raise ValueError('DRAFT_INVALID')
         if 'empty' in group and type(group['empty']) is not bool:
+            raise ValueError('DRAFT_INVALID')
+        if group.get('headerText') is not None and (not isinstance(group['headerText'], str) or len(group['headerText']) > trip_match.MAX_HEADER_CHARS):
+            raise ValueError('DRAFT_INVALID')
+        if group.get('headerSource') not in (None, 'model', 'ocr'):
+            raise ValueError('DRAFT_INVALID')
+        fallback_notice = group.get('fallbackNotice')
+        if fallback_notice is not None and (not isinstance(fallback_notice, str) or len(fallback_notice) > 500):
             raise ValueError('DRAFT_INVALID')
         if not isinstance(group.get('receipts'), list) or len(group['receipts']) > 100:
             raise ValueError('DRAFT_INVALID')
@@ -534,8 +489,8 @@ def reading_key(values: dict) -> str:
 
 def _recognizer(guidance, lesson=False):
     def run(image_path):
-        result = opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
-        # The reading is what Muse first gave; a later correction must not change which receipt it is.
+        result = receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+        # The reading is what the model first gave; a later correction must not change which receipt it is.
         for item in result.get('receipts', []):
             item['reading'] = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
                                            'currency': item['currency'], 'payment': item['payment']})
@@ -584,11 +539,11 @@ def vision_new(path: Path, *, image: str, job_id: str) -> dict:
     for key, entries in groups.items():
         unmatched_known = 0
         for box in known.get(key, []):
-            box = opencode_receipt_vision._valid_box(box)
+            box = receipt_vision._valid_box(box)
             choices = []
             if box is not None:
                 for index, item in entries:
-                    other = opencode_receipt_vision._valid_box(item.get('box'))
+                    other = receipt_vision._valid_box(item.get('box'))
                     if index not in matched and other is not None:
                         choices.append((rc._overlap(box, other), index))
             best = max(choices, default=(0, -1))
@@ -656,10 +611,20 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         if (payload.get('trip_id') or '') != draft['trip_id'] or not any(group.get('sha') == payload.get('image') for group in draft['groups']):
             raise ValueError('DRAFT_SOURCE_MISMATCH')
         _validate_draft_groups(draft_request.get('remaining_groups'), data['images'])
-    regions = _regions(payload)
     requested_trip = payload.get("trip_id") or None
+    trips = _trip_records(board)
     if requested_trip is not None and requested_trip not in _trip_ids(board):
         raise ValueError("TRIP_UNKNOWN")
+    header_value = payload.get('header_text')
+    if header_value is not None and not isinstance(header_value, (str, list)):
+        raise ValueError('INVALID_VALUE')
+    if payload.get('header_source') not in (None, 'model', 'ocr'):
+        raise ValueError('INVALID_VALUE')
+    # The trip title printed at the top is not a store: a reading that is only that line loses its merchant.
+    payload = dict(payload, regions=_without_header_merchant(payload.get('regions'), header_value, trips))
+    regions = _regions(payload)
+    # OCR top lines may be the store's own name and address: they count only with the trip's MMDD.
+    header = trip_match.match_header(header_value, trips, require_date=payload.get('header_source') != 'model')
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -699,6 +664,13 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         stored['category'] = region.category
         if requested_trip is not None:
             stored['trip_id'] = requested_trip
+            stored['trip_source'] = 'manual'
+        else:
+            found = trip_match.decide(header, candidate.date, trips)
+            if found['trip_id']:
+                stored.update(trip_id=found['trip_id'], trip_source=found['source'])
+        if header['raw']:
+            stored['trip_header_text'] = header['raw']
         _settle(stored, cards)
         if payload.get("image"):
             # Without a position, the candidate identity (photo + reading + copy number) is the source key.
@@ -729,6 +701,19 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         draft.setdefault('operations', []).append({'operation_id': operation_id, 'digest': digest, 'result': response})
     _save(path, data)
     return response
+
+
+def _without_header_merchant(raw, header_value, trips):
+    if not isinstance(raw, list) or not header_value:
+        return raw
+    kept = []
+    for region in raw:
+        if isinstance(region, dict) and trip_match.is_header_text(region.get('merchant'), header_value, trips):
+            region = {**region, 'merchant': None}
+            if all(region.get(key) in (None, '') for key in ('merchant', 'date', 'total')):
+                continue
+        kept.append(region)
+    return kept
 
 
 def _match_card(card_rows_list: list, stored: dict) -> list:
@@ -855,6 +840,11 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
             stored[key] = int(value) if key == total_field else str(value).strip()
+        if 'trip_id' in changes and changes['trip_id'] != before.get('trip_id'):
+            if stored['trip_id']:
+                stored['trip_source'] = 'manual'
+            else:
+                stored.pop('trip_source', None)
         if total_field == 'total_jpy' and 'total_original' in stored:
             stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
@@ -1053,13 +1043,13 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             image_bytes(path, sha)  # Only this owner's registered images may be read.
             try:
                 result = local_receipt_ocr.recognize(_images_dir(path) / f'{sha}.bin', body.get('language', 'ja'))
-                handler._send_json(result)
+                handler._send_json({**result, 'header_text': '\n'.join(trip_match.top_lines(result.get('lines')))})
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
         elif parsed.path == "/api/receipts/vision":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1075,9 +1065,9 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 return True
             handler._send_json(state, 202)
         elif parsed.path == "/api/receipts/vision/rescan":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1148,8 +1138,28 @@ def _trips(board) -> list[dict]:
     return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"]} for t in board.list_trips()]
 
 
+def _trip_records(board) -> list[dict]:
+    """Trips with their period, for matching a receipt photo's header or date to one trip."""
+    if board is None:
+        return []
+    return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"], "destination": t.get("destination") or "",
+             "starts_on": t.get("starts_on") or "", "ends_on": t.get("ends_on") or ""}
+            for t in board.list_trips() if t.get("tab_kind", "trip") == "trip"]
+
+
 def _trip_ids(board) -> set:
     return {t["id"] for t in _trips(board)}
+
+
+TRIP_SOURCES = {'header_text': '사진 상단 여행명', 'date': '영수증 날짜', 'manual': '직접 지정'}
+
+
+def _trip_source_html(candidate: dict) -> str:
+    label = TRIP_SOURCES.get(candidate.get('trip_source') or '')
+    raw = candidate.get('trip_header_text')
+    if not candidate.get('trip_id') or not label:
+        return f"<small data-trip-source>여행 미정{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
+    return f"<small data-trip-source>여행 분류: {label}{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
 
 
 def _row_html(candidate: dict, trips: list) -> str:
@@ -1164,10 +1174,12 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
-        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미정</option>"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미정 (사진 상단 여행명·날짜로 분류)</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
-        + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
+        + "</select></label>"
+        + _trip_source_html(candidate)
+        + f"<label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
         f"<label>거래일<input data-date='{identity}' aria-label='거래일' value='{html.escape(candidate['date'])}'></label></td>"
         f"<td data-label='금액·결제'><label>금액({candidate.get('currency', 'JPY')})<input data-total='{identity}' aria-label='금액({candidate.get('currency', 'JPY')})' value='{_native_total(candidate)}' inputmode='numeric'></label>"
         f"<label>결제수단<select data-payment='{identity}' aria-label='결제수단'>"
@@ -1268,7 +1280,8 @@ const receiptCard=(group,index,receipt)=>{
  const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
- card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
+ const hint=document.createElement('p');hint.className='receipt-reading-note';hint.textContent=receipt.note?'판독 메모: '+receipt.note:'';hint.hidden=!receipt.note;
+ card.append(top,preview,regionNote,regionFields,merchant,amount,row2,hint,error,remove);
  if(receiptBusy)card.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);
  return card;
 };
@@ -1281,12 +1294,16 @@ const renderPending=()=>{
  for(const group of pending){
   const section=document.createElement('div');section.className='result-group';
   const head=document.createElement('h4');
-  const status=group.status==='unknown'?'분석 상태 확인 필요':group.status==='failed'?'분석 실패':group.empty?'영수증 후보 0건':group.kind==='rescan'?'새 후보 '+group.receipts.length+'건':'후보 '+group.receipts.length+'건';
+  const status=group.status==='unknown'?(group.kind==='rescan'?'다시 분석 상태 확인 필요':'분석 상태 확인 필요'):
+   group.status==='failed'?(group.kind==='rescan'?'다시 분석 실패':'분석 실패'):
+   group.empty?(group.kind==='rescan'?'다시 분석 새 후보 0건':'영수증 후보 0건'):
+   group.kind==='rescan'?'새 후보 '+group.receipts.length+'건':'후보 '+group.receipts.length+'건';
   head.textContent='사진 '+photoNumber(group.sha)+' · '+status;
   section.append(head);
+  if(group.fallbackNotice){const notice=document.createElement('p');notice.textContent=group.fallbackNotice;section.append(notice)}
   const actions=document.createElement('div');actions.className='result-actions';
   if(group.status==='unknown'){
-   const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않았습니다. 원본 사진은 보관되어 있습니다.';section.append(note);
+   const note=document.createElement('p');note.textContent=group.kind==='rescan'?'다시 분석 상태를 확인하지 못했습니다. 자동으로 다시 전송하지 않았습니다. 원본 사진은 보관되어 있습니다.':'분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않았습니다. 원본 사진은 보관되어 있습니다.';section.append(note);
    if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);actions.append(check)}
    const retry=document.createElement('button');retry.type='button';retry.textContent='이 사진 다시 분석';retry.disabled=receiptBusy;retry.onclick=()=>retryAnalysis(group);actions.append(retry);
    const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;actions.append(manual);
@@ -1295,14 +1312,14 @@ const renderPending=()=>{
    const retry=document.createElement('button');retry.type='button';retry.textContent='이 사진 다시 분석';retry.disabled=receiptBusy;retry.onclick=()=>retryAnalysis(group);actions.append(retry);
    const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;actions.append(manual);
   }else if(group.empty){
-   const note=document.createElement('p');note.textContent='영수증 후보 0건 · 원본 저장됨';section.append(note);
+   const note=document.createElement('p');note.textContent=group.kind==='rescan'?'다시 분석했지만 새 후보를 찾지 못했습니다. 원본 사진은 보관되어 있습니다. 입력한 메모는 후보 등록 뒤에만 학습에 반영됩니다.':'영수증 후보 0건 · 원본 저장됨';section.append(note);
    const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;actions.append(manual);
    const close=document.createElement('button');close.type='button';close.textContent='0건 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};actions.append(close);
   }
   group.receipts.forEach((receipt,index)=>section.append(receiptCard(group,index,receipt)));
   if(actions.childElementCount)section.append(actions);
   box.append(section);
-  setPhotoState(group.sha,group.status==='unknown'?'분석 상태 확인 필요':group.status==='failed'?'분석 실패':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
+  setPhotoState(group.sha,group.status==='unknown'?(group.kind==='rescan'?'다시 분석 상태 확인 필요':'분석 상태 확인 필요'):group.status==='failed'?(group.kind==='rescan'?'다시 분석 실패':'분석 실패'):group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
  }
  if(pending.some(group=>group.receipts.length)){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
   go.textContent='선택한 영수증 등록';go.disabled=receiptBusy;go.onclick=registerPending;box.append(go)}
@@ -1313,23 +1330,54 @@ const analysisSummary=groups=>{
  const failed=groups.filter(group=>group.status==='failed').length;
  const unknown=groups.filter(group=>group.status==='unknown').length;
  const empty=groups.filter(group=>group.empty).length;
+ const fallback=groups.filter(group=>group.fallbackNotice).length;
+ const withFallback=message=>fallback?message+' Windows OCR 참고값을 사용한 사진 '+fallback+'장입니다. 결과를 확인해 주세요.':message;
  const parts=[];
  if(candidateCount)parts.push('후보 '+candidateCount+'건');
  if(failed)parts.push('실패 '+failed+'장');
  if(unknown)parts.push('상태 확인 필요 '+unknown+'장');
  if(empty)parts.push('인식된 영수증 없음 '+empty+'장');
- if(!parts.length)return '분석 결과가 없습니다.';
- if(failed===groups.length&&failed)return '모든 사진 분석이 실패했습니다 ('+failed+'장). 사진별 원인과 복구 방법을 확인하세요.';
- if(unknown&&!candidateCount&&!failed&&!empty)return '분석 상태를 확인하지 못했습니다. 자동 재전송은 하지 않았습니다.';
- if(candidateCount&&!failed&&!unknown&&!empty)return parts.join(' · ')+' · 등록 전에 내용을 확인하세요.';
- return '분석 결과: '+parts.join(' · ')+'. 원본 사진은 보관 중이며 후보 등록은 별도로 진행합니다.';
+ if(!parts.length)return withFallback('분석 결과가 없습니다.');
+ if(groups.length===1&&groups[0].kind==='rescan'){
+  if(failed)return withFallback('영수증 다시 분석에 실패했습니다. 사진별 원인과 복구 방법을 확인하세요.');
+  if(unknown)return withFallback('영수증 다시 분석 상태를 확인하지 못했습니다. 자동 재전송은 하지 않았습니다.');
+  if(empty)return withFallback('다시 분석했지만 새 후보를 찾지 못했습니다. 원본은 보관되어 있습니다. 입력한 메모는 후보 등록 뒤에만 학습에 반영됩니다.');
+ }
+ if(failed===groups.length&&failed)return withFallback('모든 사진 분석이 실패했습니다 ('+failed+'장). 사진별 원인과 복구 방법을 확인하세요.');
+ if(unknown&&!candidateCount&&!failed&&!empty)return withFallback('분석 상태를 확인하지 못했습니다. 자동 재전송은 하지 않았습니다.');
+ if(candidateCount&&!failed&&!unknown&&!empty)return withFallback(parts.join(' · ')+' · 등록 전에 내용을 확인하세요.');
+ return withFallback('분석 결과: '+parts.join(' · ')+'. 원본 사진은 보관 중이며 후보 등록은 별도로 진행합니다.');
 };
 const updateAnalysisSummary=(groups,focus=false)=>{
  const summary=document.getElementById('vision-summary');if(!summary)return;
  summary.textContent=analysisSummary(groups);
  if(focus)summary.focus();
 };
+const runRescan=async(sha,feedback,attempt=null)=>{
+ if(receiptBusy)return;
+ receiptBusy=true;const restore=lockControls();setAnalysisBusy(true);
+ say('사진 '+photoNumber(sha)+'의 내용을 다시 분석하고 있습니다.');
+ const group=attempt||{sha,kind:'rescan',jobId:null,receipts:[],status:'unknown',feedback};
+ group.kind='rescan';group.feedback=feedback;group.jobId=null;group.status='unknown';
+ delete group.failure;delete group.empty;
+ if(!pending.includes(group))pending.push(group);
+ storePending();
+ const reportRescan=()=>{const summary=analysisSummary([group]);say(summary);updateAnalysisSummary([group],true)};
+ try{
+  await flushDraft();const queued=await post('/api/receipts/vision/rescan',{image:sha,feedback});group.jobId=queued.job_id;storePending();await flushDraft();
+  const state=await pollJob(queued,'다시 인식');await completeJob(group,state);
+  if(group.receipts.length&&document.getElementById('feedback').value.trim()===feedback)document.getElementById('feedback').value='';
+  reportRescan();
+ }catch(error){if(!group.receipts.length&&!group.empty){
+   if(isConfirmedRejection(error)){await markFailed(group,jobFailure(error))}
+   else{group.status='unknown';delete group.failure;storePending();try{await flushDraft()}catch{}}
+  }
+  reportRescan();
+ }
+ finally{setAnalysisBusy(false);restore();receiptBusy=false;renderPending();updateAnalysisSummary([group],true);document.dispatchEvent(new Event('receipt-workflow-change'))}
+};
 const retryAnalysis=group=>{
+ if(group.kind==='rescan'){runRescan(group.sha,group.feedback||'',group);return}
  const photo=document.querySelector('.photo-check[value="'+group.sha+'"]');
  if(photo&&!photo.checked){photo.checked=true;photo.dispatchEvent(new Event('change',{bubbles:true}))}
  runAnalysis([group.sha]);
@@ -1349,8 +1397,8 @@ const jobFailure=state=>state.code==='VISION_BUSY'?'분석 요청이 많아 처�
 const isConfirmedRejection=error=>(error.httpStatus>=400&&error.httpStatus<500&&error.code!=='VISION_JOB_EXPIRED')||
  ['VISION_DISABLED','VISION_BUSY'].includes(error.code);
 const markFailed=async(group,message)=>{
- group.status='failed';group.failure=message;delete group.empty;
- setPhotoState(group.sha,'분석 실패');storePending();
+ group.status='failed';group.failure=group.kind==='rescan'?'다시 분석 실패: '+message:message;delete group.empty;
+ setPhotoState(group.sha,group.kind==='rescan'?'다시 분석 실패':'분석 실패');storePending();
  try{await flushDraft()}catch{}
  renderPending();
 };
@@ -1363,8 +1411,12 @@ const completeJob=async(group,state)=>{
    await markFailed(group,jobFailure(error));return 0
   }throw error}
  if(!Array.isArray(source)){await markFailed(group,'분석 결과를 읽지 못했습니다. 직접 입력하거나 다시 시도해 주세요.');return 0}
- group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}));
- group.jobId=state.job_id;delete group.status;delete group.failure;group.empty=group.receipts.length===0;
+ group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,
+   payment:r.payment,category:r.category_hint,note:r.note??null,reading:r.reading,ordinal:r.ordinal,include:true}));
+ group.jobId=state.job_id;
+ if(state.result?.header_text){group.headerText=state.result.header_text;group.headerSource=state.result.engine==='windows_ocr'?'ocr':'model'}
+ if(state.result?.engine==='windows_ocr')group.fallbackNotice='Claude 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.';
+ delete group.status;delete group.failure;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
 };
@@ -1430,7 +1482,9 @@ const registerPending=async()=>{
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const remaining=pending.map(item=>item===group?{...item,receipts:item.receipts.filter(r=>r.include===false)}:item)
      .filter(item=>item.receipts.length||item.empty||item.status==='unknown'||item.status==='failed');
-   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,regions,
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,
+     header_text:group.headerText||undefined,
+     header_source:group.headerText?(group.headerSource||'ocr'):undefined,regions,
      draft:{draft_id:draftId,expected_revision:draftRevision,operation_id:group.operationId,remaining_groups:remaining}});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
@@ -1443,26 +1497,15 @@ const registerPending=async()=>{
  finally{restore();receiptBusy=false}
 };
 const rescanGo=document.getElementById('rescan-go');
-if(rescanGo)rescanGo.onclick=async()=>{
+if(rescanGo)rescanGo.onclick=()=>{
  if(receiptBusy)return;
  const sha=document.getElementById('image-sha').value;
  if(!sha){say('사진을 먼저 선택해 주세요.');return}
  const feedback=document.getElementById('feedback').value.trim();
  if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}
- receiptBusy=true;const restore=lockControls();setAnalysisBusy(true);
- say('사진 '+photoNumber(sha)+'의 내용을 다시 분석하고 있습니다.');
- const attempt={sha,kind:'rescan',jobId:null,receipts:[],status:'unknown',feedback};pending.push(attempt);storePending();
- try{
-  await flushDraft();const queued=await post('/api/receipts/vision/rescan',{image:sha,feedback});attempt.jobId=queued.job_id;storePending();await flushDraft();
-  const state=await pollJob(queued,'다시 인식');const count=await completeJob(attempt,state);
- if(count)document.getElementById('feedback').value='';
-  say(count?'새 후보 '+count+'건을 찾았습니다. 확인한 뒤 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.');
- }catch(error){if(!attempt.receipts.length&&!attempt.empty){
-   if(isConfirmedRejection(error)){await markFailed(attempt,jobFailure(error))}
-   else{attempt.status='unknown';storePending();try{await flushDraft()}catch{}}
-  }say(error.message||'다시 인식 상태를 확인하지 못했습니다.')}
- finally{setAnalysisBusy(false);restore();receiptBusy=false;renderPending();document.dispatchEvent(new Event('receipt-workflow-change'))}
+ runRescan(sha,feedback);
 };
+
 document.addEventListener('click',event=>{const b=event.target.closest('[data-image-sha]');if(b){const t=document.getElementById('rescan-target');if(t)t.textContent='사진 '+b.dataset.photoIndex}});
 const initDrafts=async()=>{
  const recovery=document.getElementById('draft-recovery');recovery.replaceChildren();
@@ -1520,7 +1563,7 @@ input[type=checkbox]{width:22px;height:22px;min-height:22px;min-width:22px;paddi
 button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center}
 button.primary{background:var(--grn);color:var(--c-on-accent);border-color:var(--grn);width:100%;margin-top:10px}
 button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
-.work-back{color:var(--c-accent-text);text-decoration:none}
+.work-back{color:var(--grn-dk);text-decoration:none}#receipt-page .work-back{color:var(--c-accent-text)}
 #status:not(:empty){position:static;background:var(--sel);color:var(--ink);padding:12px;border:1px solid var(--line);border-radius:var(--r-md);font-weight:600;margin-bottom:10px;overflow-wrap:anywhere}
 .photo-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(148px,100%),1fr));gap:8px;margin-top:10px}
 .photo{border:1px solid var(--line);border-radius:var(--r-md);padding:8px;background:var(--paper);display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -1596,7 +1639,7 @@ def _photo_strip(data: dict) -> str:
             f"<button type='button' data-image-sha='{sha}' data-photo-index='{index}' aria-pressed='{pressed}' "
             f"aria-label='사진 {index} 선택'><img loading='lazy' src='/api/receipts/image/{sha}' alt='사진 {index}'></button>"
             f"<span class='photo-index'>사진 {index}</span>"
-            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}' aria-label='사진 {index} 분석 대상으로 선택'{checked}> 분석 대상</label>" if opencode_receipt_vision.enabled() else '')
+            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}' aria-label='사진 {index} 분석 대상으로 선택'{checked}> 분석 대상</label>" if receipt_vision.enabled() else '')
             +
             f"<span class='photo-state' data-photo-state='{sha}'>{state}</span>"
             + (f"<button type='button' data-manual-image='{sha}'>내용 직접 입력</button>" if sha not in covered else '')
@@ -1657,7 +1700,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                 for i, sha in enumerate(pdf['pages'], 1)) + "</ul></li>"
         for pdf in data.get('pdfs', []) if pdf['sha256'] not in recorded_pdfs
     )
-    ai = opencode_receipt_vision.enabled()
+    ai = receipt_vision.enabled()
     script = (
         f"const csrf={json.dumps(csrf)};const aiAvailable={json.dumps(ai)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -1723,7 +1766,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const manualHasInput=()=>['r-merchant','r-date','r-total'].some(id=>document.getElementById(id).value.trim())||[...manualDefaults].some(([id,value])=>document.getElementById(id).value!==value);"
         "const showUploaded=(file,result,pdf,row)=>{row.textContent='';row.className='upload-row';const nameEl=document.createElement('span');nameEl.className='upload-name';nameEl.textContent=file.name;nameEl.title=file.name;row.append(nameEl);const note=(result.duplicate?'기존 원본':'')+(result.recovered?' 저장 결과 복구됨':'')+(pdf?' '+result.pages.length+'페이지':'');if(note.trim()){const noteEl=document.createElement('span');noteEl.className='upload-note';noteEl.textContent=note.trim();row.append(noteEl)}"
         "for(const sha of (pdf?result.pages:[result.sha256])){document.getElementById('image-sha').value=sha;const existingState=document.querySelector('[data-upload-page=\"'+sha+'\"]');const stateText=document.createElement('span');stateText.dataset.uploadPage=sha;stateText.textContent=existingState?existingState.textContent:'원본 저장됨';row.append(stateText);existingState?.closest('li')?.querySelectorAll('[data-receipt-link]').forEach(link=>row.append(link.cloneNode(true)));const button=document.createElement('button');button.type='button';button.dataset.manualImage=sha;button.textContent='내용 직접 입력';row.append(button);const image=document.createElement('img');image.src='/api/receipts/image/'+sha;image.alt='저장된 영수증';image.className='upload-thumb';row.append(image);"
-        "if(!document.querySelector('[data-image-sha=\"'+sha+'\"]')){const photo=document.createElement('div');photo.className='photo';const pick=document.createElement('button');pick.type='button';pick.dataset.imageSha=sha;pick.dataset.photoIndex=String(document.querySelectorAll('.photo').length+1);pick.setAttribute('aria-label','사진 '+pick.dataset.photoIndex+' 선택');pick.setAttribute('aria-pressed','false');const preview=image.cloneNode();pick.append(preview);pick.onclick=()=>{document.getElementById('image-sha').value=sha;document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===pick)));say('선택한 사진의 영수증 값을 입력해 주세요.')};const label=document.createElement('label');label.className='photo-pick';const check=document.createElement('input');check.type='checkbox';check.className='photo-check';check.value=sha;check.checked=true;check.setAttribute('aria-label','사진 '+pick.dataset.photoIndex+' 분석 대상으로 선택');label.append(check,' 분석 대상');const state=document.createElement('span');state.className='photo-state';state.dataset.photoState=sha;state.textContent='원본 저장됨';photo.append(pick);if(aiAvailable)photo.append(label);photo.append(state);document.querySelector('.photo-strip').append(photo)}}};"
+        "if(!document.querySelector('[data-image-sha=\"'+sha+'\"]')){const photo=document.createElement('div');photo.className='photo';const pick=document.createElement('button');pick.type='button';pick.dataset.imageSha=sha;pick.dataset.photoIndex=String(document.querySelectorAll('.photo').length+1);pick.setAttribute('aria-label','사진 '+pick.dataset.photoIndex+' 선택');pick.setAttribute('aria-pressed','false');const preview=image.cloneNode();pick.append(preview);pick.onclick=()=>{document.getElementById('image-sha').value=sha;document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===pick)));say('선택한 사진의 영수증 값을 입력해 주세요.')};const photoIndex=document.createElement('span');photoIndex.className='photo-index';photoIndex.textContent='사진 '+pick.dataset.photoIndex;const label=document.createElement('label');label.className='photo-pick';const check=document.createElement('input');check.type='checkbox';check.className='photo-check';check.value=sha;check.checked=true;check.setAttribute('aria-label','사진 '+pick.dataset.photoIndex+' 분석 대상으로 선택');label.append(check,' 분석 대상');const state=document.createElement('span');state.className='photo-state';state.dataset.photoState=sha;state.textContent='원본 저장됨';photo.append(pick,photoIndex);if(aiAvailable)photo.append(label);photo.append(state);document.querySelector('.photo-strip').append(photo)}}};"
         "const syncBulk=()=>{const bar=document.getElementById('upload-bulk');if(!bar)return;const rows=[...document.querySelectorAll('#upload-results .is-fail')];bar.hidden=rows.length<2;bar.querySelector('[data-bulk-count]').textContent='실패 '+rows.length+'개';bar.querySelector('[data-bulk-retry]').textContent='모두 재시도';bar.querySelector('[data-bulk-remove]').textContent='모두 제거';bar.querySelectorAll('button').forEach(b=>b.disabled=receiptBusy)};document.getElementById('upload-bulk')?.querySelector('[data-bulk-retry]').addEventListener('click',()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const rows=[...document.querySelectorAll('#upload-results .is-fail')];const files=rows.map(r=>r.__file).filter(Boolean);rows.forEach(r=>{failedFiles.delete(r.__file);r.remove()});syncBulk();uploadFiles(files)});document.getElementById('upload-bulk')?.querySelector('[data-bulk-remove]').addEventListener('click',()=>{if(receiptBusy)return;document.querySelectorAll('#upload-results .is-fail').forEach(r=>{failedFiles.delete(r.__file);r.remove()});syncBulk()});const uploadFiles=async(files)=>{"
         "if(!files.length||receiptBusy)return;"
         "receiptBusy=true;const restore=lockControls(),results=document.getElementById('upload-results');"
@@ -1736,11 +1779,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent='';row.className='upload-row is-fail';row.__file=file;const nameEl=document.createElement('span');nameEl.className='upload-name';nameEl.textContent=file.name;nameEl.title=file.name;const msgEl=document.createElement('span');msgEl.className='upload-msg';const longText=(uncertain?'저장 여부를 확인해 주세요: ':'실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const shortText=uncertain?'저장 확인 필요':({IMAGE_TYPE_UNSUPPORTED:'형식 미지원',IMAGE_HEIC:'HEIC 미지원',IMAGE_CORRUPT:'손상',IMAGE_TOO_LARGE:'5MB 초과',IMAGE_SIZE_INVALID:'빈 파일'}[error.code]||'실패');msgEl.textContent=shortText;msgEl.title=longText;msgEl.setAttribute('aria-hidden','true');const fullEl=document.createElement('span');fullEl.className='upload-full';fullEl.textContent=longText;row.title=longText;const acts=document.createElement('span');acts.className='upload-actions';const retry=document.createElement('button');retry.type='button';retry.textContent='재시도';retry.dataset.uploadRecovery='1';retry.dataset.uploadRetry='1';retry.setAttribute('aria-label','다시 시도');retry.title=file.name+' 다시 시도';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();syncBulk();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='제거';remove.setAttribute('aria-label','실패 파일 제거');remove.title=file.name+' 제거';remove.dataset.uploadRecovery='1';remove.dataset.uploadRemove='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove();syncBulk()};acts.append(retry,remove);acts.prepend(msgEl);row.append(nameEl,fullEl,acts)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);syncBulk();document.dispatchEvent(new Event('receipt-workflow-change'))}};"
         "document.getElementById('img-go').onclick=()=>{if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
-        "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
+        "let ocrHeader={sha:'',text:''};const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
         "const result=await post('/api/receipts/upload',{image:sha,language:document.getElementById('ocr-language').value});"
-        "document.getElementById('ocr-text').value=result.text;"
+        "document.getElementById('ocr-text').value=result.text;ocrHeader={sha,text:result.header_text||''};"
         "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
         "if(hints.total_jpy&&document.getElementById('r-currency').value==='JPY'&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
@@ -1750,7 +1793,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),null,true)};"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,header_text:(ocrHeader.sha===sha?ocrHeader.text:'')||undefined,header_source:'ocr',regions:[region]}),null,true)};"
         "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
@@ -1784,7 +1827,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     ai_section = ("<section id='step-ai'><h3>사진 분석 결과</h3>"
                   + ("<p id='vision-summary' class='vision-summary' tabindex='-1' role='region' aria-label='분석 결과 요약'>선택한 사진에서 영수증 내용을 읽습니다.</p>"
                      "<details class='analysis-disclosure'><summary>사진 전송 안내</summary>"
-                     "<p>분석을 위해 선택한 원본 사진은 무료 AI 모델로 전송됩니다. 분석 결과는 직접 확인해 등록해야 하며, 등록 전에는 회계에 반영되지 않습니다.</p></details>" if ai else
+                     "<p>체크한 사진을 Claude(구독 opus)가 한 장씩 읽습니다. 원본 사진은 Anthropic으로 전송되며, 실패하면 이 PC의 Windows OCR 결과로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.</p></details>" if ai else
                      "<p>자동 분석을 사용할 수 없습니다. 저장된 결과를 확인하거나 직접 입력해 주세요.</p>")
                   + "<p id='draft-status' role='status' aria-live='polite'></p><div id='draft-recovery'></div>"
                   "<div id='vision-results'></div>"
@@ -1795,7 +1838,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                      "<p id='vision-action-note' class='hint'></p></div>"
                      "<button type='button' id='vision-go'>선택한 사진 분석</button></div>" if ai else '')
     workflow_steps = ui_components.steps([
-        {"label": "1. 여행 선택", "state": "todo", "href": "#step-trip"},
+        {"label": "1. 여행 지정(선택)", "state": "todo", "href": "#step-trip"},
         {"label": "2. 파일 등록", "state": "todo", "href": "#step-photos"},
         {"label": "3. 결과 확인·수정", "state": "todo", "href": "#step-results"},
         {"label": "4. 장부용 복사", "state": "todo", "href": "#step-copy"},
@@ -1810,12 +1853,12 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 처리</title>"
             f"<style>{PAGE_CSS}</style></head><body>"
-            "<p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
-            "<main id='receipt-page'><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
+            "<div id='receipt-page'><p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
+            "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
             + workflow_steps
-             + "<section id='step-trip'><h2>1. 여행 선택</h2><div class='field'><label for='selected-trip'>여행</label>"
-             "<select id='selected-trip'><option value=''>여행 미정 (나중에 지정)</option>" + trip_options +
-             "</select><p id='trip-error' class='field-error' role='alert'></p></div></section>"
+             + "<section id='step-trip'><h2>1. 여행 지정 (선택)</h2><div class='field'><label for='selected-trip'>여행</label>"
+             "<select id='selected-trip'><option value=''>자동 분류 (사진 상단 여행명)</option>" + trip_options +
+             "</select><p class='hint'>비워 두면 사진 상단에 적힌 여행명으로 알아서 분류합니다. 여행을 고르면 그 여행이 우선합니다.</p><p id='trip-error' class='field-error' role='alert'></p></div></section>"
              "<section id='step-photos'><h2>2. 파일 등록</h2>"
              + file_drop_html
              + "<ul id='selected-files' aria-live='polite'></ul>"
@@ -1856,7 +1899,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<option value='corporate_card'>법인카드</option></select></label> "
             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></div>"
             + (_notes_html() if ai else "") +
-            "</details></main>"
+             "</details></main></div>"
             f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}{WORKFLOW_SCRIPT}</script></body></html>")
 
 

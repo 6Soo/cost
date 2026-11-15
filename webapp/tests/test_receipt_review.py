@@ -305,7 +305,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self.assertEqual(len(stored['candidates']), 2)
 
     def test_registering_analysis_candidate_keeps_failed_photo_after_reload(self):
-        from app import opencode_receipt_vision
+        from app import receipt_vision
 
         jobs = []
 
@@ -330,7 +330,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 return
             route.fulfill(status=202, content_type='application/json', body=json.dumps(state))
 
-        with patch.object(opencode_receipt_vision, 'enabled', return_value=True), sync_playwright() as api:
+        with patch.object(receipt_vision, 'enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 900})
@@ -344,6 +344,8 @@ class ReceiptReviewTests(unittest.TestCase):
                 ])
                 page.locator('#img-go').click()
                 page.wait_for_function("document.querySelectorAll('.photo').length === 4")
+                self.assertEqual(page.locator('.photo-index').all_text_contents(),
+                                 ['사진 1', '사진 2', '사진 3', '사진 4'])
                 self.assertTrue(page.get_by_role('checkbox', name='사진 1 분석 대상으로 선택').is_checked())
                 self.assertTrue(page.get_by_role('checkbox', name='사진 2 분석 대상으로 선택').is_checked())
                 self.assertTrue(page.get_by_role('checkbox', name='사진 3 분석 대상으로 선택').is_checked())
