@@ -95,6 +95,8 @@ def categorize(records):
             groups['protected'].append(record)
         elif not record['chosen_trip']:
             groups['no_target'].append(record)
+        elif not record['current_is_trip']:
+            groups['not_in_trip'].append(record)
         elif record['current_overlaps']:
             groups['overlap_differs'].append(record)
         else:
@@ -153,13 +155,13 @@ def preview(conn, host, current, out: Path):
     trips = {t['tab_id']: t for t in flow.board.list_trips(include_archived=True)}
     targets = groups['non_overlap']
     counts = {'assessed': len(records), 'mismatched': len(records) - len(groups['matching']),
-              **{name: len(groups[name]) for name in ('manual', 'protected', 'no_target', 'overlap_differs',
-                                                     'non_overlap')},
+              **{name: len(groups[name]) for name in ('manual', 'protected', 'no_target', 'not_in_trip',
+                                                     'overlap_differs', 'non_overlap')},
               'to_archived': sum(r['chosen_archived'] for r in targets),
               'protection_reasons': dict(Counter(r['protection'] for r in groups['protected']))}
     report = {'digest': plan_digest(targets), 'counts': counts,
               'targets': [_brief(r, trips) for r in targets],
-              'review_list': [_brief(r, trips) for r in groups['overlap_differs']],
+              'review_list': [_brief(r, trips) for r in groups['overlap_differs'] + groups['not_in_trip']],
               'manual': [_brief(r, trips) for r in groups['manual']],
               'no_target': [_brief(r, trips) for r in groups['no_target']]}
     out.mkdir(parents=True, exist_ok=True)
@@ -245,7 +247,7 @@ def revert(conn, out: Path, *, applied_id, request_id):
                              (*before['ledger'], tid))
             payload = json.loads(board[2])
             payload.update(display_tab_id=before['board']['display_tab_id'],
-                           classification_basis=fields['classification_basis'], revision=board[1] + 1)
+                           classification_basis=before['board'].get('classification_basis'), revision=board[1] + 1)
             new_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,'
                          'created_at,client_request_id,kind) VALUES (?,?,?,?,?,?,?,?,?,?)',

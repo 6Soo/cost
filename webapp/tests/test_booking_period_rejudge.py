@@ -99,7 +99,8 @@ def test_sync_rows_update_a_tool_override_but_not_a_person_override(setup, monke
     assert board.conn.execute('SELECT display_tab_id FROM board_rows WHERE row_id=?', (row_id,)).fetchone()[0] == first
 
 
-@pytest.mark.parametrize('protection', ['', 'owner_override', 'hold', 'refund_pair', 'user_decision'])
+@pytest.mark.parametrize('protection', ['', 'owner_override', 'hold', 'refund_pair', 'refund_tab', 'user_decision',
+                                        'archived_source'])
 def test_changed_digest_moves_recorded_row_atomically_and_unchanged_digest_writes_nothing(
         setup, monkeypatch, protection):
     from webapp import booking_period_rejudge as rejudge
@@ -120,11 +121,15 @@ def test_changed_digest_moves_recorded_row_atomically_and_unchanged_digest_write
                   "card_tail=? WHERE transaction_id=?", (row['approval_number'], row['issuer'], row['card_tail'], other))
     elif protection == 'user_decision':
         c.execute("UPDATE transactions SET classification_source='user_decision' WHERE transaction_id=?", (tid,))
+    elif protection == 'refund_tab':
+        c.execute("UPDATE board_rows SET display_tab_id='refunds' WHERE row_id=?", ('card-' + tid,))
+    elif protection == 'archived_source':
+        c.execute('UPDATE trip_tabs SET archived=1 WHERE tab_id=?', (first,))
     c.commit()
     current = _snapshot(flow, monkeypatch, row, dict(starts_on='2026-10-02', ends_on='2026-10-04'))
     # First generation: the digest is only a baseline; the row does not move.
     assert rejudge.rejudge(flow, current, request_id='g1')['corrected'] == 0
-    assert _trip(c, tid) == (first, first, first)
+    assert _trip(c, tid)[:2] == (first, first)
     # Reading again with the same evidence writes nothing.
     changes = c.total_changes
     assert rejudge.rejudge(flow, current, request_id='g2')['corrected'] == 0
@@ -135,7 +140,7 @@ def test_changed_digest_moves_recorded_row_atomically_and_unchanged_digest_write
                     (tid,)).fetchone()
     result = rejudge.rejudge(flow, current, request_id='g3')
     if protection:
-        assert result['corrected'] == 0 and _trip(c, tid) == (first, first, first)
+        assert result['corrected'] == 0 and _trip(c, tid)[:2] == (first, first)
         return
     assert result['corrected'] == 1 and _trip(c, tid) == (second, second, second)
     assert raw == c.execute('SELECT source_hash,raw_row_json,amount_krw,approval_date FROM transactions'

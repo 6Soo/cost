@@ -103,12 +103,15 @@ def assess(flow, current, *, include_archived=False, selected=None):
         service = fact.get('item') != '숙박비'
         chosen = flow.booking_trip(row, dict(period, service=service), include_archived=include_archived) or ''
         tab, board, ledger = _current(conn, tid, row)
+        from app.ledger import REFUND_TAB
         record = dict(
             transaction_id=tid, item=row.get('item') or '', period=period, service=service,
-            current_tab=tab, chosen_trip=chosen,
+            current_tab=tab, chosen_trip=chosen, current_is_trip=tab in trips,
             current_overlaps=_overlaps(trips.get(tab), period, service, handover),
+            current_archived=bool((trips.get(tab) or {}).get('archived')),
             chosen_archived=bool((trips.get(chosen) or {}).get('archived')),
-            protection=protection(conn, row, manual), source_hash=row['source_hash'],
+            protection='REFUND_TAB' if tab == REFUND_TAB else protection(conn, row, manual),
+            source_hash=row['source_hash'],
             ota_event_id=str(fact.get('ota_event_id') or ''), revision=row['revision'],
             board_revision=board[1] if board else None)
         record['digest'] = _sha([
@@ -136,13 +139,14 @@ def correct(conn, record, *, request_id, actor='automatic'):
         raise ValueError('BOOKING_TRIP_CORRECTION_STALE')
     period = record['period']
     basis = f"예약 이용기간 근거 우선: 검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']} · 기록 귀속 교정"
+    payload = json.loads(board[2])
     before = {'transaction': {k: row[k] for k in (*policy.FIELDS, 'revision')},
               'ledger': list(ledger) if ledger else None,
-              'board': {'display_tab_id': board[0], 'revision': board[1]}}
+              'board': {'display_tab_id': board[0], 'revision': board[1],
+                        'classification_basis': payload.get('classification_basis')}}
     conn.execute('UPDATE transactions SET display_tab_id=?, trip_id=?, classification_basis=?, revision=revision+1'
                  ' WHERE transaction_id=? AND revision=?', (trip, trip, basis, tid, row['revision']))
     conn.execute('UPDATE ledger_entries SET display_tab_id=?, trip_id=? WHERE transaction_id=?', (trip, trip, tid))
-    payload = json.loads(board[2])
     old_payload = board[2]
     payload.update(display_tab_id=trip, classification_basis=basis, revision=board[1] + 1)
     new_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -182,7 +186,7 @@ def rejudge(flow, current, *, request_id):
             row = policy._read(conn, {tid})[0]
             movable = (previous is not None and record['chosen_trip']
                        and record['chosen_trip'] != record['current_tab'] and not record['protection']
-                       and not excluded(row, trips))
+                       and not record['current_archived'] and not excluded(row, trips))
             if movable:
                 correct(conn, record, request_id=request_id)
                 counts['corrected'] += 1
