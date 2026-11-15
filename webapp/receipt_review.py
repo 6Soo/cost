@@ -28,6 +28,7 @@ from app import local_receipt_ocr
 from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
+from app import receipt_trip_match as trip_match
 from . import receipt_vision_jobs, ui_icons, site_assets
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
@@ -368,6 +369,8 @@ def _validate_draft_groups(groups, images):
             raise ValueError('DRAFT_INVALID')
         if 'empty' in group and type(group['empty']) is not bool:
             raise ValueError('DRAFT_INVALID')
+        if group.get('headerText') is not None and (not isinstance(group['headerText'], str) or len(group['headerText']) > trip_match.MAX_HEADER_CHARS):
+            raise ValueError('DRAFT_INVALID')
         if not isinstance(group.get('receipts'), list) or len(group['receipts']) > 100:
             raise ValueError('DRAFT_INVALID')
         if (not group['receipts'] and not (group.get('empty') or group.get('status') == 'unknown')) or (
@@ -400,7 +403,8 @@ def save_draft(path: Path, payload: dict, *, valid_trips: set) -> dict:
     draft_id, trip_id, revision = payload.get('draft_id'), payload.get('trip_id'), payload.get('expected_revision')
     if not isinstance(draft_id, str) or not re.fullmatch(r'[0-9a-f]{32}', draft_id):
         raise ValueError('DRAFT_INVALID')
-    if not isinstance(trip_id, str) or trip_id not in valid_trips:
+    trip_id = '' if trip_id is None else trip_id
+    if not isinstance(trip_id, str) or (trip_id and trip_id not in valid_trips):
         raise ValueError('TRIP_UNKNOWN')
     if type(revision) is not int or revision < 0:
         raise ValueError('DRAFT_INVALID')
@@ -409,7 +413,7 @@ def save_draft(path: Path, payload: dict, *, valid_trips: set) -> dict:
     existing = next((draft for draft in data['drafts'] if draft['draft_id'] == draft_id), None)
     if revision != (existing['revision'] if existing else 0):
         raise ValueError('DRAFT_STALE')
-    if existing and existing['trip_id'] != trip_id:
+    if existing and existing['trip_id'] and existing['trip_id'] != trip_id:
         raise ValueError('DRAFT_TRIP_MISMATCH')
     draft = {'draft_id': draft_id, 'trip_id': trip_id, 'revision': revision + 1, 'groups': payload['groups'],
              'operations': existing.get('operations', []) if existing else []}
@@ -609,13 +613,20 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
             return previous['result']
         if type(draft_request.get('expected_revision')) is not int or draft_request['expected_revision'] != draft['revision']:
             raise ValueError('DRAFT_STALE')
-        if payload.get('trip_id') != draft['trip_id'] or not any(group.get('sha') == payload.get('image') for group in draft['groups']):
+        if (payload.get('trip_id') or '') != draft['trip_id'] or not any(group.get('sha') == payload.get('image') for group in draft['groups']):
             raise ValueError('DRAFT_SOURCE_MISMATCH')
         _validate_draft_groups(draft_request.get('remaining_groups'), data['images'])
-    regions = _regions(payload)
     requested_trip = payload.get("trip_id") or None
+    trips = _trip_records(board)
     if requested_trip is not None and requested_trip not in _trip_ids(board):
         raise ValueError("TRIP_UNKNOWN")
+    header_value = payload.get('header_text')
+    if header_value is not None and not isinstance(header_value, (str, list)):
+        raise ValueError('INVALID_VALUE')
+    # The trip title printed at the top is not a store: a reading that is only that line loses its merchant.
+    payload = dict(payload, regions=_without_header_merchant(payload.get('regions'), header_value, trips))
+    regions = _regions(payload)
+    header = trip_match.match_header(header_value, trips)
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -655,6 +666,13 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         stored['category'] = region.category
         if requested_trip is not None:
             stored['trip_id'] = requested_trip
+            stored['trip_source'] = 'manual'
+        else:
+            found = trip_match.decide(header, candidate.date, trips)
+            if found['trip_id']:
+                stored.update(trip_id=found['trip_id'], trip_source=found['source'])
+        if header['raw']:
+            stored['trip_header_text'] = header['raw']
         _settle(stored, cards)
         if payload.get("image"):
             # Without a position, the candidate identity (photo + reading + copy number) is the source key.
@@ -685,6 +703,19 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         draft.setdefault('operations', []).append({'operation_id': operation_id, 'digest': digest, 'result': response})
     _save(path, data)
     return response
+
+
+def _without_header_merchant(raw, header_value, trips):
+    if not isinstance(raw, list) or not header_value:
+        return raw
+    kept = []
+    for region in raw:
+        if isinstance(region, dict) and trip_match.is_header_text(region.get('merchant'), header_value, trips):
+            region = {**region, 'merchant': None}
+            if all(region.get(key) in (None, '') for key in ('merchant', 'date', 'total')):
+                continue
+        kept.append(region)
+    return kept
 
 
 def _match_card(card_rows_list: list, stored: dict) -> list:
@@ -811,6 +842,11 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
             stored[key] = int(value) if key == total_field else str(value).strip()
+        if 'trip_id' in changes and changes['trip_id'] != before.get('trip_id'):
+            if stored['trip_id']:
+                stored['trip_source'] = 'manual'
+            else:
+                stored.pop('trip_source', None)
         if total_field == 'total_jpy' and 'total_original' in stored:
             stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
@@ -1009,7 +1045,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             image_bytes(path, sha)  # Only this owner's registered images may be read.
             try:
                 result = local_receipt_ocr.recognize(_images_dir(path) / f'{sha}.bin', body.get('language', 'ja'))
-                handler._send_json(result)
+                handler._send_json({**result, 'header_text': '\n'.join(trip_match.top_lines(result.get('lines')))})
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
         elif parsed.path == "/api/receipts/vision":
@@ -1104,8 +1140,28 @@ def _trips(board) -> list[dict]:
     return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"]} for t in board.list_trips()]
 
 
+def _trip_records(board) -> list[dict]:
+    """Trips with their period, for matching a receipt photo's header or date to one trip."""
+    if board is None:
+        return []
+    return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"], "destination": t.get("destination") or "",
+             "starts_on": t.get("starts_on") or "", "ends_on": t.get("ends_on") or ""}
+            for t in board.list_trips() if t.get("tab_kind", "trip") == "trip"]
+
+
 def _trip_ids(board) -> set:
     return {t["id"] for t in _trips(board)}
+
+
+TRIP_SOURCES = {'header_text': '사진 상단 여행명', 'date': '영수증 날짜', 'manual': '직접 지정'}
+
+
+def _trip_source_html(candidate: dict) -> str:
+    label = TRIP_SOURCES.get(candidate.get('trip_source') or '')
+    raw = candidate.get('trip_header_text')
+    if not candidate.get('trip_id') or not label:
+        return f"<small data-trip-source>여행 미정{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
+    return f"<small data-trip-source>여행 분류: {label}{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
 
 
 def _row_html(candidate: dict, trips: list) -> str:
@@ -1120,10 +1176,12 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
-        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행을 선택하세요</option>"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미정 (사진 상단 여행명·날짜로 분류)</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
-        + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
+        + "</select></label>"
+        + _trip_source_html(candidate)
+        + f"<label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
         f"<label>거래일<input data-date='{identity}' aria-label='거래일' value='{html.escape(candidate['date'])}'></label></td>"
         f"<td data-label='금액·결제'><label>금액({candidate.get('currency', 'JPY')})<input data-total='{identity}' aria-label='금액({candidate.get('currency', 'JPY')})' value='{_native_total(candidate)}' inputmode='numeric'></label>"
         f"<label>결제수단<select data-payment='{identity}' aria-label='결제수단'>"
@@ -1176,9 +1234,9 @@ const flushDraft=async()=>{
  if(!draftReady)throw new Error('분석 결과 저장 상태를 확인 중입니다. 잠시 후 다시 시도해 주세요.');
  if(draftConflict)throw new Error('저장된 분석 결과와 이 화면의 입력이 다릅니다. 저장된 결과를 확인해 주세요.');
  while(draftDirty){
-  if(!draftId||!selectedTrip.value)throw new Error('분석 결과를 저장할 여행을 선택해 주세요.');
+  if(!draftId)throw new Error('분석 결과를 저장할 수 없습니다.');
   const snapshot=JSON.parse(JSON.stringify(pending));draftDirty=false;draftStatus('분석 결과 저장 중');
-  draftPromise=post('/api/receipts/drafts',{draft_id:draftId,expected_revision:draftRevision,trip_id:selectedTrip.value,groups:snapshot});
+  draftPromise=post('/api/receipts/drafts',{draft_id:draftId,expected_revision:draftRevision,trip_id:selectedTrip.value||'',groups:snapshot});
   try{const saved=await draftPromise;draftRevision=saved.revision;persistDraftKeys();draftStatus('분석 결과 저장됨')}
   catch(error){draftDirty=true;draftConflict=error.code==='DRAFT_STALE';draftStatus(error.message||'분석 결과를 저장하지 못했습니다. 다시 시도해 주세요.');if(draftConflict)initDrafts().catch(()=>{});throw error}
   finally{draftPromise=null}
@@ -1259,7 +1317,7 @@ const completeJob=async(group,state)=>{
  if(state.status!=='done')throw new Error(jobFailure(state));
  const source=group.kind==='rescan'?(await post('/api/receipts/vision/new',{image:group.sha,job_id:state.job_id})).new:state.result.receipts;
  group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}));
- group.jobId=state.job_id;delete group.status;group.empty=group.receipts.length===0;
+ group.jobId=state.job_id;if(state.result.header_text)group.headerText=state.result.header_text;delete group.status;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
 };
@@ -1274,7 +1332,6 @@ async function resumeJob(group){
 const visionGo=document.getElementById('vision-go');
 if(visionGo)visionGo.onclick=async()=>{
  if(receiptBusy)return;
- if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}
  const shas=[...document.querySelectorAll('.photo-check:checked')].map(c=>c.value);
  if(!shas.length){say('분석할 사진을 체크하세요.');return}
  receiptBusy=true;const restore=lockControls();const failed=[];let found=0;
@@ -1299,7 +1356,6 @@ const registerPending=async()=>{
  if(receiptBusy)return;
  if(selectedFiles.length||failedFiles.size||manualHasInput()||[...document.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))){say('선택한 파일이나 저장하지 않은 입력을 먼저 처리해 주세요.');return}
  const trip=selectedTrip.value;
- if(!trip){say('여행을 먼저 선택하세요.');return}
  const plan=[];
  for(const group of pending){const items=group.receipts.map((r,i)=>({r,i})).filter(({r})=>r.include!==false);
   for(const {r,i} of items){if(r.boxInvalid){cardError(group,i,'영역 좌표를 확인해 주세요.');say('영역 좌표를 확인한 뒤 등록해 주세요.');return}
@@ -1317,7 +1373,7 @@ const registerPending=async()=>{
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const remaining=pending.map(item=>item===group?{...item,receipts:item.receipts.filter(r=>r.include===false)}:item)
      .filter(item=>item.receipts.length||item.empty||item.status==='unknown');
-   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions,
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,header_text:group.headerText||undefined,regions,
      draft:{draft_id:draftId,expected_revision:draftRevision,operation_id:group.operationId,remaining_groups:remaining}});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
@@ -1334,7 +1390,6 @@ if(rescanGo)rescanGo.onclick=async()=>{
  if(receiptBusy)return;
  const sha=document.getElementById('image-sha').value;
  if(!sha){say('사진을 먼저 선택해 주세요.');return}
- if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}
  const feedback=document.getElementById('feedback').value.trim();
  if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}
  receiptBusy=true;const restore=lockControls();
@@ -1360,10 +1415,10 @@ const initDrafts=async()=>{
   for(const saved of drafts){
    if(saved.draft_id===draftId&&!draftConflict)continue;
    const button=document.createElement('button');button.type='button';
-   const option=[...selectedTrip.options].find(item=>item.value===saved.trip_id);
-   button.textContent=(option?option.textContent:'확인할 수 없는 여행')+' · 저장된 분석 결과 열기';
-   button.onclick=async()=>{if(!option){say('이 분석 결과의 여행을 확인할 수 없습니다.');return}if(pending.length&&!confirm('현재 입력을 보관하고 저장된 결과를 열까요?'))return;
-    if(pending.length){try{if(draftConflict){if(!selectedTrip.value)throw new Error('현재 입력을 보관할 여행을 먼저 선택해 주세요.');await post('/api/receipts/drafts',{draft_id:newDraftId(),expected_revision:0,trip_id:selectedTrip.value,groups:pending})}else await flushDraft()}catch(error){draftStatus(error.message||'현재 입력을 보관하지 못했습니다.');return}}
+   const option=saved.trip_id?[...selectedTrip.options].find(item=>item.value===saved.trip_id):null;
+   button.textContent=(saved.trip_id?(option?option.textContent:'확인할 수 없는 여행'):'여행 미정')+' · 저장된 분석 결과 열기';
+   button.onclick=async()=>{if(saved.trip_id&&!option){say('이 분석 결과의 여행을 확인할 수 없습니다.');return}if(pending.length&&!confirm('현재 입력을 보관하고 저장된 결과를 열까요?'))return;
+    if(pending.length){try{if(draftConflict){await post('/api/receipts/drafts',{draft_id:newDraftId(),expected_revision:0,trip_id:selectedTrip.value||'',groups:pending})}else await flushDraft()}catch(error){draftStatus(error.message||'현재 입력을 보관하지 못했습니다.');return}}
     pending=JSON.parse(JSON.stringify(saved.groups));draftId=saved.draft_id;draftRevision=saved.revision;draftConflict=false;draftDirty=false;
     selectedTrip.value=saved.trip_id;previousTrip=saved.trip_id;syncTrip();persistDraftKeys();try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{}
     recovery.replaceChildren();draftStatus('저장된 분석 결과를 불러왔습니다.');if(!pending.length){const link=document.createElement('a');link.href=location.pathname+location.search+'#step-review';link.textContent='화면을 다시 열어 등록 내역 확인';link.onclick=event=>{event.preventDefault();location.hash='step-review';location.reload()};recovery.append(link)}renderPending();document.dispatchEvent(new Event('receipt-workflow-change'))};
@@ -1595,7 +1650,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "for(const sha of (pdf?result.pages:[result.sha256])){document.getElementById('image-sha').value=sha;const existingState=document.querySelector('[data-upload-page=\"'+sha+'\"]');const stateText=document.createElement('span');stateText.dataset.uploadPage=sha;stateText.textContent=existingState?existingState.textContent:'원본 저장됨';row.append(' ',stateText);existingState?.closest('li')?.querySelectorAll('[data-receipt-link]').forEach(link=>row.append(' ',link.cloneNode(true)));const button=document.createElement('button');button.type='button';button.dataset.manualImage=sha;button.textContent='내용 직접 입력';row.append(' ',button);const image=document.createElement('img');image.src='/api/receipts/image/'+sha;image.alt='저장된 영수증';image.style.maxWidth='100px';row.append(image);"
         "if(!document.querySelector('[data-image-sha=\"'+sha+'\"]')){const photo=document.createElement('div');photo.className='photo';const pick=document.createElement('button');pick.type='button';pick.dataset.imageSha=sha;pick.dataset.photoIndex=String(document.querySelectorAll('.photo').length+1);pick.setAttribute('aria-label','사진 '+pick.dataset.photoIndex+' 선택');pick.setAttribute('aria-pressed','false');const preview=image.cloneNode();pick.append(preview);pick.onclick=()=>{document.getElementById('image-sha').value=sha;document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===pick)));say('선택한 사진의 영수증 값을 입력해 주세요.')};const label=document.createElement('label');label.className='photo-pick';const check=document.createElement('input');check.type='checkbox';check.className='photo-check';check.value=sha;check.checked=true;label.append(check,' 분석');const state=document.createElement('span');state.className='photo-state';state.dataset.photoState=sha;state.textContent='원본 저장됨';photo.append(pick);if(aiAvailable)photo.append(label);photo.append(state);document.querySelector('.photo-strip').append(photo)}}};"
         "const uploadFiles=async(files)=>{"
-        "if(!files.length||receiptBusy)return;if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
+        "if(!files.length||receiptBusy)return;"
         "receiptBusy=true;const restore=lockControls(),results=document.getElementById('upload-results');"
         "try{for(const file of files){const row=document.createElement('p');row.textContent=file.name+' · 업로드 중';results.append(row);"
         "const pdf=file.type==='application/pdf'||/\\.pdf$/i.test(file.name);let body;try{if(pdf&&file.size>5*1024*1024)throw new Error('PDF는 5MB 이하만 등록할 수 있습니다.');"
@@ -1605,23 +1660,22 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const current=document.getElementById('image-sha').value;if(current){const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(current);preview.hidden=false}"
         "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부를 확인해 주세요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);document.dispatchEvent(new Event('receipt-workflow-change'))}};"
-        "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
-        "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
+        "document.getElementById('img-go').onclick=()=>{if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
+        "let ocrHeader={sha:'',text:''};const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
         "const result=await post('/api/receipts/upload',{image:sha,language:document.getElementById('ocr-language').value});"
-        "document.getElementById('ocr-text').value=result.text;"
+        "document.getElementById('ocr-text').value=result.text;ocrHeader={sha,text:result.header_text||''};"
         "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
         "if(hints.total_jpy&&document.getElementById('r-currency').value==='JPY'&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
-        "if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}"
         "if(!document.getElementById('r-currency').value){say('통화를 선택해 주세요.');return}"
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),null,true)};"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,header_text:(ocrHeader.sha===sha?ocrHeader.text:'')||undefined,regions:[region]}),null,true)};"
         "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
@@ -1661,7 +1715,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                   + (_rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요") if ai else '')
                   + "</section>")
     workflow_steps = ui_components.steps([
-        {"label": "1. 여행 선택", "state": "todo", "href": "#step-trip"},
+        {"label": "1. 여행 지정(선택)", "state": "todo", "href": "#step-trip"},
         {"label": "2. 파일 등록", "state": "todo", "href": "#step-photos"},
         {"label": "3. 결과 확인·수정", "state": "todo", "href": "#step-review"},
         {"label": "4. 장부용 복사", "state": "todo", "href": "#step-copy"},
@@ -1679,9 +1733,9 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
             "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
             + workflow_steps
-             + "<section id='step-trip'><h2>1. 여행 선택</h2><div class='field'><label for='selected-trip'>여행</label>"
-             "<select id='selected-trip'><option value=''>여행을 선택하세요</option>" + trip_options +
-             "</select><p id='trip-error' class='field-error' role='alert'></p></div></section>"
+             + "<section id='step-trip'><h2>1. 여행 지정 (선택)</h2><div class='field'><label for='selected-trip'>여행</label>"
+             "<select id='selected-trip'><option value=''>자동 분류 (사진 상단 여행명)</option>" + trip_options +
+             "</select><p class='hint'>비워 두면 사진 상단에 적힌 여행명으로 알아서 분류합니다. 여행을 고르면 그 여행이 우선합니다.</p><p id='trip-error' class='field-error' role='alert'></p></div></section>"
              "<section id='step-photos'><h2>2. 파일 등록</h2>"
              + file_drop_html
              + "<ul id='selected-files' aria-live='polite'></ul>"
@@ -1729,8 +1783,8 @@ const update=()=>{
  const checked=[...document.querySelectorAll('[data-group-select]:checked')],photos=document.querySelectorAll('.photo-check:checked').length;
  const state=(id,enabled)=>{const el=byId(id);if(el)el.disabled=!enabled};
  state('img-go',true);
- state('vision-go',!!trip.value&&photos>0);
- state('rescan-go',!!trip.value&&!!byId('image-sha').value);
+ state('vision-go',photos>0);
+ state('rescan-go',!!byId('image-sha').value);
  state('ocr-go',!!byId('image-sha').value);
  state('group-go',!!trip.value&&checked.length>=2);
  const groups=new Set(checked.map(e=>e.closest('tr').dataset.groupId).filter(Boolean));

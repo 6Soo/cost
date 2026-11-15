@@ -27,7 +27,7 @@ NETWORK_WORDS = ('fetch failed', 'econnreset', 'etimedout', 'econnrefused', 'soc
 MAX_BYTES = 5 * 1024 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 120
-SCHEMA = '{"receipts":[{"box":null,"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
+SCHEMA = '{"header_text":null,"receipts":[{"box":null,"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
 AGENT_INSTRUCTION = ('You read one attached receipt image and answer with JSON only, using exactly this schema and no other keys: '
                      + SCHEMA + '. The image is already in the message. Never call tools, never look for files or instructions.')
 LESSON_INSTRUCTION = ('사용자가 지적한 인식 오류를 바탕으로 영수증을 다시 분석하라. 실제로 새로 발견한 영수증이 있다면, '
@@ -46,7 +46,9 @@ Write merchant as printed in the original language (Korean, Japanese or English)
 date as YYYY-MM-DD. amount is the paid total as an integer (not subtotal, tax, tendered or change).
 currency is JPY or KRW. payment is cash, private_card, corporate_card or null.
 Use null for anything unreadable. Never guess a date, amount or payment method.
-Do not create entries from advertisements or blank areas. Do not combine tickets.'''
+Do not create entries from advertisements or blank areas. Do not combine tickets.
+header_text is the trip title handwritten or printed at the very top of the page (for example 0625_아키타), copied as written; null when there is none.
+The trip title line is not a merchant: never use it as merchant or create an entry from it. Never guess a trip name.'''
 
 
 class VisionUnavailable(Exception):
@@ -240,7 +242,8 @@ def validate_response(result, *, image_hash, model=MODEL, lesson=False):
                      'category_hint': _string(item['category_hint'], 60),
                      'note': _string(item['note'], 240), 'requires_review': True})
     out = {'receipts': rows, 'source_sha256': image_hash, 'model': model,
-           'confirmed': False, 'trip_inferred': False}
+           'confirmed': False, 'trip_inferred': False,
+           'header_text': _string(result.get('header_text'), 200)}
     if lesson:
         # A lesson is optional and never decides whether the receipts are valid.
         text = result.get('lesson')

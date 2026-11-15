@@ -140,10 +140,10 @@
 | 수집·원본 | [source.md](policy/source.md) | SRC | 67 | 16 | 1 | 50 |
 | 장부 기록 | [record.md](policy/record.md) | REC | 43 | 13 | 0 | 30 |
 | Google 장부 | [google.md](policy/google.md) | GGL | 44 | 12 | 0 | 32 |
-| 영수증 | [receipt.md](policy/receipt.md) | RCPT | 29 | 8 | 0 | 21 |
+| 영수증 | [receipt.md](policy/receipt.md) | RCPT | 30 | 9 | 0 | 21 |
 | 수입·참가자 | [income.md](policy/income.md) | INC | 37 | 6 | 1 | 30 |
 
-합계 759개. 같은 규칙이 두 영역에 걸쳐 적힌 경우가 있다(예: 환불의 여행 귀속은 TRIP과 RFND 양쪽). 내용이 어긋나는 곳을 발견하면 §7의 절차로 고친다.
+합계 760개. 같은 규칙이 두 영역에 걸쳐 적힌 경우가 있다(예: 환불의 여행 귀속은 TRIP과 RFND 양쪽). 내용이 어긋나는 곳을 발견하면 §7의 절차로 고친다.
 
 P2에 넘길 때: 모든 건에 이 문서 §2·§3·§5와 `process.md`의 일반 규칙을 주고, 건의 성격에 따라 `trip.md`·`item.md`·`date.md`(귀속 판정), `link.md`(OTA 가맹점), `refund.md`(취소·환불이 얽힌 건)를 더한다. `source.md`·`record.md`·`google.md`·`receipt.md`·`income.md`는 주로 P1 구현자가 읽는다.
 
