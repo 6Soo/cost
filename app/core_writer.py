@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from contextlib import closing, contextmanager, nullcontext
 from contextvars import ContextVar
@@ -295,8 +297,152 @@ def stored_service_period(transaction_id: str):
     with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True)) as conn:
         row = conn.execute('SELECT service_period_json FROM decisions WHERE transaction_id=?',
                            (transaction_id,)).fetchone()
-    if not row:
-        return None
-    stored = json.loads(row[0])
+    return _normalized(row[0]) if row else None
+
+
+def _normalized(text) -> dict:
+    """A stored period in the reader's spelling: kind verified | inferred | unknown (the old `known` reads as verified)."""
+    stored = json.loads(text)
     kind = {'known': 'verified'}.get(stored.get('kind'), stored.get('kind'))
     return {**stored, 'kind': kind if kind in ('verified', 'inferred', 'unknown') else 'unknown'}
+
+
+def period_text(stored, *, inferred: bool = False) -> str:
+    """`YYYY-MM-DD~YYYY-MM-DD` of a stored verified period (and an inferred one when `inferred`); '' otherwise."""
+    if (isinstance(stored, dict) and stored.get('starts_on') and stored.get('ends_on')
+            and (stored.get('kind') == 'verified' or (inferred and stored.get('kind') == 'inferred'))):
+        return f"{stored['starts_on']}~{stored['ends_on']}"
+    return ''
+
+
+def stored_periods_enabled() -> bool:
+    """Screens and exports read stored periods only while Rust is the writer and core.sqlite is configured."""
+    return selected() == 'rust' and bool(os.environ.get(CORE_DB_ENV, ''))
+
+
+def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
+    """transaction_id -> normalized stored period (`_normalized`) of every stored decision, in one read-only query.
+
+    Raises sqlite3.Error when core.sqlite cannot be read (missing file, no table, locked past the timeout).
+    """
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not core:
+        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=timeout)) as conn:
+        rows = conn.execute('SELECT transaction_id, service_period_json FROM decisions').fetchall()
+    wanted = None if transaction_ids is None else set(transaction_ids)
+    found = {}
+    for tid, text in rows:
+        if wanted is None or tid in wanted:
+            try:
+                found[str(tid)] = _normalized(text)
+            except (TypeError, ValueError, AttributeError):
+                found[str(tid)] = {'kind': 'unknown'}
+    return found
+
+
+_FALLBACK: dict = {}
+_TIMER_LOCK = threading.Lock()
+_READ_ERROR = {'error': '', 'stale': False}
+_LAST_READ: dict = {'periods': None}
+_PUBLISHED = {'key': None}
+READ_TIMEOUT = 1.0
+STATUS_FILE = 'period-read-status.json'
+
+
+def load_stored_periods() -> dict | None:
+    """The stored periods for one read, or None when Python is the writer (behaviour unchanged).
+
+    The read waits one second at most. When core.sqlite is busy or unreadable the last successful read is reused
+    (`stale`), so a busy moment does not push every card onto the evidence index; with no earlier read every card
+    counts as a fallback. Either way `period_read_status` shows the error.
+    """
+    if not stored_periods_enabled():
+        return None
+    try:
+        found = stored_service_periods(timeout=READ_TIMEOUT)
+        _LAST_READ['periods'] = found
+        _READ_ERROR.update(error='', stale=False)
+        _publish_status()
+        return found
+    except (sqlite3.Error, OSError) as error:
+        _READ_ERROR.update(error=f'{type(error).__name__}: {error}', stale=_LAST_READ['periods'] is not None)
+        _publish_status()
+        return _LAST_READ['periods'] if _LAST_READ['periods'] is not None else {}
+
+
+def _not_judged(row) -> bool:
+    """A card Rust never decides: a P2 (ai_inference) row, unattributable, or in a completed period (it gets no decision, so it stays computed)."""
+    from . import closed_period
+    probe = {'approval_date': row.get('approval_date') or row.get('occurred_on') or ''}
+    return (row.get('classification_source') == 'ai_inference' or row.get('classification_state') == 'unclassified' or 'display_tab_id' in row and row.get('display_tab_id') is None
+            or closed_period.completed_period(probe) is not None)
+
+
+def note_period_source(transaction_id: str, from_decision: bool, row=None) -> None:
+    """Count a card whose period had to be computed: 'missing' (no decision yet; 0 after backfill) or 'not_judged'."""
+    if from_decision:
+        if _FALLBACK.pop(transaction_id, None) is not None:
+            _schedule_publish()
+    else:
+        _FALLBACK[transaction_id] = 'not_judged' if row is not None and _not_judged(row) else 'missing'
+        _schedule_publish()
+
+
+def period_read_status() -> dict:
+    """Operations view, without transaction ids: the reading mode and the two kinds of computed fallback."""
+    reasons = list(_FALLBACK.values())
+    return {'mode': 'stored' if stored_periods_enabled() else 'computed',
+            'missing_decision_count': reasons.count('missing'), 'not_judged_count': reasons.count('not_judged'),
+            'core_read_error': _READ_ERROR['error'], 'stale_read': _READ_ERROR['stale']}
+
+
+PUBLISH_DELAY = 2.0
+_TIMER: dict = {'pending': None}
+
+
+def _schedule_publish() -> None:
+    """Counting is memory only; the file and the log line are written once per burst, a moment after the last count."""
+    with _TIMER_LOCK:
+        if _TIMER['pending'] is not None:
+            return
+        timer = threading.Timer(PUBLISH_DELAY, _fire_publish)
+        timer.daemon = True
+        _TIMER['pending'] = timer
+        timer.start()
+
+
+def _fire_publish() -> None:
+    with _TIMER_LOCK:
+        _TIMER['pending'] = None
+    _publish_status()
+
+
+def publish_status() -> None:
+    """Write the status now (a command-line run calls this before it exits)."""
+    with _TIMER_LOCK:
+        timer, _TIMER['pending'] = _TIMER['pending'], None
+    if timer is not None:
+        timer.cancel()
+    _publish_status()
+
+
+def _publish_status() -> None:
+    """Write the status beside core.sqlite when it changed, so operations can read it from the data root."""
+    core = os.environ.get(CORE_DB_ENV, '')
+    status = period_read_status()
+    key = json.dumps(status, sort_keys=True)
+    if not core or _PUBLISHED['key'] == key:
+        return
+    _PUBLISHED['key'] = key
+    path = Path(core).with_name(STATUS_FILE)
+    try:
+        scratch = path.with_name(path.name + '.tmp')
+        scratch.write_text(json.dumps({**status, 'updated_at': datetime.now(timezone.utc).isoformat()},
+                                      ensure_ascii=False), encoding='utf-8')
+        os.replace(scratch, path)
+    except OSError:
+        pass
+    if status['missing_decision_count']:
+        logging.getLogger(__name__).warning('stored period: %d card(s) without a decision are computed',
+                                            status['missing_decision_count'])

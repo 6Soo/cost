@@ -1057,6 +1057,46 @@ def verified_period_for(row, index):
     return period
 
 
+def manual_period_rows(store) -> set:
+    """row_ids whose service period a person set (an empty value is an explicit "unknown")."""
+    if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
+        return set()
+    with store._lock:
+        return {str(r[0]) for r in store.conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
+
+
+def read_period(row, stored, manual, compute, *, export=False):
+    """(period, source) for a screen or export. A person's value wins; then the stored decision; computing is the fallback.
+
+    `stored` is `core_writer.load_stored_periods()` (None while Python writes: `compute()` as before). With a Rust
+    decision the period is only read, never recomputed; a card without one is computed and counted until backfilled.
+    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred period is read only by
+    a screen (`export=False`, source 'decision_inferred'); copies, the paste pack and reconciliation (`export=True`)
+    take verified periods only (DATE-109).
+    """
+    value = str(row.get('service_period') or '').strip()
+    if value:
+        return value, 'row'
+    row_id = str(row.get('row_id') or '')
+    if stored is None or not row_id.startswith('card-'):
+        return compute(), 'computed'
+    if row_id in manual:
+        return '', 'manual'
+    tid = str(row.get('source_event_id') or row_id[5:])
+    if row_id != 'card-' + tid:
+        return '', 'decision'
+    from app import core_writer
+    if tid in stored:
+        core_writer.note_period_source(tid, True)
+        found = stored[tid]
+        if found.get('kind') == 'inferred' and not export:
+            return core_writer.period_text(found, inferred=True), 'decision_inferred'
+        return core_writer.period_text(found), 'decision'
+    core_writer.note_period_source(tid, False, row)
+    return compute(), 'computed'
+
+
 def flight_departure_days(found):
     """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
 
