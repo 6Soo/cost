@@ -131,7 +131,8 @@ def _store_request_locked(method):
         status_read = (getattr(self, 'command', '') == 'GET'
                        and (card_upload_jobs.owns_route(path)
                             or self._upload_shell_only))
-        if lock is None or urlparse(self.path).path == "/healthz" or status_read:
+        if (lock is None or urlparse(self.path).path == "/healthz" or status_read
+                or (getattr(self, 'command', '') == 'GET' and path.startswith('/static/'))):
             return method(self, *args, **kwargs)
         token = request_metrics.bind_request_id()
         try:
@@ -2256,7 +2257,8 @@ class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         # Authentication responses own their cookies, including logout clearing.
         path = self.path.split("?", 1)[0]
-        if not path.startswith("/auth/") and path != "/access/logout":
+        # /static/ runs outside store_lock and is cached publicly: no session read, no Set-Cookie.
+        if not path.startswith(("/auth/", "/static/")) and path != "/access/logout":
             adapter = access_control_session_adapter()
             renew = getattr(adapter, "renewal_cookie_header", None)
             if renew is not None:
@@ -3506,8 +3508,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
-        from . import social_preview
+        from . import social_preview, static_assets
         if social_preview.dispatch(self, parsed.path):
+            return
+        if static_assets.dispatch(self, parsed.path):
             return
         # The platform's own liveness and readiness probes are answered before
         # any role is resolved. A PaaS health check carries no login, and a
