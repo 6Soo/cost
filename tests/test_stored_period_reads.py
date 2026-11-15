@@ -139,6 +139,7 @@ def test_fallback_is_split_into_not_judged_and_missing_and_published_without_ids
         ledger_stay_evidence.read_period(row, stored, set(), lambda: '')
     status = core_writer.period_read_status()
     assert (status['not_judged_count'], status['missing_decision_count']) == (4, 1)
+    core_writer.publish_status()
     published = json.loads((tmp_path / core_writer.STATUS_FILE).read_text(encoding='utf-8'))
     assert (published['not_judged_count'], published['missing_decision_count']) == (4, 1)
     assert 'lost' not in json.dumps(published)
@@ -182,3 +183,20 @@ def test_flight_decision_range_is_shown_without_the_departure_index(core, monkey
     monkeypatch.setattr(ledger_design, '_load_flight_dates', lambda: pytest.fail('flight index read'))
     label = read_scope.scoped(lambda: ledger_design._service_date_labels(card('known', item='항공료')))()
     assert label[0] == '10.01–10.03'
+
+
+def test_many_fallbacks_in_one_render_write_the_status_and_the_log_once(core, tmp_path, monkeypatch, caplog):
+    rust(core)
+    core.setattr(core_writer, 'PUBLISH_DELAY', 3600)
+    stored = core_writer.load_stored_periods()
+    writes = []
+    real = core_writer.os.replace
+    monkeypatch.setattr(core_writer.os, 'replace', lambda a, b: (writes.append(b), real(a, b))[1])
+    with caplog.at_level('WARNING'):
+        for n in range(300):
+            ledger_stay_evidence.read_period(card(f'lost{n}'), stored, set(), lambda: '')
+        assert writes == [] and not caplog.records
+        core_writer.publish_status()
+    assert len(writes) == 1
+    assert len([r for r in caplog.records if 'stored period' in r.getMessage()]) == 1
+    assert json.loads((tmp_path / core_writer.STATUS_FILE).read_text(encoding='utf-8'))['missing_decision_count'] == 300

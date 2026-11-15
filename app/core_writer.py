@@ -12,6 +12,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from contextlib import closing, contextmanager, nullcontext
 from contextvars import ContextVar
@@ -339,6 +340,7 @@ def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
 
 
 _FALLBACK: dict = {}
+_TIMER_LOCK = threading.Lock()
 _READ_ERROR = {'error': '', 'stale': False}
 _LAST_READ: dict = {'periods': None}
 _PUBLISHED = {'key': None}
@@ -379,10 +381,10 @@ def note_period_source(transaction_id: str, from_decision: bool, row=None) -> No
     """Count a card whose period had to be computed: 'missing' (no decision yet; 0 after backfill) or 'not_judged'."""
     if from_decision:
         if _FALLBACK.pop(transaction_id, None) is not None:
-            _publish_status()
+            _schedule_publish()
     else:
         _FALLBACK[transaction_id] = 'not_judged' if row is not None and _not_judged(row) else 'missing'
-        _publish_status()
+        _schedule_publish()
 
 
 def period_read_status() -> dict:
@@ -391,6 +393,36 @@ def period_read_status() -> dict:
     return {'mode': 'stored' if stored_periods_enabled() else 'computed',
             'missing_decision_count': reasons.count('missing'), 'not_judged_count': reasons.count('not_judged'),
             'core_read_error': _READ_ERROR['error'], 'stale_read': _READ_ERROR['stale']}
+
+
+PUBLISH_DELAY = 2.0
+_TIMER: dict = {'pending': None}
+
+
+def _schedule_publish() -> None:
+    """Counting is memory only; the file and the log line are written once per burst, a moment after the last count."""
+    with _TIMER_LOCK:
+        if _TIMER['pending'] is not None:
+            return
+        timer = threading.Timer(PUBLISH_DELAY, _fire_publish)
+        timer.daemon = True
+        _TIMER['pending'] = timer
+        timer.start()
+
+
+def _fire_publish() -> None:
+    with _TIMER_LOCK:
+        _TIMER['pending'] = None
+    _publish_status()
+
+
+def publish_status() -> None:
+    """Write the status now (a command-line run calls this before it exits)."""
+    with _TIMER_LOCK:
+        timer, _TIMER['pending'] = _TIMER['pending'], None
+    if timer is not None:
+        timer.cancel()
+    _publish_status()
 
 
 def _publish_status() -> None:

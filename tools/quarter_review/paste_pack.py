@@ -229,6 +229,7 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path, stay_index:
     if no_ledger_count:
         completeness_reasons["NO_LEDGER_ROW"] = no_ledger_count
     completeness_complete = not completeness_reasons and held_count == 0
+    core_writer.publish_status()
     summary = {
         "schema": "cost-quarter-paste-pack-v1",
         "period": f"{year}Q{quarter}",
