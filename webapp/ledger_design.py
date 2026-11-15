@@ -292,7 +292,7 @@ def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
         "<label for='q'>검색</label>"
         f"<input id='q' name='q' type='search' value='{board.esc(query)}' "
         "placeholder='거래처·내용·메모 검색' autocomplete='off'>"
-        "<label for='kind'>항목</label>"
+        "<label for='kind'>구분</label>"
         "<select id='kind' name='kind'>"
         f"<option value=''{'' if not kind else ''}>전체</option>"
         f"<option value='in'{ ' selected' if kind == 'in' else ''}>수입</option>"
@@ -537,15 +537,13 @@ def _source_preview_html(trip) -> str:
     # Percent-encoded, not just escaped. A sheet name is free text and can hold
     # `&`, `+`, `#` or a space, all of which mean something else inside a query
     # string; escaping alone would produce a link that opens the wrong search.
-    review_href = "/review?q=" + urllib.parse.quote(sheet, safe="")
     # The button sits with the heading rather than after the rows. A trip with
     # dozens of source rows pushes a trailing link far past the fold, and the
     # control a reader wants first becomes the one they have to scroll to.
     return (
         f"<section class='src-preview' id='src-preview'>"
         f"<div class='src-hd'><h2>실제 원천 자료 · 입금과 지출</h2>"
-        f"<a class='btn' id='src-review-link' href='{board.esc(review_href)}'>"
-        f"{ui_icons.icon('search')}실제 자료 검토</a></div>"
+        "</div>"
         f"<p class='muted'><code>{board.esc(sheet)}</code> · {len(items)}행</p>"
         f"<ul class='src-list'>{''.join(items)}</ul>"
         f"</section>")
@@ -1511,7 +1509,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
         "<label for='f-display_tab_id'>여행</label>"
         f"<select id='f-display_tab_id' name='display_tab_id'{' disabled' if 'display_tab_id' not in allowed else ''}>"
         f"{_trip_options(current_tab, '여행 연결 없음')}</select></div>")
-    for name, label in (("item", "항목"), ("customer_name", "이름"),
+    for name, label in (("item", "분류"), ("customer_name", "이름"),
                         ("nickname", "닉네임"), ("customer_id", "고객 ID"),
                         ("income_kind", "입금 종류")):
         if name not in allowed and name not in fixed:
@@ -1659,7 +1657,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           quick_view: bool = False, bare: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
-    back = f"/board?{state}"
+    back = f"/board?{state}" if tab_id else "/board"
     # Reserve the status slot for actual unsaved edits, not routine timestamps.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     context_badge = "" if quick_view else _context_badge()
@@ -1670,10 +1668,10 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span id='unsaved-count' hidden></span>"
         + (board.esc(role_note) if role_note else "")
         + "</p>")
-    # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
+    # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 내보내기는 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
-    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
-                  if tab_id and title != 'XLSX 내보내기' else "")
+    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 내보내기</a>"
+                  if tab_id and title not in ('XLSX 내보내기', '수기 지출 추가', '수입 직접 입력') else "")
     # bare: the body renders its own page_header (the 거래 tabs); keep only the
     # live-status slots the cross-screen refresh writes to.
     if bare:
@@ -1710,6 +1708,16 @@ def _selected_trip(tab_id: str):
         return {"display_key": "이전 귀속 목록", "is_unclassified": True}
     return next((t for t in board.live_trips(include_archived=True)
                  if t["tab_id"] == tab_id), None)
+
+
+def tab_known(tab_id: str) -> bool:
+    """False only for a trip id that does not exist (the board answers 404 for it)."""
+    if _STORE_missing() or not tab_id:
+        return True
+    from app import quarter_tab
+    if quarter_tab.parse_tab(tab_id) or tab_id in ('refunds', 'unclassified'):
+        return True
+    return _selected_trip(tab_id) is not None
 
 
 def _expense_category_rank(item: str) -> int:
@@ -2023,7 +2031,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     drawer_html = (
         "<dialog class='drawer' id='ledger-drawer' aria-labelledby='ledger-drawer-title'>"
         "<div class='drawer-header'><h2 id='ledger-drawer-title'>거래 상세</h2>"
-        "<button class='icon-btn' type='button' id='drawer-close' data-drawer-close aria-label='닫기'>×</button></div>"
+        "<button class='btn ghost' type='button' id='drawer-close' data-drawer-close>닫기</button></div>"
         f"<div class='drawer-body' id='panel-slot'>{selected_panel}</div></dialog>")
     whole_expenses = _selected_rows(tab_id, '', '')[3] if _is_trip_tab(tab_id) else []
     amount_groups = _amount_group_state(tab_id, whole_expenses, kind)

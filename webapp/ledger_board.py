@@ -1384,7 +1384,7 @@ def income_new_page() -> str:
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"<p><label for='income-trip'>여행</label><select id='income-trip' name='display_tab_id'><option value=''>여행을 선택하세요</option>{options}</select></p>"
         "<p><label for='income-date'>거래일자</label><input id='income-date' name='occurred_on' placeholder='2026-04-01'></p>"
-        "<p><label for='income-amount'>금액(원)</label><input id='income-amount' name='amount_krw' inputmode='numeric'></p>"
+        "<p><label for='income-amount'>금액(원)</label><input id='income-amount' name='amount_krw' inputmode='text'></p>"
         "<p><label for='income-kind'>입금 종류</label><select id='income-kind' name='income_kind'>"
         "<option value='deposit'>예약금</option><option value='balance'>잔금</option>"
         "<option value='additional'>추가금</option></select></p>"
@@ -1406,11 +1406,11 @@ MANUAL_EXPENSE_STYLE = """<style>
 .mx-field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .mx-field.wide{grid-column:1 / -1}
 .mx-field label{font-size:var(--t-meta);font-weight:600;color:var(--mut)}
-.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);font:inherit;font-size:var(--t-body-sm);color:var(--ink)}
+.mx-card .mx-field input:not([type=radio]):not([type=checkbox]),.mx-card .mx-field select{height:44px;min-width:0;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--paper);font:inherit;font-size:var(--t-body-sm);color:var(--ink)}
 .mx-field input:focus,.mx-field select:focus{outline:2px solid var(--c-focus);outline-offset:-1px}
 .mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
-.mx-actions .btn.primary{min-height:42px;padding:0 24px}
+.mx-card .mx-actions :is(button,a.btn){height:44px;margin:0 0 0 8px}.mx-actions .btn.primary{min-height:44px;padding:0 24px}
 @media (max-width:640px){.mx-grid{grid-template-columns:1fr}.mx-card{margin:12px;padding:20px}}
 </style>"""
 
@@ -1425,8 +1425,8 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
     )
     if not any(t['tab_id'] == selected_tab for t in trips):
         options = "<option value='' selected>기타비용</option>" + options
-    close = ("<button type='button' data-manual-close>닫기</button>" if modal
-             else f"<a class='btn ghost' href='/board?{esc(urlencode({'tab': selected_tab}))}'>취소</a>")
+    close = ("<button type='button' class='btn ghost' data-manual-close>닫기</button>" if modal
+             else f"<a class='btn ghost' href='/board{('?' + urlencode({'tab': selected_tab})) if selected_tab else ''}'>취소</a>")
     heading = ("<h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
                if modal else "")
     return (
@@ -1439,10 +1439,10 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
         "<div class='mx-field'><label for='mx-date'>거래일자</label><input id='mx-date' type='date' name='occurred_on' required></div>"
         "<div class='mx-field'><label for='mx-pay'>지급 수단</label><select id='mx-pay' name='pay_method'>"
         "<option value='현금'>현금</option><option value='계좌이체'>계좌이체</option></select></div>"
-        "<div class='mx-field'><label for='mx-item'>항목</label><input id='mx-item' name='item'></div>"
+        "<div class='mx-field'><label for='mx-item'>분류</label><input id='mx-item' name='item'></div>"
         "<div class='mx-field'><label for='mx-desc'>내용</label><input id='mx-desc' name='description'></div>"
         "<div class='mx-field wide mx-amount'><label for='mx-amount'>금액 (원, 환불은 음수)</label>"
-        "<input id='mx-amount' name='amount_krw' required inputmode='numeric' placeholder='0'></div>"
+        "<input id='mx-amount' name='amount_krw' required inputmode='text' placeholder='0'></div>"
         "<div class='mx-field wide'><label for='mx-memo'>메모</label><input id='mx-memo' name='operator_note'></div>"
         "</div>"
         "<p class='mx-error' role='alert'></p>"
@@ -1971,7 +1971,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                     f"<input type='hidden' name='expected_revision' value='{row.get('revision', 1)}'>"
                     f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
                     f"<p><label>여행 배정</label><select name='display_tab_id'>{options}</select></p>"
-                    f"<p><label>항목</label><input name='item' value='{esc(row['item'])}'></p>"
+                    f"<p><label>분류</label><input name='item' value='{esc(row['item'])}'></p>"
                     f"<p><label>내용</label><input name='description' value='{esc(row['description'])}'></p>"
                     f"{extra_fields}"
                     f"<p><label>메모</label><input name='operator_note' value='{esc(row.get('operator_note', ''))}'></p>"
@@ -3701,6 +3701,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if part == "summary":
                 self._send(ledger_design.summary_part(tab, kind, q))
+                return
+            if not ledger_design.tab_known(tab):
+                from . import error_page
+                error_page.send(self, error_page.render(404, "여행을 찾을 수 없습니다", "주소가 바뀌었거나 없는 여행입니다.",
+                                                        [("여행 목록", "/trips"), ("홈으로", "/")]), 404)
                 return
             from . import live_sync
 

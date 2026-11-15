@@ -359,7 +359,7 @@ def render_html(data):
         ".home-collection table{width:100%;border-collapse:collapse;font-size:var(--t-meta)}"
         ".home-collection th,.home-collection td{text-align:left;padding:4px 10px 4px 0;vertical-align:top}"
         ".home-collection th{color:var(--mut);font-weight:600}"
-        ".home-collection .ok{color:var(--grn)}"
+        ".home-collection .ok{color:var(--c-accent-text)}"
         ".home-collection .warn{color:var(--warn);font-weight:700}"
         ".home-collection .login{color:var(--neg);font-weight:700}"
         ".home-collection .none{color:var(--mut)}"

@@ -111,9 +111,10 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .amount-cell .card-all-badges{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:3px}
 .card-all-page .filter-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:var(--t-meta)}
 .card-all-page .filter-bar>label{display:inline-flex;align-items:center;gap:7px;min-width:0}
-.card-all-page .filter-bar :is(input[type=search],select){min-height:42px;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+.card-all-page .filter-bar :is(input[type=search],select){min-height:44px;max-width:100%;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
 .card-all-page .filter-bar input[type=search]{width:min(360px,100%)}
-.card-all-page .filter-bar button{min-height:42px;padding:8px 14px;font:inherit}
+.card-all-page .card-all-ledger-link{display:inline-block;margin-top:var(--s-3)}
+.card-all-page .filter-bar button{min-height:44px;padding:8px 14px;font:inherit}
 .card-all-page .card-all-table .trip{min-width:0;overflow-wrap:anywhere}
 .card-all-page .card-all-trip-name{display:block;font-weight:700;line-height:1.4}
 .card-all-page .card-all-trip-name.unassigned{color:var(--ca-muted);font-weight:500}
@@ -136,7 +137,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-stat-value{font-size:var(--t-body-sm)}
 .card-all-page .card-all-toolbar{display:none}
 .card-all-page .filter-bar{margin:0 0 8px;gap:8px;padding:0;border:0;background:transparent}
-.card-all-page .filter-bar :is(input[type=search],select){min-height:42px;padding:6px 9px}
+.card-all-page .filter-bar :is(input[type=search],select){min-height:44px;padding:6px 9px}
 .card-all-page .filter-bar button{min-height:44px}
 .card-all-page .card-all-help{margin:0 0 10px}
 .card-all-page .card-all-help summary{min-height:44px}
@@ -233,14 +234,14 @@ CARD_ALL_STYLE = """
 .card-all-page .card-workspace-panel h3{font-size:var(--t-body-sm)}
 .card-all-page .card-workspace-panel p{line-height:1.5}
 .card-all-page .card-workspace-panel :is(button,a){min-height:44px}
-.card-all-page .card-workspace-panel :is(input[type=file],input[type=date],select){min-height:44px;max-width:100%;font:inherit}
+.card-all-page .card-workspace-panel :is(input[type=file],input[type=date],select){border:1px solid var(--c-border-control);min-height:44px;max-width:100%;font:inherit}
 .card-all-page .card-workspace-muted{color:var(--ca-muted);font-size:var(--t-meta);overflow-wrap:anywhere}
 .card-all-page .card-workspace-status{min-height:1.5em;margin:8px 0;color:var(--ca-ink);font-size:var(--t-meta)}
 .card-all-page .card-workspace-error{padding:12px;border-inline-start:3px solid var(--warn,var(--c-warn-text));background:var(--ca-soft);overflow-wrap:anywhere}
 .card-all-page .card-workspace-secondary,.card-all-page .card-upload-result-link{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit;font-weight:650;text-decoration:none;cursor:pointer}
 .card-all-page .card-upload-form{display:grid;gap:8px;max-width:760px}
 .card-all-page .card-upload-form label{font-weight:650}
-.card-all-page .card-upload-form input[type=file]{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink)}
+.card-all-page .card-upload-form input[type=file]{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink)}
 .card-all-page .card-upload-results{display:grid;gap:8px;margin:12px 0 0;padding:0;list-style:none}
 .card-all-page .card-upload-results[hidden]{display:none}
 .card-all-page .card-upload-result{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:8px 14px;align-items:start;padding:10px 0;border-bottom:1px solid var(--ca-border);min-width:0}
@@ -335,9 +336,9 @@ CARD_ALL_STYLE = """
  @media (width < 1024px){.card-all-page .card-all-table-wrap{display:none}.card-all-page .card-all-mobile-list{display:block;border:1px solid var(--ca-border);border-radius:var(--r-lg);overflow:hidden;background:var(--ca-paper)}}
  .card-all-page .filter-bar{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:var(--t-meta);min-width:0}
  .card-all-page .filter-bar .field{display:flex;align-items:center;gap:7px;min-width:0}
- .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{box-sizing:border-box;min-width:0;max-width:100%;min-height:42px;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+ .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{box-sizing:border-box;min-width:0;max-width:100%;min-height:44px;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
  .card-all-page .filter-bar .field input[type=search]{width:min(360px,100%)}
- .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{min-height:42px;padding:8px 14px;font:inherit}
+ .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{min-height:44px;padding:8px 14px;font:inherit}
  @media(max-width:759px){
   .card-all-page .filter-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;margin:0 0 8px}
   .card-all-page .filter-bar .field{display:flex;flex-direction:column;align-items:stretch;gap:3px;min-width:0;font-size:var(--t-caption)}
@@ -493,7 +494,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         + notice + transaction_panel +
         f"<section id='card-upload-panel' class='card-workspace-panel' aria-labelledby='card-upload-heading' tabindex='-1'{'' if active == 'upload' else ' hidden'}>"
         "<header><div><h2 id='card-upload-heading'>카드 업로드</h2><p class='card-workspace-muted'>원본 파일을 먼저 저장한 뒤 백그라운드에서 처리합니다. 화면을 새로 열어도 저장된 처리 상태를 확인할 수 있습니다.</p></div>"
-        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>닫기</button></div></header>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='btn ghost' data-card-panel-close='upload'>닫기</button></div></header>"
         "<div id='card-gap-context' class='card-legacy-notice' role='status' hidden></div>"
         "<form class='card-upload-form' onsubmit='return false'>"
         "<label for='card-upload-files'>업로드할 카드 파일 선택</label>"
@@ -511,7 +512,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
         "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>카드사별 수집 기간을 확인하고, 빈 기간의 자료를 업로드하세요.</p></div>"
         "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh' aria-label='수집 현황 새로고침'>새로고침</button>"
-        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage' aria-label='수집 현황 닫기'>닫기</button></div></header>"
+        "<button type='button' class='btn ghost' data-card-panel-close='coverage' aria-label='수집 현황 닫기'>닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
         "<div id='card-coverage-summary'></div></section>"
         "</section>"
@@ -743,7 +744,7 @@ def card_detail_html(item: dict) -> str:
     fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or item.get('posting_date') or '원본 날짜 오류'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
-              ('귀속', destination), ('항목', item.get('item')), ('분류 출처', source),
+              ('귀속', destination), ('분류', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
