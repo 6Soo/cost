@@ -283,7 +283,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'job_exit_at_stop', 'backend_exit_at_stop', 'failure_artifact_write', 'rollback_cleanup', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
+@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'job_exit_at_stop', 'backend_exit_at_stop', 'failure_artifact_write', 'rollback_cleanup', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry', 'writer_mismatch'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -298,6 +298,8 @@ def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path,
     candidate_tools = candidate.parent / 'tools'
     candidate_tools.mkdir()
     (candidate_tools / 'webledger_task_entry.pyw').touch()
+    (candidate.parent / 'app').mkdir()
+    (candidate.parent / 'app' / 'core_switch_config.py').write_text('# --verify-applied', encoding='utf-8')
     (candidate_tools / 'start_web_ledger_host.ps1').write_text(
         'param([string]$LifecycleRole)', encoding='utf-8')
     (root / 'venv/Scripts').mkdir(parents=True)
@@ -309,6 +311,7 @@ def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path,
     # Only the external controller invocation is replaced; real script flow,
     # task actions, error handling, and filesystem evidence remain exercised.
     source = source.replace('& $python @parameters', 'Invoke-SyntheticRoute @parameters')
+    source = source.replace('& $python @verify', 'Invoke-SyntheticVerify @verify')
     switch = tmp_path / 'switch.ps1'
     switch.write_text(source, encoding='utf-8')
     harness = tmp_path / 'harness.ps1'
@@ -327,6 +330,7 @@ if($Failure -eq 'legacy_wrapper'){
  $global:board.Actions[0].Execute=$Root+'\venv\Scripts\pythonw.exe'
  $global:board.Actions[0].Arguments='"C:\ProgramData\AX\WindowlessTasks\webledger_board_job.pyw" "C:\logs\board.log" "-" "powershell" -File '+$Old+'/start.ps1 -BoardPort 8751'
 }
+$global:board.Actions[0].Arguments+=' -LauncherPath "'+$Root+'\bin\launch_web_ledger.py"'
 $global:prepared=$null
 $global:ports=@{8751=$Old}
 $global:supervisors=@{8751=$true;8752=$false}
@@ -444,6 +448,11 @@ function Invoke-WebRequest {
     [pscustomobject]@{StatusCode=200}
 }
 function Start-Sleep {}
+function Invoke-SyntheticVerify {
+    $global:events.Add('verify:'+($args -join ' '))
+    if($Failure -eq 'writer_mismatch'){$global:LASTEXITCODE=2;'refused [CORE_APPLIED_MISMATCH_WORKER]';return}
+    $global:LASTEXITCODE=0
+}
 function Invoke-SyntheticRoute {
     $action=$args[1]
     $global:events.Add('route:'+$action)
@@ -464,6 +473,8 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
         assert '--role Board --port 8752 --' in report['board']
+        assert 'LauncherPath' not in report['board'], report
+        assert any(event.startswith('verify:') and new in event for event in report['events']), report
         assert report['board'].count('webledger_task_entry.pyw') == 1
         assert 'webledger_board_job.pyw' not in report['board']
         stop_event = 'kill:28751' if failure == 'job_exit_at_stop' else 'stop:WebLedger-Board' if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit') else 'kill:8751'
@@ -483,6 +494,10 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
         if failure in ('late_duplicate', 'late_replacement'):
             assert 'kill:28751' not in report['events'] and 'kill:8751' not in report['events']
         assert old in report['board'] and report['old_alive'], report
+        assert 'launch_web_ledger.py' in report['board'], report
+        if failure == 'writer_mismatch':
+            assert 'CORE_WRITER_MISMATCH' in report['error'] and 'CORE_APPLIED_MISMATCH_WORKER' in report['error'], report
+            assert report['events'].count('route:pause') == 2 and report['events'][-1] == 'route:activate', report
         if failure in ('candidate_identity', 'rollback_cleanup'):
             assert report['new_alive'] and 'kill:8752' not in report['events']
         else:
