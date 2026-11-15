@@ -63,11 +63,12 @@ def test_manual_ids_plan_uses_index_and_result_is_unchanged(tmp_path):
 
 
 def test_board_rows_tab_index_is_used_and_idempotent():
-    from webapp.ledger_store_schema import SCHEMA_SQL
+    from webapp.ledger_store_schema import INDEX_SQL, SCHEMA_SQL
     conn = sqlite3.connect(':memory:')
     try:
-        conn.executescript(SCHEMA_SQL)
-        conn.executescript(SCHEMA_SQL)
+        for _ in range(2):
+            conn.executescript(SCHEMA_SQL)
+            conn.executescript(INDEX_SQL)
         for i in range(20):
             conn.execute("INSERT INTO board_rows VALUES (?,?,?,?,?)", (f'r{i}', 'expense', f'tab{i % 3}', 1, '{}'))
         sql = "SELECT row_id FROM board_rows WHERE display_tab_id='tab1' ORDER BY row_id"

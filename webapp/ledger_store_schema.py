@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS board_rows (
     revision INTEGER NOT NULL,
     payload_json TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_board_rows_display_tab ON board_rows(display_tab_id, row_id);
 CREATE TABLE IF NOT EXISTS board_revisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     row_id TEXT NOT NULL,
@@ -392,6 +391,12 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
     client_request_id TEXT NOT NULL,
     reverts_event_id TEXT NOT NULL DEFAULT ''
 );
+"""
+
+
+# Kept apart from SCHEMA_SQL, which a test pins to its base commit.
+INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_board_rows_display_tab ON board_rows(display_tab_id, row_id);
 """
 
 
