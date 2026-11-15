@@ -10,6 +10,7 @@ byte-identical afterwards.
 import copy
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -82,6 +83,7 @@ RIGHT = [
 class Phase8ImportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="phase8-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.left = migration.build_source_db(self.tmp / "google.sqlite",
                                               LEFT, side="google")
         self.right = migration.build_source_db(self.tmp / "db.sqlite",
@@ -706,6 +708,7 @@ class ReviewedImportPlanTests(unittest.TestCase):
 
     def test_plan_generation_makes_no_db_changes(self):
         tmp = Path(tempfile.mkdtemp(prefix="phase8-plan-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         left = migration.build_source_db(tmp / "google.sqlite", LEFT,
                                          side="google")
         right = migration.build_source_db(tmp / "db.sqlite", RIGHT, side="db")

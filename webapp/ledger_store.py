@@ -26,6 +26,8 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from app.manual_overrides import is_human_actor
+
 from . import ledger_board as board
 from .ledger_store_records import (
     ALLOCATION_ROW_EDITABLE,
@@ -88,6 +90,7 @@ from .ledger_store_allocation_validation import (
     validate_allocation_plan,
 )
 from .ledger_store_schema import (
+    INDEX_SQL,
     SCHEMA_SQL,
     _ensure_correction_columns,
     _ensure_rule_turn_columns,
@@ -283,6 +286,7 @@ class LedgerStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA_SQL)
+        self.conn.executescript(INDEX_SQL)
         _ensure_correction_columns(self.conn)
         _ensure_rule_turn_columns(self.conn)
         _ensure_trip_tab_columns(self.conn)
@@ -775,7 +779,7 @@ class LedgerStore:
                      "", "exception", actor, created_at, client_request_id,
                      "revert", target_event),
                 )
-                for field in restored:
+                for field in restored if is_human_actor(actor) else ():
                     if field in ("row_id", "row_kind", "revision") or field not in current:
                         continue
                     if restored.get(field) != current.get(field):
@@ -941,8 +945,9 @@ class LedgerStore:
         }
 
     def manual_locked_fields(self, row_id: str) -> set:
+        from app.manual_overrides import filter_sql
         return {r[0] for r in self.conn.execute(
-            "SELECT field FROM board_manual_overrides WHERE row_id=?",
+            "SELECT o.field FROM board_manual_overrides o WHERE o.row_id=? AND " + filter_sql(self.conn),
             (row_id,)).fetchall()}
 
     def _draft_confirmation(self, rule: dict, case_id: str) -> dict:
@@ -3112,7 +3117,8 @@ class LedgerStore:
                     (row_id, new["revision"], _canonical(prev), _canonical(new), "",
                      change_mode, actor, created_at, client_request_id),
                 )
-                for field in changes if actor != "automatic" else ():
+                # Only a person's save is a manual correction; tool and automatic saves keep their revision only.
+                for field in changes if is_human_actor(actor) else ():
                     if new.get(field) == prev.get(field):
                         continue
                     self.conn.execute(
@@ -3272,7 +3278,8 @@ class LedgerStore:
                                 reason = 'SOURCE_UNAVAILABLE'
                             if reason:
                                 raise SaveError('FIELD_READ_ONLY', '원본·중복·환불 보호로 개별 검토가 필요해요: ' + reason)
-                        if self.conn.execute("SELECT 1 FROM board_manual_overrides WHERE row_id=? AND field='display_tab_id'", (entry['row_id'],)).fetchone():
+                        from app.manual_overrides import exists_sql as manual_exists_sql
+                        if self.conn.execute('SELECT ' + manual_exists_sql(self.conn, '?', 'display_tab_id'), (entry['row_id'],)).fetchone()[0]:
                             raise SaveError('FIELD_READ_ONLY', '수동 여행 교정이 있어 개별 검토해 주세요')
                         self._validate(current, {'display_tab_id': target})
                     except SaveError as exc:
@@ -5341,7 +5348,7 @@ class LedgerStore:
                     client_request_id=client_request_id,
                     reverts_event_id=reverts_event_id,
                 )
-                for field in changed_fields:
+                for field in changed_fields if is_human_actor(actor) else ():
                     self.conn.execute(
                         "INSERT OR REPLACE INTO board_manual_overrides(row_id, field, event_id)"
                         " VALUES (?,?,?)",

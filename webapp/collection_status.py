@@ -150,8 +150,55 @@ def _google_status():
     return last, login
 
 
-def _p2_status(config_path):
-    """설정된 P2 보관함에서 가장 최근 실행 요약. 설정이 없으면 실행 기록 없음."""
+def _collection_run_login_required(data_root, source):
+    """최근 수집 실행 계약에서 로그인 필요만 읽는다. 잘못된 파일은 무시한다."""
+    if data_root is None:
+        return False
+    path = Path(data_root) / 'collection-runs' / f'{source}.json'
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        if (not isinstance(payload, dict)
+                or set(payload) != {'schema', 'source', 'finished_at', 'status', 'login_required'}
+                or payload.get('schema') != 'cost.collection-run-summary.v1'
+                or payload.get('source') != source
+                or not isinstance(payload.get('status'), str)
+                or not isinstance(payload.get('login_required'), bool)
+                or _parse_kst(payload.get('finished_at')) is None):
+            return False
+        return payload['login_required']
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _collection_run_signature(data_root):
+    """캐시 중에도 실행 요약이 바뀌면 다음 홈 요청에서 즉시 반영한다."""
+    if data_root is None:
+        return ()
+    values = []
+    for source in ('kb', 'hana', 'ibk', 'agoda', 'trip', 'booking'):
+        try:
+            stat = (Path(data_root) / 'collection-runs' / f'{source}.json').stat()
+            values.append((stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            values.append(None)
+    return tuple(values)
+
+
+def _p2_status(data_root, config_path=None):
+    """운영 데이터 폴더의 요약을 우선 읽고, 과거 보관함 설정도 지원한다."""
+    latest = Path(data_root) / 'p2-runs' / 'latest.json'
+    try:
+        summary = json.loads(latest.read_text(encoding='utf-8'))
+        recorded = _parse_kst(summary.get('finished_at') or summary.get('started_at'))
+        if isinstance(summary, dict) and recorded and summary.get('schema') == 1:
+            return {'last_at': recorded, 'merchants': int(summary.get('target_groups') or 0),
+                    'success': int(summary.get('successful_calls') or 0),
+                    'failed': int(summary.get('failed_calls') or 0), 'status': summary.get('status'),
+                    'failure_reason_code': summary.get('failure_reason_code')}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    if config_path is None:
+        return None
     try:
         options = json.loads(Path(config_path).read_text(encoding='utf-8-sig'))
     except (OSError, ValueError):
@@ -180,7 +227,7 @@ def _p2_status(config_path):
     return {'last_at': dt.datetime.fromtimestamp(mtime, KST),
             'merchants': int(summary.get('merchants') or 0),
             'success': int(summary.get('successful_calls') or 0),
-            'failed': int(summary.get('failed_attempts') or 0)}
+            'failed': int(summary.get('failed_attempts') or 0), 'status': None, 'failure_reason_code': None}
 
 
 def _normal_undecided(board):
@@ -210,30 +257,41 @@ def _normal_undecided(board):
 def gather(board, *, now=None):
     """원천별 마지막 수집 기록을 모은다. 기록이 없으면 None 으로 남긴다."""
     path = getattr(board, 'path', None)
-    key = str(path) if (now is None and path is not None) else None
+    data_root = Path(path).parent if path is not None else None
+    key = ((str(path), _collection_run_signature(data_root))
+           if (now is None and path is not None) else None)
     if key is not None:
         hit = _CACHE.get(key)
         if hit is not None and time.monotonic() < hit[0]:
             return hit[1]
     now = now or dt.datetime.now(KST)
-    data_root = Path(path).parent if path is not None else None
     cards = _card_last(board)
     mail = _mail_last(data_root) if data_root is not None else None
     ota = _ota_last(data_root) if data_root is not None else {key: None for key, _ in OTA_PROVIDERS}
     google_last, google_login = _google_status()
-    p2 = (_p2_status(Path(path).parent.parent / 'config' / 'card-flow.json')
+    try:
+        from .google_ledger_page import last_trip_import_result
+        trip_import = last_trip_import_result(data_root) if data_root is not None else None
+    except Exception:
+        trip_import = None
+    p2 = (_p2_status(data_root, Path(path).parent.parent / 'config' / 'card-flow.json')
           if path is not None else None)
+    card_sources = {'국민': 'kb', '하나': 'hana', '기업': 'ibk'}
     sources = [{'label': label, 'group': 'card', 'last_at': cards.get(issuer),
-                'threshold': THRESHOLDS_DAYS['card'], 'login_required': False}
+                'threshold': THRESHOLDS_DAYS['card'],
+                'login_required': _collection_run_login_required(data_root, card_sources[issuer])}
                for issuer, label in CARD_ISSUERS]
     sources.append({'label': 'Gmail 메일', 'group': 'mail', 'last_at': mail,
                     'threshold': THRESHOLDS_DAYS['mail'], 'login_required': False})
+    run_sources = {'agoda': 'agoda', 'trip': 'trip', 'booking': 'booking'}
     sources.extend({'label': label, 'group': 'ota', 'last_at': ota.get(key),
-                    'threshold': THRESHOLDS_DAYS['ota'], 'login_required': False}
+                    'threshold': THRESHOLDS_DAYS['ota'],
+                    'login_required': _collection_run_login_required(data_root, run_sources[key])
+                    if key in run_sources else False}
                    for key, label in OTA_PROVIDERS)
     sources.append({'label': 'Google 수입', 'group': 'google', 'last_at': google_last,
                     'threshold': THRESHOLDS_DAYS['google'], 'login_required': google_login})
-    data = {'now': now, 'sources': sources, 'p2': p2,
+    data = {'now': now, 'sources': sources, 'p2': p2, 'trip_import': trip_import,
             'normal_undecided': _normal_undecided(board)}
     if key is not None:
         _CACHE[key] = (time.monotonic() + _CACHE_TTL_SECONDS, data)
@@ -281,12 +339,19 @@ def render_html(data):
             f"<td>{threshold_text}</td><td class='{state['css']}'{title}>{state['status']}</td></tr>")
     p2 = data.get('p2')
     if p2:
-        p2_text = (f"AI 판정 마지막 실행 {esc(p2['last_at'].strftime('%Y-%m-%d'))} · "
+        p2_failed = p2.get('status') == 'failed' or p2.get('failed', 0) > 0
+        p2_text = (f"P2 실패 · {esc(p2['failure_reason_code'])} · " if p2_failed and p2.get('failure_reason_code')
+                   else 'P2 실패 · ' if p2_failed else '')
+        p2_text += (f"AI 판정 마지막 실행 {esc(p2['last_at'].strftime('%Y-%m-%d'))} · "
                    f"대상 {p2['merchants']}곳 · 성공 {p2['success']} · 실패 {p2['failed']}")
     else:
         p2_text = 'AI 판정 실행 기록 없음'
     normal = data.get('normal_undecided')
     normal_text = f'판정 없는 정상 거래 {normal}건' if normal is not None else '판정 없는 정상 거래 —'
+    trip_import = data.get('trip_import') or {}
+    schedule_text = ('Google 여행 일정 근거 파일을 읽지 못했습니다.'
+                     if trip_import.get('schedule_unavailable') else '')
+    suffix = (' · ' + schedule_text) if schedule_text else ''
     return (
         "<style>"
         ".home-collection{margin:0}"
@@ -294,7 +359,7 @@ def render_html(data):
         ".home-collection table{width:100%;border-collapse:collapse;font-size:var(--t-meta)}"
         ".home-collection th,.home-collection td{text-align:left;padding:4px 10px 4px 0;vertical-align:top}"
         ".home-collection th{color:var(--mut);font-weight:600}"
-        ".home-collection .ok{color:var(--grn)}"
+        ".home-collection .ok{color:var(--c-accent-text)}"
         ".home-collection .warn{color:var(--warn);font-weight:700}"
         ".home-collection .login{color:var(--neg);font-weight:700}"
         ".home-collection .none{color:var(--mut)}"
@@ -304,7 +369,7 @@ def render_html(data):
         "<h3>수집 상태</h3>"
         "<table><thead><tr><th>원천</th><th>마지막 수집</th><th>기준</th><th>상태</th></tr></thead>"
         "<tbody>" + ''.join(rows) + "</tbody></table>"
-        f"<p class='home-collection-note'>{p2_text} · {normal_text}</p>"
+        f"<p class='home-collection-note'>{p2_text} · {normal_text}{esc(suffix)}</p>"
         "</div>")
 
 

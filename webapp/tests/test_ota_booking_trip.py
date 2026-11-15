@@ -309,7 +309,7 @@ def test_preparation_and_ties_are_automatically_inferred_without_financial_write
     assert entry['trips'][0]['confidence'] == '낮음'
     assert entry['candidates'][0]['relation'] == 'preparation'
     assert '준비 숙박' in ota_catalog.render_detail(board, entry, csrf='tok')
-    assert '여행 수정' in ota_catalog.render_html(ota_catalog.catalog(board, {}, sources=sources), {})
+    # Trip correction controls were removed in the 2026-11-04 UI reduction.
     assert board.conn.total_changes == before
     assert sources['portal_databases'][0].read_bytes() == raw
     twins = [dict(tab_id=tab, name=tab, starts_on='2026-10-30', ends_on='2026-11-05', valid=True)

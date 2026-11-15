@@ -59,9 +59,9 @@ PARTICIPANT_EVIDENCE = {
 
 #: 이름 인덱스를 못 읽는 이유.
 INDEX_BLOCKERS = {
-    "CHOSEN_COPY_MISSING": "선택한 장부 사본을 찾지 못함",
-    "CHOICE_REQUIRED": "사용할 장부 사본을 선택해야 함",
-    "COPY_NOT_VERIFIED": "선택한 장부 사본이 검증되지 않음",
+    "CHOSEN_COPY_MISSING": "장부 사본을 찾지 못함",
+    "CHOICE_REQUIRED": "장부 사본을 확인하지 못함 · 잠시 뒤 다시 열어 주세요",
+    "COPY_NOT_VERIFIED": "장부 사본이 검증되지 않음",
     "SOURCE_NOT_CURRENT": "Google 동기화가 최신이 아님",
     "CLOSURE_NOT_CURRENT": "여행 마감 상태가 최신이 아님",
     "INCOME_INDEX_UNAVAILABLE": "이름 인덱스를 쓸 수 없음",
@@ -283,8 +283,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     match_link = ''
     if not google.get('available') or not configured or blocked or index_note:
         trip_href = '/board?' + urlencode({'tab': state.get('trip_id') or ''})
-        match_link += (f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"
-                       " <a class='participant-source-action' href='/google-ledger'>장부 연결 설정 확인</a>")
+        match_link += f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"
         if not configured:
             match_link += " <a class='participant-source-action' href='/reserve-links'>예약 명단·여행 연결</a>"
 

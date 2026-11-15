@@ -20,6 +20,7 @@ reaches the ledger; a candidate and a review row book nothing.
 from __future__ import annotations
 
 import hashlib
+import json
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
@@ -34,7 +35,8 @@ def recordable_rows(rows):
                  if not row.get('blocked') and not row.get('already_booked')}.values())
 
 
-def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full_refunds=False):
+def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full_refunds=False,
+                transaction_ids=None):
     """Keep ordinary previews scoped to their file; expand only verified zero-net
     refund groups for the automatic recorder. Inferred links are never expanded.
     """
@@ -51,17 +53,23 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     rows = list(store.conn.execute(
         "SELECT " + columns + " FROM transactions WHERE " + eligible +
         " AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
-        " ORDER BY transaction_id", (review_from, review_from, batch_id)).fetchall())
+        + ("" if transaction_ids is None else " AND transaction_id IN (SELECT value FROM json_each(?))") +
+        " ORDER BY transaction_id",
+        (review_from, review_from, batch_id) if transaction_ids is None
+        else (review_from, review_from, batch_id, json.dumps(sorted(transaction_ids)))).fetchall())
     if not include_verified_full_refunds:
         return rows
-    from .partial_refund import refund_links, refund_group
+    from .partial_refund import refund_links, refund_group, is_numbered_partial, partial_group_exclusion
     current_ids = {row[0] for row in rows}
     refund_ids = [r[0] for r in store.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
     links = refund_links(store.conn, refund_ids)
     extra = set()
     for refund_id, link in links.items():
-        if link.get('inferred') or link['status'] != 'full' or link['net_krw'] != 0:
+        if link.get('inferred') or not (
+                (link['status'] == 'full' and link['net_krw'] == 0) or is_numbered_partial(link)):
+            continue
+        if is_numbered_partial(link) and partial_group_exclusion(store.conn, link['original_id']):
             continue
         if refund_id in current_ids or link['original_id'] in current_ids:
             extra.update(refund_group(store.conn, link['original_id']))
@@ -79,7 +87,7 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     return sorted(rows, key=lambda row: row[0])
 
 
-def _decision_rows(store, batch_id: str):
+def _decision_rows(store, batch_id: str, transaction_ids=None):
     """Latest decision per transaction, for the preview to reflect."""
     from .decision_provenance import active_decision_sql
     rows = store.conn.execute(
@@ -88,8 +96,9 @@ def _decision_rows(store, batch_id: str):
         " JOIN transactions t ON t.transaction_id = d.transaction_id"
         " WHERE t.transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) AND d.revision ="
         " (SELECT MAX(revision) FROM review_decisions x"
-        "  WHERE x.transaction_id = d.transaction_id) AND "+active_decision_sql(),
-        (batch_id,)).fetchall()
+        "  WHERE x.transaction_id = d.transaction_id) AND "+active_decision_sql()
+        + ("" if transaction_ids is None else " AND t.transaction_id IN (SELECT value FROM json_each(?))"),
+        (batch_id,) if transaction_ids is None else (batch_id, json.dumps(sorted(transaction_ids)))).fetchall()
     return {r[0]: {"revision": r[1], "item": r[2], "description": r[3],
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
 
@@ -117,7 +126,7 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
              additional_holds=None, group_original=None,
-             include_verified_full_refunds=False) -> dict:
+             include_verified_full_refunds=False, transaction_ids=None) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -139,8 +148,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
         raise StoreError(CODE_NOT_FOUND, "없는 접수 건이에요")
 
     source_rows = _ready_rows(store, batch_id, review_from,
-                              include_verified_full_refunds=include_verified_full_refunds)
-    decisions = _decision_rows(store, batch_id)
+                              include_verified_full_refunds=include_verified_full_refunds,
+                              transaction_ids=transaction_ids)
+    decisions = _decision_rows(store, batch_id, transaction_ids)
     if include_verified_full_refunds:
         # A counterpart may have a user decision in another import batch.
         batch_ids = {r[0] for r in store.conn.execute(
@@ -315,11 +325,12 @@ def scope_group(store, result: dict, original_id: str,
     """
     members = group_members(store, original_id)
     if require_verified_zero:
-        from .partial_refund import refund_links
+        from .partial_refund import refund_links, is_numbered_partial
         links = refund_links(store.conn, members[1:])
         if (not links or len(links) != len(members) - 1
-                or any(link.get('inferred') or link['status'] != 'full'
-                       or link['net_krw'] != 0 or link['original_id'] != original_id
+                or any(link.get('inferred') or link['original_id'] != original_id
+                       or not ((link['status'] == 'full' and link['net_krw'] == 0)
+                               or is_numbered_partial(link))
                        for link in links.values())):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
@@ -421,6 +432,22 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
                  if link["status"] != "full" and refund.get(k) and original.get(k) and refund[k] != original[k]]
         if clash:
             _block_pair(pair, "refund_pair_mismatch", "환불과 원거래의 분류가 달라 보류해요", ready, unresolved)
+            continue
+        cross_file = bool(original.get("source_batch_id") or refund.get("source_batch_id"))
+        if link["status"] == "partial" and cross_file:
+            from .partial_refund import partial_group_exclusion
+            reason = partial_group_exclusion(store.conn, link["original_id"])
+            if reason:
+                _block_pair(pair, "refund_" + reason,
+                            "완료 기간 자료이거나 오류·중복·충돌 취소가 있어 파일 간 부분환불을 기록하지 않아요",
+                            ready, unresolved)
+                continue
+        if (link["status"] != "full" and cross_file
+                and not original.get("trip_id")
+                and original.get("display_tab_id") in ("", "unclassified", REFUND_TAB)):
+            # A cross-file partial refund is booked only to the original's real trip or quarter cost.
+            _block_pair(pair, "refund_original_unattributed",
+                        "원결제에 여행이나 분기 기타비용 귀속이 없어 취소를 기록하지 않아요", ready, unresolved)
             continue
         for key in ("item", "display_tab_id", "trip_id", "description"):
             if not target.get(key):
@@ -607,7 +634,7 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
-           automatic_record=False, include_verified_full_refunds=False) -> dict:
+           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -650,7 +677,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                         tab_validator=tab_validator, review_from=review_from,
                         entry_metadata=entry_metadata, additional_holds=additional_holds,
                         group_original=group_original,
-                        include_verified_full_refunds=include_verified_full_refunds)
+                        include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
         if (probe["digest"] == preview_digest_value
                 and probe.get("rows")
                 and all(row.get("already_booked") for row in probe["rows"])):
@@ -669,26 +697,37 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
                       group_original=group_original,
-                      include_verified_full_refunds=include_verified_full_refunds)
+                      include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
     if current["digest"] != preview_digest_value:
         if group_original is not None:
             with store.lock:
-                store.conn.execute("BEGIN IMMEDIATE")
+                nested = store.conn.in_transaction
+                store.conn.execute('SAVEPOINT cost_ledger_commit' if nested else 'BEGIN IMMEDIATE')
                 try:
                     locked = preview(store, batch_id, trip_validator=trip_validator,
                                      tab_validator=tab_validator, review_from=review_from,
                                      entry_metadata=entry_metadata, additional_holds=additional_holds,
                                      group_original=group_original,
-                                     include_verified_full_refunds=include_verified_full_refunds)
+                                     include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
                     replay = _committed_group_replay(store, payload_sha,
                                                      locked["digest"], locked)
                     if replay is not None:
                         store.remember_request(request_id, "commit", payload_sha, replay)
-                        store.conn.execute("COMMIT")
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit' if nested else 'COMMIT')
                         return replay
-                    store.conn.execute("ROLLBACK")
+                    if nested:
+                        store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+                    else:
+                        store.conn.execute('ROLLBACK')
                 except Exception:
-                    store.conn.execute("ROLLBACK")
+                    if nested:
+                        store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+                    else:
+                        store.conn.execute('ROLLBACK')
                     raise
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
@@ -701,7 +740,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     lost_authority: list[str] = []
     now = utc_now()
     with store.lock:
-        store.conn.execute("BEGIN IMMEDIATE")
+        nested = store.conn.in_transaction
+        store.conn.execute('SAVEPOINT cost_ledger_commit' if nested else 'BEGIN IMMEDIATE')
         try:
             _check_refund_groups(store, recordable_rows(current["rows"]) if automatic_record else current["rows"])
             for entry in current["rows"]:
@@ -765,7 +805,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                     tab_validator=tab_validator, review_from=review_from,
                     entry_metadata=entry_metadata, additional_holds=additional_holds,
                     group_original=group_original,
-                    include_verified_full_refunds=include_verified_full_refunds)
+                    include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
                 replay_post_digest = post_preview["digest"]
                 replay_post_revisions = {
                     entry["transaction_id"]: entry.get("revision")
@@ -789,8 +830,12 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                 result["replay_post_revisions"] = replay_post_revisions
                 result["replay_ledger_fingerprint"] = replay_ledger_fingerprint
             store.remember_request(request_id, "commit", payload_sha, result)
-            store.conn.execute("COMMIT")
+            store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit' if nested else 'COMMIT')
         except Exception:
-            store.conn.execute("ROLLBACK")
+            if nested:
+                store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+            else:
+                store.conn.execute('ROLLBACK')
             raise
     return result

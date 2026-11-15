@@ -5,6 +5,7 @@ from playwright.sync_api import sync_playwright
 
 from webapp import ledger_design, site_shell, card_catalog, flight_passenger_page, receipt_review, card_flow
 from webapp import google_ledger_page, expense_bulk_maintenance
+from webapp.static_assets import inline_document
 
 
 def document(css, native=False):
@@ -13,7 +14,7 @@ def document(css, native=False):
         content = "<div class='app'><aside id='nav'></aside><main class='main' id='main'>" + content + '</main></div>'
     source = '<html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + content + '</body></html>'
     with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
-        return site_shell.wrap_document(source, '/board' if native else '/cards/all')
+        return inline_document(site_shell.wrap_document(source, '/board' if native else '/cards/all'))
 
 
 def test_theme_button_overrides_system_and_preserves_only_local_choice():

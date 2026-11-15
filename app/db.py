@@ -188,6 +188,7 @@ CREATE INDEX IF NOT EXISTS approval_evidence_card ON approval_evidence(card_tail
 CREATE INDEX IF NOT EXISTS transactions_batch ON transactions(batch_id);
 CREATE INDEX IF NOT EXISTS transactions_source_hash ON transactions(source_hash);
 CREATE INDEX IF NOT EXISTS transactions_state ON transactions(classification_state);
+CREATE INDEX IF NOT EXISTS idx_change_log_kind_subject ON change_log(kind, subject);
 """
 
 

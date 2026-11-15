@@ -22,7 +22,16 @@ def baseline_renderer():
     from types import SimpleNamespace
     from webapp import card_actions
     namespace = dict(vars(card_flow))
-    namespace["REASON_LABELS"] = {**card_actions.REASON_LABELS, "manual": "Synthetic manual"}
+    # The baseline renderer predates PR #737, which retired the old reason
+    # categories. Keep those labels only inside this historical renderer so
+    # its population and query-count paths remain comparable.
+    namespace["REASON_LABELS"] = {
+        **card_actions.REASON_LABELS,
+        "classification": "Synthetic classification",
+        "recording": "Synthetic recording",
+        "manual": "Synthetic manual",
+        "": "Synthetic no reason",
+    }
     for node in nodes:
         node.body = [child for child in node.body if not (
             isinstance(child, ast.ImportFrom) and child.level == 1 and child.module == "card_cleanup_ui")]

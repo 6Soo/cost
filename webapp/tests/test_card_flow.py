@@ -1119,7 +1119,8 @@ class CardFlowTests(unittest.TestCase):
             self.flow.classify(batch)
             self.flow.review_mail_evidence(self.flow.pipeline.get_batch(batch)['rows'])
         self.assertEqual(matcher.call_count,1)
-        self.assertEqual(self.flow.pipeline.get_batch(batch)['rows'][0]['item'],'숙박비')
+        # PROC-004(b5ea78d1, PR #867): 여행 없이 분기로 종결된 행의 항목은 분기 기타비용이다.
+        self.assertEqual(self.flow.pipeline.get_batch(batch)['rows'][0]['item'],'분기 기타비용')
 
     def decide(self):
         batch = self.flow.pipeline.receive(CARD,'synthetic.csv')['batch_id']

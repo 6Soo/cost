@@ -23,6 +23,7 @@ from app.partial_refund import read_only_scope as refund_read_only_scope
 
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
+_SNAPSHOT_REPORT_MEMO = {'entry': None}
 _GOOGLE_PERIOD_CACHE = {}
 # 시트에 종료일이 적히지 않은 탭. 다음 여행 직전일로 정한 종료일(사용자 확정 규칙, reconciliation.open_trip_end)은
 # 여행 기간으로 검증에 그대로 쓴다. 다만 옮긴 시트의 해시 확인된 원본 제목에 종료일이 적혀 있으면 그쪽이 앞선다.
@@ -513,10 +514,10 @@ class CardFlow:
                 board._card_pipeline=pipeline
             self.pipeline=pipeline
 
-    def trip_valid(self, trip_id):
+    def trip_valid(self, trip_id, include_archived=False):
         return card_trip_authority.trip_valid(
             self, trip_id, google_periods=_google_periods, trip_authority=_trip_authority,
-            unchanged_workbook_schedule=_unchanged_workbook_schedule)
+            unchanged_workbook_schedule=_unchanged_workbook_schedule, include_archived=include_archived)
 
     def tab_valid(self, tab):
         from app import quarter_tab
@@ -526,11 +527,16 @@ class CardFlow:
     def retail_trip(self, transaction, country):
         return card_trip_authority.retail_trip(self, transaction, country, google_nets=_google_nets)
 
-    def booking_trip(self, transaction, period):
+    def booking_trip(self, transaction, period, include_archived=False):
         return card_trip_authority.booking_trip(self, transaction, period, google_nets=_google_nets,
-            handover_days=handover_days, overlaps_stay=overlaps_stay, stay_trip=stay_trip)
+            handover_days=handover_days, overlaps_stay=overlaps_stay, stay_trip=stay_trip,
+            include_archived=include_archived)
 
     def classify(self, batch_id, *, transaction_ids=None):
+        from app import core_writer
+        return core_writer.prepared(self.board, lambda: self._classify_request(batch_id, transaction_ids))
+
+    def _classify_request(self, batch_id, transaction_ids):
         with self._ota_request_scope():
             with self.board._lock:
                 result = self._classify(batch_id, transaction_ids=transaction_ids)
@@ -541,7 +547,8 @@ class CardFlow:
     def sync_ledger_rows(self):
         """규칙 결과를 장부 행에 반영한다. 사용자가 고친 필드(`board_manual_overrides`)는 건드리지 않고, 배정이 있던 자리를 비우지 않는다."""
         conn = self.board.conn
-        overridden = {(row_id, field) for row_id, field in conn.execute('SELECT row_id, field FROM board_manual_overrides')}
+        from app.manual_overrides import manual_fields
+        overridden = manual_fields(conn)
         rows = conn.execute(
             "SELECT b.row_id, b.revision, b.display_tab_id, b.payload_json, t.display_tab_id, t.item, t.description"
             " FROM board_rows b JOIN transactions t ON b.row_id = 'card-' || t.transaction_id"
@@ -572,7 +579,7 @@ class CardFlow:
         from app import StoreError
         from .card_classification_completion import complete
         from app.automatic_classification import FIELDS
-        initial = {row['transaction_id']: row for row in self.pipeline.get_batch(batch_id)['rows']}
+        initial = {row['transaction_id']: row for row in self._batch_rows(batch_id, transaction_ids)}
         try:
             result = (self._classify_evidence(batch_id, transaction_ids=transaction_ids, snapshot_only=True)
                       if snapshot_only else self._classify_evidence(batch_id, transaction_ids=transaction_ids))
@@ -588,7 +595,7 @@ class CardFlow:
             from .card_classification_completion import correct_recorded_booking_periods
             result['booking_trip_corrections'] = correct_recorded_booking_periods(self, batch_id, transaction_ids)
         from collections import Counter
-        current = self.pipeline.get_batch(batch_id)['rows']
+        current = self._batch_rows(batch_id, transaction_ids)
         for row in current:
             before = initial.get(row['transaction_id'])
             if (before and row['revision'] == before['revision'] + 1
@@ -603,6 +610,41 @@ class CardFlow:
         result['classified'] = result['counts'].get('classified', 0)
         return result
 
+    def _batch_rows(self, batch_id, transaction_ids=None):
+        """Rows of a batch, or only the named ones; a few-row write never reads the whole batch."""
+        if transaction_ids is None:
+            return self.pipeline.get_batch(batch_id)['rows']
+        return self.pipeline.get_batch(batch_id, transaction_ids=transaction_ids)['rows']
+
+    def _refund_scope(self, batch_id, selected):
+        """`selected` plus every batch row its refund pairs and refund-tab groups are judged with.
+
+        A pair or group is held or released as a whole, so the rows narrowed to for a preview must include
+        every member that can change the verdict of a selected row.
+        """
+        from app.partial_refund import refund_links, refund_group
+        from .refund_tab import groups
+        in_batch = {row[0] for row in self.board.conn.execute(
+            'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))}
+        scope = set(selected) & in_batch
+        refund_ids = [r[0] for r in self.board.conn.execute(
+            "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+        links = refund_links(self.board.conn, refund_ids)
+        all_groups = groups(self.board)
+        members = [{r['transaction_id'] for r in group} for group in all_groups]
+        while True:
+            grown = set(scope)
+            for refund, link in links.items():
+                if refund in grown or link['original_id'] in grown:
+                    grown.update(refund_group(self.board.conn, link['original_id']))
+            for group in members:
+                if group & grown:
+                    grown |= group
+            grown &= in_batch
+            if grown == scope:
+                return scope, in_batch, all_groups
+            scope = grown
+
     def _classify_evidence(self, batch_id, *, transaction_ids=None, snapshot_only=False):
         ota_rules=[]
         blocked_inference_sources=set()
@@ -612,7 +654,9 @@ class CardFlow:
             'SELECT t.source_hash,t.transaction_id,t.merchant FROM transactions t '
             'JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
             'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' '
-            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'',''))
+            'AND t.conflict_reason=? AND t.parse_error=?'
+            + ('' if selected is None else ' AND t.transaction_id IN (SELECT value FROM json_each(?))'),
+            (batch_id,'','') if selected is None else (batch_id,'','',json.dumps(sorted(selected))))
             if (selected is None or identity in selected) and _is_ota_row({'merchant':merchant})}
         from app import StoreError, ota_sources
         import sqlite3
@@ -1366,7 +1410,7 @@ class CardFlow:
                 else 'legacy_fallback_feature_disabled')
         return report
 
-    def _canonical_snapshot_report(self, current):
+    def _project_snapshot_report(self, current):
         """Project only a fresh central snapshot; never merge stale legacy decisions into it."""
         from app.ota_core_projection import extend_report
         data = current.get('data') or {}
@@ -1389,6 +1433,17 @@ class CardFlow:
         report = dict(extend_report(canonical, data))
         report['_reconciliation_authority'] = 'canonical_snapshot'
         return report
+
+    def _canonical_snapshot_report(self, current):
+        """Memoize per snapshot data object; a new snapshot generation carries a new object, so it recomputes."""
+        data = current.get('data') or {}
+        memo = _SNAPSHOT_REPORT_MEMO.get('entry')
+        if memo is not None and memo[0] is data and data:
+            return dict(memo[1])
+        report = self._project_snapshot_report(current)
+        if data:
+            _SNAPSHOT_REPORT_MEMO['entry'] = (data, report)
+        return dict(report)
 
     def _compute_ota_report(self):
         """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""
@@ -1637,10 +1692,12 @@ class CardFlow:
             except Exception:
                 return {'saved': True, 'refresh_required': True}
 
-    def automatic_holds(self, batch_id, *, include_verified_full_refunds=False):
+    def automatic_holds(self, batch_id, *, include_verified_full_refunds=False, scope=None):
+        """Holds for a batch. `scope` is `_refund_scope`'s result: judge only the rows a few selected rows depend on."""
         from app import quarter_costs
         holds = dict(self.ota_group_holds())
-        rows = self.pipeline.get_batch(batch_id)['rows']
+        rows = (self.pipeline.get_batch(batch_id)['rows'] if scope is None
+                else self._batch_rows(batch_id, scope[0]))
         projection_index = self._projection_index()
         for row in rows:
             tid = row['transaction_id']
@@ -1657,12 +1714,12 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
-        from app.partial_refund import refund_links
+        from app.partial_refund import refund_links, is_numbered_partial, partial_group_exclusion
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
         verified_links = refund_links(self.board.conn, refund_ids)
-        batch_ids = {r['transaction_id'] for r in rows}
+        batch_ids = {r['transaction_id'] for r in rows} if scope is None else scope[1]
         for refund, link in verified_links.items():
             if not {refund, link['original_id']} & batch_ids:
                 continue
@@ -1689,11 +1746,11 @@ class CardFlow:
         from .refund_tab import groups
         from app.review_holds import active_holds
         active = active_holds(self.board.conn)
-        ids = {r['transaction_id'] for r in rows}
+        ids = {r['transaction_id'] for r in rows} if scope is None else scope[1]
         booked = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         # 이미 기록된 쪽의 "기록됨" 표시는 보류가 아니다. 빠진 쪽에 실제 보류가 있을 때만 묶음을 함께 보류한다.
         blocking = {tid for tid, hold in holds.items() if hold.get('kind') != 'existing_ledger'}
-        for group in groups(self.board):
+        for group in (groups(self.board) if scope is None else scope[2]):
             members = {r['transaction_id'] for r in group}
             if not members & ids:
                 continue
@@ -1709,6 +1766,25 @@ class CardFlow:
                      and verified_links[rid].get('net_krw') == 0)
                     for rid in refunds_in_group)
                 allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
+                # A numbered partial refund inherits its original's trip or quarter cost
+                # through the ledger's pair rules; it never goes to the refund tab.
+                trusted_partial = bool(refunds_in_group) and all(
+                    rid in verified_links and is_numbered_partial(verified_links[rid])
+                    for rid in refunds_in_group)
+                # Only a group that spans files; PROC-072 completed periods and unclean cancels come first.
+                if trusted_partial and not members <= ids:
+                    trusted_partial = not partial_group_exclusion(
+                        self.board.conn, verified_links[next(iter(refunds_in_group))]['original_id'])
+                else:
+                    trusted_partial = False
+                if trusted_partial and not trusted_full:
+                    if (not members & set(active)
+                            and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
+                                    for tid in members)):
+                        for tid in members & ids & set(refund_ids):
+                            if holds.get(tid, {}).get('kind') in ('trip_needed', 'classification_needed'):
+                                holds.pop(tid)
+                        continue
                 if (trusted_full and not members & set(active)
                         and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
                                 for tid in members)):
@@ -1728,14 +1804,32 @@ class CardFlow:
                 holds[tid] = {'kind': 'refund_count_group', 'reason': '같은 조건의 구매가 있지만 짝을 정하지 못한 취소라 개수를 명세와 맞춘 뒤 기록합니다.'}
         return holds
 
+    @contextmanager
+    def _automatic_write(self):
+        """Keep inference, ledger entries and their projections atomic."""
+        conn = self.board.conn
+        nested = conn.in_transaction
+        conn.execute('SAVEPOINT card_automatic_write' if nested else 'BEGIN IMMEDIATE')
+        try:
+            yield
+            conn.execute('RELEASE SAVEPOINT card_automatic_write' if nested else 'COMMIT')
+        except BaseException:
+            if nested:
+                conn.execute('ROLLBACK TO SAVEPOINT card_automatic_write')
+                conn.execute('RELEASE SAVEPOINT card_automatic_write')
+            else:
+                conn.execute('ROLLBACK')
+            raise
+
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
+        from app import core_writer
+        return core_writer.prepared(self.board, lambda: self._auto_record(batch_id))
+
+    def _pending_reclassification(self, batch_id):
         from .card_classification_completion import missing_assignment_sql
-        with self.board._lock:
-            # Older imports and interrupted uploads may have finished only the
-            # basic classifier. Re-run evidence + final inference before asking
-            # the ledger to record them; a read must never repair these rows.
-            pending = {row[0] for row in self.board.conn.execute(
+        from app.manual_overrides import exists_sql as manual_exists_sql
+        return {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
                 " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
                 " OR COALESCE(t.item,'')='')"
@@ -1757,10 +1851,26 @@ class CardFlow:
                 " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e"
                 " WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
                 " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
-                " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides o WHERE o.row_id='card-'||t.transaction_id)", (batch_id,))}
+                " AND NOT " + manual_exists_sql(self.board.conn, "'card-'||t.transaction_id"), (batch_id,))}
+
+    def _auto_record(self, batch_id):
+        from app import core_writer
+        # The Rust writer commits in its own transaction and cannot run inside ours: classify first, outside it.
+        # Python keeps inference, ledger entries and projections in one transaction (PR #846).
+        rust = core_writer.selected() == 'rust'
+        with self.board._lock:
+            # Older imports and interrupted uploads may have finished only the
+            # basic classifier. Re-run evidence + final inference before asking
+            # the ledger to record them; a read must never repair these rows.
+            pending = self._pending_reclassification(batch_id) if rust else None
             if pending:
                 self._classify(batch_id, transaction_ids=pending)
-            return self._auto_record_locked(batch_id)
+            with self._automatic_write():
+                if not rust:
+                    pending = self._pending_reclassification(batch_id)
+                    if pending:
+                        self._classify(batch_id, transaction_ids=pending)
+                return self._auto_record_locked(batch_id)
 
     def _auto_record_locked(self, batch_id, *, include_state=True, transaction_ids=None):
         from app import auto_record_policy, quarter_tab
@@ -1773,15 +1883,30 @@ class CardFlow:
             state['auto_recorded'] = 0
             return state
         include_refund_groups = transaction_ids is None
+        # A selected chunk is previewed and committed with only the rows it is judged with (itself and its
+        # refund pairs/groups); the rest of the batch used to be read, held and previewed again for nothing.
+        scope = None if transaction_ids is None else self._refund_scope(batch_id, transaction_ids)
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=None, entry_metadata=self.preview_metadata(),
-                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=include_refund_groups),
+                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=include_refund_groups,
+                                                             scope=scope),
                        include_verified_full_refunds=include_refund_groups)
         if transaction_ids is not None:
             selected = frozenset(transaction_ids)
-            options['additional_holds'].update({row[0]: {'kind': 'completion_scope', 'reason': '다음 자동 처리 범위'}
-                for row in self.board.conn.execute('SELECT transaction_id FROM transactions')
-                if row[0] not in selected})
+            options['additional_holds'].update({tid: {'kind': 'completion_scope', 'reason': '다음 자동 처리 범위'}
+                for tid in scope[0] if tid not in selected})
+            options['transaction_ids'] = frozenset(scope[0])
+        # PROC-072: completed periods and completed trips are never recorded automatically.
+        from app.closed_period import excluded_ids
+        from .card_classification_completion import completed_period_evidence
+        closed = excluded_ids(self.board.conn, self.board.list_trips(),
+                              evidence=completed_period_evidence(self.board, flow=self))
+        for tid in closed:
+            options['additional_holds'][tid] = {'kind': 'completed_period', 'reason': 'PROC-072 완료 기간·완료 여행'}
+        in_batch = {row[0] for row in self.board.conn.execute(
+            'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))}
+        booked_ids = {row[0] for row in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+        skipped = len((in_batch & closed) - booked_ids)
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
         applied = 0
@@ -1790,16 +1915,20 @@ class CardFlow:
                 'auto-record:' + batch_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
+        allowed = (in_batch if transaction_ids is None else set(transaction_ids)) - closed
         if transaction_ids is None:
-            applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
+            applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project,
+                                              transaction_ids=allowed)
         else:
             applied += quarter_tab.book_batch(self.pipeline.store, batch_id,
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)),
-                transaction_ids=transaction_ids)
+                transaction_ids=allowed)
+        excluded = {'completed_period_excluded': skipped, 'exclusion_reason': 'PROC-072_COMPLETED_PERIOD'} if skipped else {}
         if not include_state:
-            return {'auto_recorded': applied}
+            return {'auto_recorded': applied, **excluded}
         state = self.state(batch_id)
         state['auto_recorded'] = applied
+        state.update(excluded)
         return state
 
     def state(self, batch_id):
@@ -2421,10 +2550,18 @@ def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where(board)).fetchone()[0]
 
 
-def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
-                       request_snapshot=True):
+def reclassify_cleanup(board, **options):
     """미정리 카드를 분류하고 보호 검사를 통과한 거래는 같은 동작에서 기록한다."""
+    from app import core_writer
+    if options.get('_preview'):  # a preview runs on a clone and writes nothing
+        return _reclassify_cleanup(board, **options)
+    return core_writer.prepared(board, lambda: _reclassify_cleanup(board, **options))
+
+
+def _reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
+                        request_snapshot=True):
     from app import StoreError
+    from app.core_writer import PeriodsStale
     from app.classify import _pattern_for
     from app.normalize import normalize_merchant
     from collections import defaultdict
@@ -2488,6 +2625,8 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
                 {'local': 0, 'hotel': 1, 'ota': 2}[group[0][1]], group[0][0])):
             try:
                 flow._classify(batch, transaction_ids=ids)
+            except PeriodsStale:
+                raise  # let core_writer.prepared rebuild the evidence instead of recording a failure
             except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
                 result['failures'].append({'kind': kind, 'count': len(ids),
                                            'code': getattr(exc, 'code', 'CLASSIFICATION_UNAVAILABLE')})
@@ -2517,6 +2656,7 @@ def _sync_booked_authority_inferences(flow):
 def assign_existing_local_expenses(flow, *, failures=None):
     """기존 미배정 장부의 현지 사용만 원문과 검증된 일정으로 연결한다."""
     from app.classify import _verified_local_trip
+    from app.manual_overrides import exists_sql as manual_exists_sql
     from .ledger_store import SaveError
     conn = flow.board.conn
     rows = conn.execute(
@@ -2527,7 +2667,7 @@ def assign_existing_local_expenses(flow, *, failures=None):
         " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
         " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
-        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT " + manual_exists_sql(conn, 'b.row_id', 'display_tab_id') +
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
@@ -2598,7 +2738,7 @@ def _cleanup_population(board):
     """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
     owners = _cleanup_owner_breakdown(board)
-    ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where(board.conn)).fetchone()[0]
     counts = dict(card, classification=card.get('classification', 0) + ledger,
                   all=sum(card.values()) + ledger,
                   owner_user=owners.get('user', 0),
@@ -2610,11 +2750,11 @@ def _cleanup_counts(board):
     return _cleanup_population(board)[2]
 
 
-def _cleanup_unassigned_where():
+def _cleanup_unassigned_where(conn):
+    from app.manual_overrides import exists_sql
     return (
         " FROM board_rows b WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
-        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m"
-        " WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT " + exists_sql(conn, 'b.row_id', 'display_tab_id') +
         " AND NOT (COALESCE(json_extract(b.payload_json,'$.confirmed_by'),'') IN ('owner','automatic')"
         " AND COALESCE(json_extract(b.payload_json,'$.classification_state'),'') IN ('confirmed','classified'))"
     )
@@ -2664,7 +2804,7 @@ def prewarm_booking_evidence(board):
 
 def cleanup_total(board) -> int:
     """정리할 지출 건수. 지출 정리 목록과 메인 화면이 같은 기준으로 센다."""
-    unassigned = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    unassigned = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where(board.conn)).fetchone()[0]
     return _cleanup_card_count(board) + unassigned
 
 
@@ -2836,6 +2976,21 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
     )
 
 
+def _refund_basis_label(value, *, inferred=False):
+    labels = {
+        'original_approval_number': '원승인번호 기준 연결',
+        'merchant_card_foreign_amount': '외화 금액·동일 카드 기준 연결',
+        'kakao_same_card_exact_amount': '동일 카드·카카오 가맹점·기간·동액 기준 연결',
+        'same_card_merchant_day_exact_amount': '동일 카드·가맹점·이용일·동액 기준 연결',
+    }
+    label = labels.get(str(value or '').removesuffix('_inferred'))
+    if not label:
+        label = '저장된 연결 근거 정보 없음'
+    if inferred or str(value or '').endswith('_inferred'):
+        label += ' · 추론 상태'
+    return label
+
+
 def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancellations=None) -> tuple[str, list[str]]:
     """원결제 연결과 실제 기록 상태를 분석하여 화면 표시용 title과 lines를 반환한다."""
     if link:
@@ -2846,17 +3001,14 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         if link.get('inferred'):
             title = '원결제 추론 연결 · 기록 전 확인 (환급 완료 아님)'
-        basis = ('외화 금액·동일 카드 기준 원결제 연결'
-                 if link.get('basis') == 'merchant_card_foreign_amount'
-                 else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
-                 if link.get('basis') == 'kakao_same_card_exact_amount'
-                 else '동일 카드·가맹점·이용일·동액 기준 원결제 연결'
-                 if link.get('basis') == 'same_card_merchant_day_exact_amount'
-                 else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
-                 if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
-                 else '동일 카드·가맹점·이용일·동액 기준 추론 연결 (정산 확정 아님)'
-                 if link.get('inferred')
-                 else '원승인번호 기준 원결제 확정 연결')
+        basis_value = link.get('basis')
+        if not basis_value and not link.get('inferred'):
+            reference = board.conn.execute(
+                'SELECT original_approval_number FROM transactions WHERE transaction_id=?', (tid,)
+            ).fetchone()
+            if reference and reference[0]:
+                basis_value = 'original_approval_number'
+        basis = _refund_basis_label(basis_value, inferred=bool(link.get('inferred')))
         lines = [{'full': '순액 0원', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록 전 확인이 필요합니다.'}.get(link['status'], '연결 상태를 확인해 주세요'),
                  f"{basis} · 취소/환불 {link['refund_count']}건",
@@ -3070,7 +3222,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                 'refund_inferred': '기록 전 확인: 원결제 자동 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
                 'source_conflict': '기록 전 확인: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 전 확인: 중복 가능성이 있습니다.',
-                'review_hold': '기록 전 확인: ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
+                'review_hold': '기록 보류 · ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
                 'item_missing': '기록 준비 전: 비용 항목 확인이 필요합니다.',
                 'trip_needed': '기록 준비 전: 유효한 여행 배정이 필요합니다.',
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
@@ -3146,7 +3298,21 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                 reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
                           '별도 근거 검증 전 기록을 준비합니다 · 실제 카드 환급 완료 아님.')
             elif link.get('status') == 'full' and link.get('net_krw') == 0:
-                reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
+                basis_value = example.get('basis')
+                if not basis_value:
+                    parent_approval = board.conn.execute(
+                        'SELECT approval_number FROM transactions WHERE transaction_id=?', (tid,)
+                    ).fetchone()
+                    refund_refs = [row[0] for row in board.conn.execute(
+                        'SELECT original_approval_number FROM transactions WHERE transaction_id IN (' +
+                        ','.join('?' for _ in linked_refunds) + ')',
+                        [refund_id for refund_id, _ in linked_refunds])]
+                    if parent_approval and parent_approval[0] and any(
+                            str(ref or '').strip() == str(parent_approval[0]).strip() for ref in refund_refs):
+                        basis_value = 'original_approval_number'
+                basis = _refund_basis_label(basis_value) if basis_value else None
+                relation = ('환불 상쇄 확인' if basis else '원결제·취소 연결 정보')
+                reason = (f'{relation} · {basis or "저장된 연결 근거 정보 없음"} · 취소·환불 {refund_count}건. '
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
             elif link.get('status') == 'partial':
                 reason = (f'부분 환불 연결 {refund_count}건 · 현재 순액 {link.get("net_krw")}원. '
@@ -3165,7 +3331,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
             parse_error=parse_error, held=held, finance_related=finance_related,
-            reason=reason, item=item, esc=esc)
+            reason=reason, item=item, finance_label=finance_label, esc=esc)
         protected = bool(held or conflict_reason or parse_error)
         # The disclosure is a transaction diagnostic, not a second human task list.
         label = {'classification': '분류 상태', 'recording': '내부 기록 상태',
@@ -3206,7 +3372,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         )
         items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
-        "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
+        "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where(board.conn) +
         " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
         (ledger_limit, ledger_offset)).fetchall() if ledger_limit else []
     for row_id, revision, payload in ledger:

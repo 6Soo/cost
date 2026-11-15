@@ -2,6 +2,7 @@
 // fake adapter만 사용. 네트워크·실제 브라우저·고객 자료·운영 저장소 접근 없음.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -23,8 +24,14 @@ function check(name, fn) {
   pending.push(p);
   return p;
 }
+const tempDirs = [];
+process.on("exit", () => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 async function tempDir(prefix) {
-  return mkdtemp(path.join(tmpdir(), prefix));
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
 }
 
 function happyAdapter({ onDownload } = {}) {

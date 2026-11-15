@@ -96,6 +96,7 @@ def static_asset(name: str):
 
 
 from .ledger_design_assets import STYLE, SCRIPT
+from . import static_assets
 
 
 # ----------------------------------------------------------------- fragments
@@ -216,6 +217,9 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
     for item in board.live_trips(include_archived=False):
         if item.get('deleted'):
             continue
+        # /trips 기본 목록과 같은 기준(마감 표시·이전 여행 제외), 현재 보는 여행은 예외.
+        if item.get('tab_id') != current and not board.is_default_listed_trip(item):
+            continue
         label = str(item.get('display_title') or item.get('display_key') or '')
         entries.append(
             f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
@@ -235,7 +239,7 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
         "<label for='trip-switch-search'>여행 검색</label>"
         "<input id='trip-switch-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
         f"<ul data-trip-switch-list>{''.join(entries) or '<li class=\"muted\">여행이 없습니다.</li>'}</ul>"
-        "<a class='btn ghost' href='/trips'>여행 전체 보기</a></dialog>")
+        "<a class='btn ghost' href='/trips'>마감된 여행은 여행 목록에서</a></dialog>")
 
 
 def _trip_kpi_html(tab_id: str) -> str:
@@ -259,14 +263,14 @@ def _trip_kpi_html(tab_id: str) -> str:
         text = _money(value)
         return text.replace('-', '−', 1) if text.startswith('-') else text
 
-    income_note = ("장부 사본 선택 필요"
+    income_note = ("장부 확인 필요"
                    if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
     balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
     income_kpi = ui_components.kpi('수입', amount(income), income_note)
     if income is None:
         income_kpi = income_kpi.replace(
-            "<small>장부 사본 선택 필요</small>",
-            "<small><a class='kpi-link' href='/google-ledger'>장부 사본 선택 필요</a></small>",
+            "<small>장부 동기화 필요</small>",
+            "<small>장부 동기화 필요</small>",
             1)
     return (
         "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
@@ -289,7 +293,7 @@ def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
         "<label for='q'>검색</label>"
         f"<input id='q' name='q' type='search' value='{board.esc(query)}' "
         "placeholder='거래처·내용·메모 검색' autocomplete='off'>"
-        "<label for='kind'>항목</label>"
+        "<label for='kind'>구분</label>"
         "<select id='kind' name='kind'>"
         f"<option value=''{'' if not kind else ''}>전체</option>"
         f"<option value='in'{ ' selected' if kind == 'in' else ''}>수입</option>"
@@ -534,15 +538,13 @@ def _source_preview_html(trip) -> str:
     # Percent-encoded, not just escaped. A sheet name is free text and can hold
     # `&`, `+`, `#` or a space, all of which mean something else inside a query
     # string; escaping alone would produce a link that opens the wrong search.
-    review_href = "/review?q=" + urllib.parse.quote(sheet, safe="")
     # The button sits with the heading rather than after the rows. A trip with
     # dozens of source rows pushes a trailing link far past the fold, and the
     # control a reader wants first becomes the one they have to scroll to.
     return (
         f"<section class='src-preview' id='src-preview'>"
         f"<div class='src-hd'><h2>실제 원천 자료 · 입금과 지출</h2>"
-        f"<a class='btn' id='src-review-link' href='{board.esc(review_href)}'>"
-        f"{ui_icons.icon('search')}실제 자료 검토</a></div>"
+        "</div>"
         f"<p class='muted'><code>{board.esc(sheet)}</code> · {len(items)}행</p>"
         f"<ul class='src-list'>{''.join(items)}</ul>"
         f"</section>")
@@ -755,13 +757,37 @@ _STAY_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
 _MAX_STAY_DAYS = 366
 
 
-def _stay_period(row) -> str:
-    period = str(row.get("service_period") or "").strip()
-    if not period and str(row.get("row_id") or "").startswith("card-"):
-        from . import ledger_stay_evidence
+def _stored_periods():
+    from app import core_writer
+    return read_scope.remember("stored_periods", core_writer.load_stored_periods)
+
+
+def _manual_period_rows():
+    from . import ledger_stay_evidence
+    return read_scope.remember("manual_period_rows",
+                               lambda: ledger_stay_evidence.manual_period_rows(board._active_store()))
+
+
+def _read_period(row, *, verified: bool):
+    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback."""
+    from . import ledger_stay_evidence
+
+    def compute():
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
-        period = ledger_stay_evidence.period_for(row, index)
-    return period
+        pick = ledger_stay_evidence.verified_period_for if verified else ledger_stay_evidence.period_for
+        return pick(row, index)
+    stored = _stored_periods()
+    manual = _manual_period_rows() if stored is not None else set()
+    return ledger_stay_evidence.read_period(row, stored, manual, compute, export=verified)
+
+
+def _stay_period(row) -> str:
+    return _read_period(row, verified=False)[0]
+
+
+def _export_period(row) -> str:
+    """The period a copy carries: stored, or the screen's verified evidence (never its inference)."""
+    return _read_period(row, verified=True)[0]
 
 
 def _stay_text(row) -> str:
@@ -785,7 +811,10 @@ def _stay_text(row) -> str:
     nights = (end - start).days
     stay = f"{nights}박" if nights else "당일"
     text = f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
-    if not str(row.get('service_period') or '').strip() and str(row.get('row_id') or '').startswith('card-'):
+    source = _read_period(row, verified=False)[1]
+    if source == 'decision_inferred':
+        text += ' · 예약 근거 추론'
+    elif source == 'computed' and str(row.get('row_id') or '').startswith('card-'):
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
         tid = str(row.get('source_event_id') or str(row['row_id'])[5:])
         if ((index.get(tid) or {}).get('ota_evidence') or {}).get('kind') == 'reservation_period_inferred':
@@ -866,7 +895,9 @@ def _flight_date_labels(row):
     """Departure days of the saved booking, independent of payment and passenger count."""
     from datetime import date
     unknown = ('이용일 미확인', '이용일 미확인')
-    stored = _stay_period(row)
+    stored, source = _read_period(row, verified=False)
+    if source in ('decision', 'manual') and not stored:
+        return unknown
     if stored:
         match = _STAY_PATTERN.fullmatch(stored)
         if not match:
@@ -885,18 +916,9 @@ def _flight_date_labels(row):
             return unknown
         # A number mentioned in prose is not a saved reservation relationship.
         ref = str(row.get('reservation_no') or '').strip()
-        found = index.get(ref) if ref else None
-        if (not found or found.get('conflict') or not found.get('source_digests')
-                or found.get('cancellation_status') != 'NONE'
-                or any(found.get(flag) for flag in
-                       ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
-            return unknown
-        legs = found.get('legs') or []
-        if not legs or any(not leg.get('departure_on') for leg in legs):
-            return unknown
-        try:
-            days = sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
-        except (ValueError, TypeError):
+        from .ledger_stay_evidence import flight_departure_days
+        days = flight_departure_days(index.get(ref) if ref else None)
+        if days is None:
             return unknown
         separator = ' · '
     crosses_year = len({day.year for day in days}) > 1
@@ -1488,7 +1510,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
         "<label for='f-display_tab_id'>여행</label>"
         f"<select id='f-display_tab_id' name='display_tab_id'{' disabled' if 'display_tab_id' not in allowed else ''}>"
         f"{_trip_options(current_tab, '여행 연결 없음')}</select></div>")
-    for name, label in (("item", "항목"), ("customer_name", "이름"),
+    for name, label in (("item", "분류"), ("customer_name", "이름"),
                         ("nickname", "닉네임"), ("customer_id", "고객 ID"),
                         ("income_kind", "입금 종류")):
         if name not in allowed and name not in fixed:
@@ -1636,7 +1658,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           quick_view: bool = False, bare: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
-    back = f"/board?{state}"
+    back = f"/board?{state}" if tab_id else "/board"
     # Reserve the status slot for actual unsaved edits, not routine timestamps.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     context_badge = "" if quick_view else _context_badge()
@@ -1647,10 +1669,10 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span id='unsaved-count' hidden></span>"
         + (board.esc(role_note) if role_note else "")
         + "</p>")
-    # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
+    # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 내보내기는 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
-    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
-                  if tab_id and title != 'XLSX 내보내기' else "")
+    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 내보내기</a>"
+                  if tab_id and title not in ('XLSX 내보내기', '수기 지출 추가', '수입 직접 입력') else "")
     # bare: the body renders its own page_header (the 거래 tabs); keep only the
     # live-status slots the cross-screen refresh writes to.
     if bare:
@@ -1687,6 +1709,16 @@ def _selected_trip(tab_id: str):
         return {"display_key": "이전 귀속 목록", "is_unclassified": True}
     return next((t for t in board.live_trips(include_archived=True)
                  if t["tab_id"] == tab_id), None)
+
+
+def tab_known(tab_id: str) -> bool:
+    """False only for a trip id that does not exist (the board answers 404 for it)."""
+    if _STORE_missing() or not tab_id:
+        return True
+    from app import quarter_tab
+    if quarter_tab.parse_tab(tab_id) or tab_id in ('refunds', 'unclassified'):
+        return True
+    return _selected_trip(tab_id) is not None
 
 
 def _expense_category_rank(item: str) -> int:
@@ -1794,7 +1826,7 @@ def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
             "date": row.get("occurred_on"),
             "payee": row.get("source_merchant") or row.get("description") or "",
             "category": row.get("item"),
-            "period": row.get("service_period"),
+            "period": _export_period(row),
             "reservation_no": row.get("reservation_no"),
             "evidence": {"카드": "card", "영수증": "receipt"}.get(row.get("evidence_type")),
             "amount_krw": row.get("display_amount_krw", row.get("amount_krw")),
@@ -1823,7 +1855,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     elif not available:
         from .expense_copy_state import source_message
         reason = (preview.get('source_info') or {}).get('reason')
-        description = source_message(reason)
+        description = source_message(reason, actions=True)
     else:
         recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
         held_results = [item for item in (preview.get('results') or [])
@@ -1898,8 +1930,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         source_href = '/api/google-ledger/source?trip=' + quote(tab_id, safe='')
         source_action = (f"<a class='btn' href='{board.esc(source_href)}' target='_blank' rel='noopener'>Google 원본 확인 ↗</a>"
                          if reason in {'SOURCE_EXPENSE_TOTAL_MISMATCH', 'SOURCE_EXPENSE_UNVERIFIED',
-                                       'SOURCE_LAYOUT_UNSUPPORTED'} else
-                         "<a class='btn' href='/google-ledger'>장부 연결 설정</a>")
+                                       'SOURCE_LAYOUT_UNSUPPORTED'} else '')
         recovery = ("<div class='trip-copy-recovery'>" + source_action +
                     f"<button type='button' class='btn' data-google-sync data-csrf='{board.esc(board.CSRF_TOKEN)}'>장부 동기화</button>"
                     "<button type='button' class='btn' data-copy-recheck>다시 확인</button></div>")
@@ -2001,7 +2032,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     drawer_html = (
         "<dialog class='drawer' id='ledger-drawer' aria-labelledby='ledger-drawer-title'>"
         "<div class='drawer-header'><h2 id='ledger-drawer-title'>거래 상세</h2>"
-        "<button class='icon-btn' type='button' id='drawer-close' data-drawer-close aria-label='닫기'>×</button></div>"
+        "<button class='btn ghost' type='button' id='drawer-close' data-drawer-close>닫기</button></div>"
         f"<div class='drawer-body' id='panel-slot'>{selected_panel}</div></dialog>")
     whole_expenses = _selected_rows(tab_id, '', '')[3] if _is_trip_tab(tab_id) else []
     amount_groups = _amount_group_state(tab_id, whole_expenses, kind)
@@ -2257,5 +2288,5 @@ def render(page_html: str, title: str = "숲길여행 회계", live_config: str 
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{board.esc(title)}</title><style>{STYLE}</style></head>"
-        f"<body>{page_html}<script>{SCRIPT}</script>{live}</body></html>")
+        f"<title>{board.esc(title)}</title>{static_assets.link('ledger_design')}</head>"
+        f"<body>{page_html}{static_assets.script('ledger_design')}{live}</body></html>")

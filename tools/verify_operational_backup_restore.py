@@ -115,8 +115,88 @@ def database_inputs(data, manifest, options):
     return databases, decision_name
 
 
-def main(evidence_out=None):
-    host = Path(r"D:\WebLedgerHost")
+SCOPE_ALIASES = {'board': ['board.sqlite']}
+OUT_OF_SCOPE_FOLDERS = ('source', 'evidence', 'exports')
+
+
+def core_database(data, databases):
+    """Add core.sqlite when it exists; the default inputs predate the core store."""
+    if (data / 'core.sqlite').is_file():
+        databases.setdefault('core.sqlite', data / 'core.sqlite')
+    return databases
+
+
+def backup_covers(saved, host, database_names):
+    """Whether backup evidence verified these databases (and core.sqlite when the host has one)."""
+    needed = list(database_names)
+    if (Path(host) / 'data/core.sqlite').is_file():
+        needed.append('core.sqlite')
+    if saved.get('backup_scope_kind') == 'scoped':
+        return (saved.get('out_of_scope_unchanged') is True
+                and all(name in saved.get('backup_scope', ()) for name in needed))
+    if saved.get('all_database_tables_and_columns_compared') is not True:
+        return False
+    if 'backup_scope' not in saved:
+        return 'core.sqlite' not in needed
+    return all(name in saved['backup_scope'] for name in needed)
+
+
+def resolve_scope(databases, data, names):
+    """Pick the databases this window writes. `board` means board.sqlite; core.sqlite may be named too."""
+    wanted = []
+    for name in names:
+        wanted.extend(SCOPE_ALIASES.get(name, [name]))
+    candidates = core_database(data, dict(databases))
+    if not wanted or any(name not in candidates for name in wanted):
+        raise RuntimeError('BACKUP_SCOPE_UNKNOWN_DATABASE')
+    # The Rust writer changes core.sqlite and period-facts.json; a window that has one must back it up.
+    if 'core.sqlite' in candidates and 'core.sqlite' not in wanted:
+        raise RuntimeError('BACKUP_SCOPE_MISSING_CORE_DB')
+    inside = {name: candidates[name] for name in candidates if name in wanted}
+    outside = {name: path for name, path in databases.items() if name not in inside}
+    return inside, outside
+
+
+def database_fingerprint(path):
+    """File-level hash of a database and its WAL; no row serialization. Any committed write changes it."""
+    path = Path(path)
+    result = {}
+    for suffix in ('', '-wal'):
+        part = Path(str(path) + suffix)
+        if part.is_file():
+            digest = hashlib.sha256()
+            with part.open('rb') as handle:
+                for block in iter(lambda: handle.read(1 << 20), b''):
+                    digest.update(block)
+            result[part.name] = [part.stat().st_size, digest.hexdigest()]
+    return result
+
+
+def folder_fingerprint(folder):
+    """Relative path, size and mtime of every file; enough to detect a write without reading content."""
+    folder = Path(folder)
+    if folder.is_symlink():
+        raise RuntimeError('SOURCE_LINK_REFUSED')
+    result = {}
+    if folder.is_dir():
+        for path in sorted(folder.rglob('*')):
+            if path.is_symlink():
+                raise RuntimeError('SOURCE_LINK_REFUSED')
+            if path.is_file():
+                stat = path.stat()
+                result[path.relative_to(folder).as_posix()] = [stat.st_size, stat.st_mtime_ns]
+    return result
+
+
+def outside_state(data, outside_databases):
+    return {
+        'databases': {name: database_fingerprint(path) for name, path in outside_databases.items()},
+        'folders': {kind: folder_fingerprint(data / kind) for kind in OUT_OF_SCOPE_FOLDERS},
+    }
+
+
+def main(evidence_out=None, scope=None, host=None):
+    host = Path(host) if host else Path(r"D:\WebLedgerHost")
     data = host / "data"
     config = host / "config/real-review.json"
     inputs = BoundInputs(load_manifest(str(config)))
@@ -129,6 +209,13 @@ def main(evidence_out=None):
     flow_config = host / 'config/card-flow.json'
     options = json.loads(flow_config.read_text(encoding='utf-8')) if flow_config.is_file() else {}
     databases, decision_name = database_inputs(data, manifest, options)
+    databases = core_database(data, databases)
+    outside_before = None
+    if scope:
+        databases, outside = resolve_scope(databases, data, scope)
+        if decision_name not in databases:
+            raise RuntimeError('BACKUP_SCOPE_MISSING_DECISIONS_DB')
+        outside_before = outside_state(data, outside)
     before = {name: database_state(path) for name, path in databases.items()}
     for name, path in databases.items():
         backup_database(path, bundle / "databases" / name)
@@ -140,7 +227,9 @@ def main(evidence_out=None):
     # Optional product stores are as important as SQLite: photos, receipt edits,
     # selected Google generations and launch settings must survive a restore.
     files.update(product_files(host))
-    for kind in ("source", "evidence", "exports"):
+    if (data / 'period-facts.json').is_file():
+        files['core-facts/period-facts.json'] = data / 'period-facts.json'
+    for kind in (() if scope else OUT_OF_SCOPE_FOLDERS):
         if (data / kind).is_symlink():
             raise RuntimeError('SOURCE_LINK_REFUSED')
         for path in sorted((data / kind).rglob("*")):
@@ -158,6 +247,8 @@ def main(evidence_out=None):
     after = {name: database_state(path) for name, path in databases.items()}
     if before != after or hashes != {name: digest_file(path) for name, path in files.items()}:
         raise RuntimeError("LIVE_INPUT_CHANGED_DURING_BACKUP")
+    if scope and outside_state(data, outside) != outside_before:
+        raise RuntimeError("OUT_OF_SCOPE_INPUT_CHANGED_DURING_BACKUP")
     for name in databases:
         path = bundle / "databases" / name
         if database_state(path) != before[name]:
@@ -187,17 +278,23 @@ def main(evidence_out=None):
         "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "backup_directory": str(bundle), "restored_directory": str(restored),
         "database_count": len(databases), "file_count": len(files),
-        "all_database_tables_and_columns_compared": True,
-        "source_files_hash_compared": True,
+        "all_database_tables_and_columns_compared": not scope,
+        "source_files_hash_compared": not scope,
+        "backup_scope_kind": "scoped" if scope else "full",
+        "backup_scope": sorted(databases),
         "live_state_unchanged": before == after,
         "restored_review_binding_equal": True,
-        "board_rows": before["board.sqlite"]["board_rows"]["rows"],
-        "board_requests": before["board.sqlite"]["board_requests"]["rows"],
+        "board_rows": before["board.sqlite"]["board_rows"]["rows"] if "board.sqlite" in before else None,
+        "board_requests": before["board.sqlite"]["board_requests"]["rows"] if "board.sqlite" in before else None,
         "actual_request_replay_executed": False,
         "secrets_copied": False,
         "restored_server_started": False,
         "actual_import_performed": False,
     }
+    if scope:
+        result["out_of_scope_databases"] = sorted(outside)
+        result["out_of_scope_folders"] = list(OUT_OF_SCOPE_FOLDERS)
+        result["out_of_scope_unchanged"] = True
     output = Path(evidence_out) if evidence_out else ROOT / "docs/handoff/2026-10-01/operational-backup-restore-evidence.json"
     output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
@@ -205,9 +302,12 @@ def main(evidence_out=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence-out', type=Path, help='Store aggregate evidence outside the checkout')
+    parser.add_argument('--scope', nargs='+', metavar='DB',
+                        help='Back up and verify only these databases (e.g. board, or board.sqlite core.sqlite); '
+                             'others and source/evidence/exports folders are only checked for being unchanged. Default: everything')
     args = parser.parse_args()
     try:
-        main(args.evidence_out)
+        main(args.evidence_out, args.scope)
     except Exception:
         print("OPERATIONAL_BACKUP_RESTORE_FAILED", file=sys.stderr)
         raise SystemExit(2) from None

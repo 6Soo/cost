@@ -73,7 +73,11 @@ def test_render_keeps_sources_and_displays_accepted_pair_without_reference(conte
     assert html.count(f"data-transaction='{original}'") == 1
     assert html.count(f"data-transaction='{refund}'") == 1
     assert '환불 추론 연결 · 기록 보류' not in html
-    assert '기준 원결제 연결' in html
+    merchant = store.conn.execute(
+        "SELECT merchant FROM transactions WHERE transaction_id=?", (original,)).fetchone()[0]
+    expected_basis = ('동일 카드·가맹점·이용일·동액 기준 연결' if merchant == '합성고속버스'
+                      else '동일 카드·카카오 가맹점·기간·동액 기준 연결')
+    assert expected_basis in html
     assert '원승인번호 기준 원결제 확정 연결' not in html
     assert '원결제와 환불을 함께 기록해야 합니다' not in html
     assert '원결제 연결을 확인할 수 없습니다' not in html
@@ -102,8 +106,8 @@ def test_manual_hold_is_preserved_and_visible_on_either_row(context, held_side):
     assert held['blocked'] == 'review_hold' and held['reason'] == 'SYNTHETIC MANUAL HOLD'
     html = card_flow.render_expense_cleanup(store, 'synthetic-csrf')
     assert 'SYNTHETIC MANUAL HOLD' in html
-    if held_side == 'original':
-        assert '보류 중' in html
+    assert '기록 보류 · SYNTHETIC MANUAL HOLD' in html
+    assert '보류 중' not in html
     assert '내부 비용 기록 준비 가능' not in html
     assert list(store.conn.iterdump()) == before
 
@@ -150,9 +154,17 @@ def test_original_only_batch_cannot_book_half_an_inferred_group(context):
 def test_inferred_action_does_not_use_a_trip_label_as_refund_confirmation(context):
     from webapp.card_actions import next_action
     store, flow, batch, original, refund = context
-    action = next_action({'batch_id': batch, 'transaction_id': original, 'trip_name': '환불'},
-                         {'blocked': 'refund_inferred'})
-    assert action['required'] and action['status'] == '환불 추론 연결'
+    row = {'batch_id': batch, 'transaction_id': original, 'trip_name': '환불'}
+    unverified = next_action(row, {})
+    assert unverified['status'] == '환불 상태 확인'
+    confirmed = next_action(row, {'refund_link': {
+        'inferred': False, 'status': 'full', 'net_krw': 0}})
+    assert confirmed['status'] == '전액 환불'
+    action = next_action(row,
+                         {'blocked': 'refund_inferred', 'refund_link': {
+                             'inferred': True, 'status': 'full', 'net_krw': 0}})
+    assert not action['required'] and action['status'] == '환불 추론 연결'
+    assert '순액 0원' in action['reason'] and action['protection'] == 'refund_inferred'
 
 
 def test_pair_preserves_existing_entry_and_records_only_missing_counterpart(context):

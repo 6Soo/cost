@@ -28,6 +28,53 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  rust-core:
+    # M3 core workspace gate (docs/design/m3-core.md section 6.3). Runs only when core/ changed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Detect core/ changes
+        id: changed
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then base="$PR_BASE";
+          elif [[ "$EVENT_NAME" == "push" ]]; then base="$PUSH_BEFORE";
+          else base=""; fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git diff --quiet "$base" HEAD -- core/ .github/workflows/quality.yml; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install pinned toolchain
+        if: steps.changed.outputs.run == 'true'
+        working-directory: core
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        if: steps.changed.outputs.run == 'true'
+        with:
+          path: core/target
+          key: rust-core-${{ runner.os }}-${{ hashFiles('core/rust-toolchain.toml', 'core/Cargo.lock') }}
+      - name: cargo fmt
+        if: steps.changed.outputs.run == 'true'
+        working-directory: core
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        if: steps.changed.outputs.run == 'true'
+        working-directory: core
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        if: steps.changed.outputs.run == 'true'
+        working-directory: core
+        run: cargo test --workspace
+
   impact-checks:
     # Ubuntu 26.04 'latest' lacks packages required by Playwright --with-deps.
     # Pin a supported runner instead of skipping browser protection checks.
@@ -45,6 +92,9 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: requirements-dev.txt
+      - name: Install pinned Rust toolchain (selected tests may build costcore)
+        working-directory: core
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Select checks
         id: plan
         shell: bash

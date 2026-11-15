@@ -26,6 +26,7 @@ money:
 
 from __future__ import annotations
 
+import json
 import re
 
 from .db import decided_sql
@@ -426,6 +427,8 @@ def _classify_transaction(transaction: dict, *, rules: list,
             '교통비': {'택시','버스','철도','지하철','주유소','주차장','고속도로통행료','시내버스','고속.시외버스','여객선'},
             '항공료': {'항공사','항공','항공운송'},
             '렌터카': {'렌터카'},
+            '입장료': {'공연장/전시장'},
+            '통행료': {'RF유료도로.터널'},
         }
         for item, industries in groups.items():
             if industry in industries:
@@ -504,15 +507,20 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
     rules_by_merchant = {}
     for rule in active_rules:
         rules_by_merchant.setdefault(rule['conditions']['merchant_normalized'], []).append(rule)
-    rows = store.conn.execute(
+    select_rows = (
         "SELECT transaction_id, issuer, card_tail, card_kind,"
         " transaction_direction, transaction_kind, approval_number,"
         " original_approval_number, approval_date, posting_date, merchant,"
         " merchant_normalized, amount_krw, foreign_amount, foreign_currency,"
         " description_raw, row_index, raw_row_json, parse_error, " + decided_sql() + ","
         " classification_state,source_hash,classification_source,classification_basis,item,"
-        " description,display_tab_id,trip_id FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index",
-        (batch_id,)).fetchall()
+        " description,display_tab_id,trip_id FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)")
+    rows = []
+    if selected:  # a few selected rows are read by id, not by reading the whole batch
+        rows = store.conn.execute(select_rows + " AND transaction_id IN (SELECT value FROM json_each(?)) ORDER BY row_index",
+                                  (batch_id, json.dumps(sorted(selected)))).fetchall()
+    if not rows:
+        rows = store.conn.execute(select_rows + " ORDER BY row_index", (batch_id,)).fetchall()
     if not rows:
         exists = store.conn.execute(
             "SELECT 1 FROM import_batches WHERE batch_id=?", (batch_id,)).fetchone()

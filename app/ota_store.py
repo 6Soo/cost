@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 import re
 import sqlite3
 import zlib
@@ -11,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = 'ota-store-v1'
+MAIL_STAMP_FILE = '.mail-import-stamp.json'
 DDL = '''
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS ota_store_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -42,6 +45,13 @@ CREATE TABLE IF NOT EXISTS ota_reservation_observations(
  entry_key TEXT NOT NULL,provider TEXT NOT NULL,booking_ref TEXT,
  source_digest TEXT NOT NULL,fact_json TEXT NOT NULL,
  PRIMARY KEY(observation_id,revision_id,entry_key));
+CREATE INDEX IF NOT EXISTS ota_booking_evidence_fact_lookup ON ota_booking_evidence(booking_id,entry_key);
+CREATE INDEX IF NOT EXISTS ota_reservation_observations_lookup ON ota_reservation_observations(observation_id,entry_key);
+CREATE TABLE IF NOT EXISTS ota_row_seen(
+ kind TEXT NOT NULL,owner_id TEXT NOT NULL,entry_key TEXT NOT NULL,home_revision TEXT NOT NULL,
+ source_id TEXT NOT NULL,first_revision TEXT NOT NULL,last_revision TEXT NOT NULL,
+ first_observed_at TEXT NOT NULL,last_observed_at TEXT NOT NULL,seen_count INTEGER NOT NULL,
+ PRIMARY KEY(kind,owner_id,entry_key,home_revision,source_id));
 CREATE TABLE IF NOT EXISTS ota_portal_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
@@ -105,6 +115,44 @@ def is_store(path):
         if not row or row[0] != SCHEMA:
             raise ValueError('OTA_STORE_SCHEMA_MISMATCH')
         return True
+
+
+# 변경 감시 표식에 쓰는 표. import·재색인이 쓰는 모든 표의 최대 rowid가 새 행마다 늘어난다.
+_STATE_TABLES = ('ota_raw_entries', 'ota_raw_blobs', 'ota_messages', 'ota_mail_origins', 'ota_bookings',
+                 'ota_booking_evidence', 'ota_reservation_observations', 'ota_row_seen', 'ota_portal_rows',
+                 'ota_catalog_rows', 'ota_scheduled_rows', 'ota_source_revisions')
+
+
+def commit_state(path):
+    """커밋된 상태 표식. 통합 OTA DB가 아니면 None, 파일 크기와 무관하게 상수 수준으로 읽는다.
+
+    읽기 전용 연결은 커밋된 페이지만 보므로 커밋 전 WAL 쓰기에는 변하지 않는다.
+    원천이 바뀌면 ota_sources.current_revision 이, 행이 쌓이면 각 표의 최대 rowid가 바뀐다.
+    """
+    path = Path(path)
+    try:
+        with path.open('rb') as handle:
+            if handle.read(16) != b'SQLite format 3\x00':
+                return None
+        with closing(connect_read(path)) as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_store_meta'").fetchone():
+                return None
+            row = conn.execute("SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
+            if not row or row[0] != SCHEMA:
+                return None
+            present = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            parts = [[tuple(r) for r in conn.execute(
+                'SELECT source_id,kind,ordinal,current_revision FROM ota_sources ORDER BY source_id')]]
+            for table in _STATE_TABLES:
+                parts.append([table, conn.execute('SELECT max(rowid) FROM "' + table + '"').fetchone()[0]
+                              if table in present else None])
+            if 'ota_row_seen' in present:
+                # _seen()이 같은 판 재관측 때 last_revision만 UPDATE하며 seen_count가 늘어난다.
+                parts.append(list(conn.execute('SELECT count(*),total(seen_count) FROM ota_row_seen').fetchone()))
+            return sha(encoded(parts))
+    except (OSError, sqlite3.Error) as error:
+        logging.getLogger(__name__).warning('OTA 커밋 상태 표식을 읽지 못해 바이트 해시로 대신합니다: %s %s', path, error)
+        return None
 
 
 def _current_rows(conn, table, kind):
@@ -188,8 +236,15 @@ def catalog_rows(conn):
     available = conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_reservation_observations'").fetchone()
     if available:
         seen = set()
-        for row in conn.execute("SELECT o.* FROM ota_reservation_observations o JOIN ota_sources s "
-                "ON s.current_revision=o.revision_id ORDER BY s.ordinal,o.observation_id"):
+        query = ("SELECT s.ordinal AS ord,o.* FROM ota_reservation_observations o JOIN ota_sources s "
+                 "ON s.current_revision=o.revision_id")
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_row_seen'").fetchone():
+            # 같은 사실은 다시 쓰지 않고 관측 기록만 갱신하므로, 현재 판에서 다시 관측된 행도 현재 행이다.
+            query += (" UNION SELECT s.ordinal AS ord,o.* FROM ota_reservation_observations o "
+                      "JOIN ota_row_seen z ON z.kind='observation' AND z.owner_id=o.observation_id "
+                      "AND z.entry_key=o.entry_key AND z.home_revision=o.revision_id "
+                      "JOIN ota_sources s ON s.source_id=z.source_id AND s.current_revision=z.last_revision")
+        for row in conn.execute("SELECT * FROM (" + query + ") ORDER BY ord,observation_id,entry_key"):
             if row['observation_id'] in seen:
                 continue
             seen.add(row['observation_id'])
@@ -380,8 +435,86 @@ class OtaStore:
         identity = sha(encoded([provider, account, str(ref)]))
         self.conn.execute('INSERT OR IGNORE INTO ota_bookings VALUES(?,?,?,?)',
                           (identity, provider, account, str(ref)))
-        self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
-                          (identity, revision, key, kind, encoded(fact)))
+        payload = encoded(fact)
+        if kind == 'mail' and self._seen_ready():
+            if self._seen_in_revision('evidence', identity, key, revision):
+                return
+            # 같은 예약·메일·사실이 이미 있으면 새 행 없이 관측 기록만 남긴다.
+            old = self.conn.execute('SELECT revision_id FROM ota_booking_evidence WHERE booking_id=? '
+                "AND entry_key=? AND evidence_kind='mail' AND fact_json=? ORDER BY rowid LIMIT 1",
+                (identity, key, payload)).fetchone()
+            if old:
+                self._seen('evidence', identity, key, old[0], revision)
+                return
+        if self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
+                             (identity, revision, key, kind, payload)).rowcount and kind == 'mail' and self._seen_ready():
+            self._seen('evidence', identity, key, revision, revision)
+
+    def _seen_ready(self):
+        return bool(self.conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_row_seen'").fetchone())
+
+    def _seen_in_revision(self, kind, owner, key, revision):
+        """같은 판에서 이미 관측했고 그 원래 행이 남아 있으면 사실이 달라져도 다시 쓰지 않는다.
+
+        같은 판 재실행은 첫 사실을 유지하던 종전 의미와 같다. 원래 행이 지워졌으면 다시 만든다.
+        """
+        table, column = (('ota_booking_evidence', 'booking_id') if kind == 'evidence'
+                         else ('ota_reservation_observations', 'observation_id'))
+        return bool(self.conn.execute('SELECT 1 FROM ota_row_seen z JOIN ota_source_revisions r '
+            'ON r.source_id=z.source_id JOIN ' + table + ' t ON t.' + column + '=z.owner_id '
+            'AND t.entry_key=z.entry_key AND t.revision_id=z.home_revision '
+            'WHERE z.kind=? AND z.owner_id=? AND z.entry_key=? AND z.last_revision=? AND r.revision_id=?',
+            (kind, owner, key, revision, revision)).fetchone())
+
+    def _seen(self, kind, owner, key, home, revision):
+        """저장된 행(home 판)을 revision 판에서 관측했다는 사실만 남긴다."""
+        if not self._seen_ready():
+            return
+        source, observed = self.conn.execute(
+            'SELECT source_id,observed_at FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
+        if self.conn.execute('UPDATE ota_row_seen SET last_revision=?,last_observed_at=?,seen_count=seen_count+1 '
+                'WHERE kind=? AND owner_id=? AND entry_key=? AND home_revision=? AND source_id=? '
+                'AND last_revision<>?', (revision, observed, kind, owner, key, home, source, revision)).rowcount:
+            return
+        if home == revision:
+            first, first_at = revision, observed
+        else:
+            first, first_at = home, self.conn.execute(
+                'SELECT observed_at FROM ota_source_revisions WHERE revision_id=?', (home,)).fetchone()[0]
+        self.conn.execute('INSERT OR IGNORE INTO ota_row_seen VALUES(?,?,?,?,?,?,?,?,?,?)',
+            (kind, owner, key, home, source, first, revision, first_at, observed,
+             1 if home == revision else 2))
+
+    @staticmethod
+    def mail_stamp(directory):
+        """gmail*.json 원문 목록의 파일 이름·크기·mtime과 app/*.py 전체(import_mail이 의존하는 파서 모듈 포함)의 stat. collection.json은 실행마다 바뀌어 제외한다."""
+        code = Path(__file__).resolve().parent
+        stamp = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in sorted(Path(directory).glob('gmail*.json'))]
+        stamp += [['code:' + p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in sorted(code.glob('*.py'))]
+        return stamp
+
+    def _mail_stamp_state(self, directory, stamp):
+        row = self.conn.execute('SELECT current_revision FROM ota_sources WHERE source_id=?',
+            (sha(encoded(['mail_directory', str(Path(directory).resolve())])),)).fetchone()
+        return {'database': str(self.path), 'revision': row[0] if row else None, 'stamp': stamp}
+
+    def mail_unchanged(self, directory, stamp):
+        """마지막으로 성공한 import 뒤 원문 파일이 달라지지 않았고 DB의 현재 판도 그대로인지 stat·한 행 조회로 판정한다."""
+        try:
+            saved = json.loads((Path(directory) / MAIL_STAMP_FILE).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return False
+        return saved == self._mail_stamp_state(directory, stamp) and saved['revision'] is not None
+
+    def record_mail_stamp(self, directory, stamp):
+        """commit 뒤에 부른다. 쓰기에 실패하면 다음 실행이 다시 import할 뿐이다."""
+        target = Path(directory) / MAIL_STAMP_FILE
+        temporary = target.with_suffix('.tmp')
+        try:
+            temporary.write_text(json.dumps(self._mail_stamp_state(directory, stamp)), encoding='utf-8')
+            os.replace(temporary, target)
+        except OSError as error:
+            logging.getLogger(__name__).warning('mail stamp not written (next run re-imports): %s', type(error).__name__)
 
     def import_mail(self, directory):
         from app import ota_mail, ota_payments
@@ -430,9 +563,25 @@ class OtaStore:
         for event in forest_mail.collect(messages):
             key = forest_mail.catalog_reference(event)
             source_id, = event['source_ids']
-            inserted += self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
-                'VALUES(?,?,?,?,?,?,?)',(key,revision,source_id.removeprefix('mail:'),event['provider'],
-                event.get('booking_ref'),event['source_digest'],encoded(event))).rowcount
+            entry, payload = source_id.removeprefix('mail:'), encoded(event)
+            if self._seen_ready():
+                if self._seen_in_revision('observation', key, entry, revision):
+                    continue
+                source = self.conn.execute('SELECT source_id FROM ota_source_revisions WHERE revision_id=?',
+                                           (revision,)).fetchone()[0]
+                old = self.conn.execute('SELECT o.revision_id FROM ota_reservation_observations o '
+                    'JOIN ota_source_revisions r ON r.revision_id=o.revision_id WHERE o.observation_id=? '
+                    'AND o.entry_key=? AND o.fact_json=? AND r.source_id=? ORDER BY o.rowid LIMIT 1',
+                    (key, entry, payload, source)).fetchone()
+                if old:
+                    self._seen('observation', key, entry, old[0], revision)
+                    continue
+            added = self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
+                'VALUES(?,?,?,?,?,?,?)',(key,revision,entry,event['provider'],
+                event.get('booking_ref'),event['source_digest'],payload)).rowcount
+            if added:
+                self._seen('observation', key, entry, revision, revision)
+            inserted += added
         return inserted
 
     def rebuild_reservation_observations(self):
@@ -560,5 +709,5 @@ class OtaStore:
     def summary(self):
         tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_raw_blobs', 'ota_messages',
                   'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows',
-                  'ota_reservation_observations')
+                  'ota_reservation_observations', 'ota_row_seen')
         return {table: self.conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables}

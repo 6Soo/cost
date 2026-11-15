@@ -1010,7 +1010,17 @@ def test_hana_repair_cli_apply_on_verified_isolated_copy(tmp_path, monkeypatch, 
     evidence.write_text(json.dumps(dict(recorded_at=datetime.now(timezone.utc).isoformat(),
         live_state_unchanged=True, all_database_tables_and_columns_compared=True,
         restored_review_binding_equal=True, backup_directory=str(manifest.parent))), encoding='utf8')
-    monkeypatch.setattr(gate.subprocess, 'run', lambda *a, **k: pytest.fail('copy checked operating writers'))
+    import os
+    real_run = gate.subprocess.run
+
+    def run_only_costcore(command, *a, **k):
+        # The rust links producer calls the core binary; every other external run stays forbidden.
+        binary = os.environ.get('WEBLEDGER_COSTCORE_BIN', '')
+        if binary and isinstance(command, (list, tuple)) and command and str(command[0]) == binary:
+            return real_run(command, *a, **k)
+        pytest.fail('copy checked operating writers')
+
+    monkeypatch.setattr(gate.subprocess, 'run', run_only_costcore)
     assert hana.main(['--host-root', str(host), '--request-id', 'hana-cli']) == 0
     preview = json.loads(capsys.readouterr().out)
     assert preview['status'] == 'PREVIEW' and preview['to_mark'] == 1

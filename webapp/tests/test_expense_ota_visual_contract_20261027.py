@@ -29,12 +29,15 @@ def test_kakao_merchant_key_is_read_only_review_classification():
 
 def test_expense_cleanup_styles_keep_collapsed_refund_drilldown():
     import inspect
-    src = inspect.getsource(card_flow)
+    from webapp import card_cleanup_ui, card_evidence_ui, expense_workspace
+    src = ''.join(inspect.getsource(module) for module in
+                  (card_flow, card_cleanup_ui, card_evidence_ui, expense_workspace))
     assert "cleanup-merchant-compare" in src
     assert "cleanup-kakao-inventory" in src
     assert "cleanup-compare-row" in src
     assert "원결제·취소 근거 자세히 보기" in src
-    assert "aria-label='정리할 지출'" in src
+    assert "task_label = '정리할 지출' if page_title == '지출 정리' else '카드 거래'" in src
+    assert "('cleanup', 'expense-overview', 'list', task_label)" in src
 
 
 def test_browser_ota_theme_fold_keyboard_and_guarded_preview(monkeypatch):

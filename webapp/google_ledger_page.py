@@ -12,12 +12,14 @@ import datetime as dt
 import hashlib
 import html
 import json
+import logging
 import os
 import functools
 import threading
 import copy
 import re
 import time
+import tempfile
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -284,7 +286,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in google_authority.SPREADSHEET_IDS:
-            return panel('사용할 장부 사본을 선택해 주세요.')
+            return panel('수입 장부를 확인하지 못했습니다. 잠시 뒤 다시 열어 주세요. 같으면 Google 시트 탭을 확인해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
             return panel('수입 내역을 불러오지 못했습니다.')
@@ -705,7 +707,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         reasons = " / ".join(REVIEW_LABELS.get(code, code) for code in trip["review"]) or "확인 사항 없음"
         copies = trip.get("copies") or {}
         links = " ".join(
-            f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={role}'>{role} 상세</a>"
+            f"{role} 상세"
             for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         chosen = trip.get('chosen_source')
         choice = ''
@@ -720,7 +722,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
                     f"</button>"
                     for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         elif not is_owner:
-            links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
+            links = (f"여행 상세"
                      if chosen in google_authority.SPREADSHEET_IDS else '최종 장부 선택 필요')
         rows.append(
             "<tr>"
@@ -797,8 +799,8 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "padding:8px 12px;margin:8px 8px 0 0;border:1px solid var(--shell-line-strong);border-radius:var(--r-md);color:var(--shell-accent)}"
         "</style></head><body><h1>수입 장부를 아직 표시할 수 없습니다.</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
-        "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
-        f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"
+        "<p>확인되지 않은 금액은 표시하지 않습니다. 잠시 뒤 다시 열어 주세요. 같으면 Google 시트 탭을 확인해 주세요.</p>"
+        f"{ui_icons.icon('refresh-cw')}다시 확인"
         f"<a href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
         "</body></html>", 503)
 
@@ -896,6 +898,86 @@ def _end_set_by_sync(board, tab_id: str) -> bool:
     return False
 
 
+def _schedule_overrides():
+    """Separate confirmed schedules outrank Google; unreadable configuration fails closed."""
+    from ledger.domain.direct_trip_schedule_authority import load_document
+    path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY', '').strip()
+    if not path:
+        return []
+    records, _ = load_document(Path(path))
+    return [r for r in records if r.is_authoritative and (
+        r.authority_kind == 'user_confirmed_schedule'
+        or not r.source_locator.partition('#')[0].lower().endswith('.xlsx'))]
+
+
+def _google_end_change(board, tab: dict, trip: dict, overrides) -> bool:
+    period = trip.get('period') or {}
+    end = period.get('ends_on')
+    if (tab.get('deleted') or not end or end == tab.get('ends_on')
+            or period.get('starts_on') != tab.get('starts_on')
+            or 'SOURCE_STALE' in (trip.get('review') or ())):
+        return False
+    # A post-creation manual edit, including clearing the date, always wins.
+    for prev, new, actor in board.conn.execute(
+            "SELECT prev_json, new_json, actor FROM trip_tab_history "
+            "WHERE tab_id=? AND change_kind='meta' ORDER BY id DESC", (tab['tab_id'],)):
+        if json.loads(prev or '{}').get('ends_on') != json.loads(new or '{}').get('ends_on'):
+            if actor != 'google-sync':
+                return False
+            break
+    for record in overrides:
+        if (record.trip_code != trip['key'] or str(record.starts_on) != tab.get('starts_on')):
+            continue
+        if str(record.ends_on) != end:
+            return False
+    if not tab.get('ends_on'):
+        return True
+    if 'PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()):
+        return _end_set_by_sync(board, tab['tab_id'])
+    return True
+
+
+TRIP_IMPORT_STATUS_FILENAME = 'google-trip-import-status.json'
+
+
+def last_trip_import_result(data_root):
+    """Read the persisted, source-free status for the latest trip import."""
+    try:
+        value = json.loads((Path(data_root) / TRIP_IMPORT_STATUS_FILENAME).read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get('schedule_unavailable'), bool):
+        return None
+    return {'schedule_unavailable': value['schedule_unavailable']}
+
+
+def _save_trip_import_status(board, counts):
+    """Atomically persist only whether schedule evidence was unavailable."""
+    data_root = getattr(board, 'path', None)
+    if data_root is None:
+        return
+    directory = Path(data_root).parent
+    target = directory / TRIP_IMPORT_STATUS_FILENAME
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=directory,
+                                         prefix=target.name + '.', suffix='.tmp',
+                                         delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump({'schedule_unavailable': bool(counts.get('schedule_unavailable'))}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except OSError:
+        logging.getLogger(__name__).warning('TRIP_IMPORT_STATUS_UNAVAILABLE: status file could not be saved')
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def import_trips(board, snapshot: dict) -> dict:
     """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
 
@@ -904,6 +986,13 @@ def import_trips(board, snapshot: dict) -> dict:
     """
     from .ledger_store import SaveError
     counts = Counter()
+    try:
+        overrides = _schedule_overrides()
+    except (OSError, ValueError):
+        # Keep independent creation/linking available, but never discard schedule protection.
+        logging.getLogger(__name__).warning('TRIP_SCHEDULE_UNAVAILABLE: end-date updates skipped', exc_info=True)
+        overrides = None
+        counts['schedule_unavailable'] += 1
     existing_tabs = board.list_trips(include_archived=True)
     named = {t['display_key']: t for t in existing_tabs}
     source_named = {(t.get('owner_id') or 'aslan', t.get('source_trip_key')): t
@@ -924,14 +1013,10 @@ def import_trips(board, snapshot: dict) -> dict:
             continue
         tab = source_named.get((owner, key)) or (named.get(key) if owner == 'aslan' else None)
         if tab is not None:
-            # 다음 여행 직전일로 정한 종료일은 다음 여행이 바뀌면 따라 바뀐다. 사용자가 직접 정한 종료일은 덮지 않는다.
-            follows = ('PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()) and tab.get('ends_on')
-                       and period.get('ends_on') and tab['ends_on'] != period['ends_on']
-                       and _end_set_by_sync(board, tab['tab_id']))
-            if (not tab.get('ends_on') or follows) and period.get('ends_on'):
+            if overrides is not None and _google_end_change(board, tab, trip, overrides):
                 try:
                     board.save_trip_meta(tab_id=tab['tab_id'], expected_revision=tab['revision'],
-                                         client_request_id='google-end-' + tab['tab_id'] + period['ends_on'],
+                                         client_request_id=f"google-end-{tab['tab_id']}-{tab['revision']}-{period['ends_on']}",
                                          ends_on=period['ends_on'], actor='google-sync')
                     counts['end_set'] += 1
                 except SaveError:
@@ -952,6 +1037,12 @@ def import_trips(board, snapshot: dict) -> dict:
             counts['held'] += 1
             continue
         counts[outcome['outcome']] += 1
+    _save_trip_import_status(board, counts)
+    try:
+        from .collection_status import _cache_clear
+        _cache_clear()
+    except ImportError:
+        pass
     return dict(counts)
 
 

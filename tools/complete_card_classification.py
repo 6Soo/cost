@@ -17,7 +17,7 @@ import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import automatic_classification as policy
+from app import automatic_classification as policy, core_switch_config
 from app.db import StoreError
 
 
@@ -50,8 +50,6 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
     These facts guide expense attribution. They never create financial links,
     confirm a refund, publish customer text, or modify a snapshot/review store.
     """
-    from collections import defaultdict
-    from app.provisional_assignment import ota_service_period_candidate
     if report is not None and cache_path is not None:
         raise ValueError('SUPPLIED_REPORT_CACHE_NOT_SUPPORTED')
     flow = read_flow(conn, host) if report is None else None
@@ -79,37 +77,9 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
                 raise ValueError('EVIDENCE_CACHE_STALE')
             return saved['evidence'], saved['summary']
     report = (flow._compute_ota_report() or {}) if report is None else report
-    from app.closed_period import formal_facts
-    completed_evidence = formal_facts(report.get('matches', []), trips)
+    from app.closed_period import booking_period_evidence
     rows = {row['transaction_id']: row for row in policy._read(conn)}
-    candidates = defaultdict(list)
-    for fact in report.get('matches', []):
-        row = rows.get(fact.get('transaction_id'))
-        if (not row or row['source_hash'] != fact.get('source_hash')
-                or row['transaction_direction'] != 'purchase'
-                or fact.get('reservation_status') == 'cancelled'
-                or fact.get('period_conflict') or fact.get('service_period_conflict')):
-            continue
-        period = fact.get('period') or fact.get('service_period')
-        if not isinstance(period, dict):
-            continue
-        options = ota_service_period_candidate({'service_period': period}, trips)
-        if len(options) == 1:
-            candidates[row['transaction_id']].append(dict(
-                source_hash=row['source_hash'], trip_id=options[0]['trip_id'],
-                item=fact.get('item') or '',
-                basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
-                evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest()))
-            candidates[row['transaction_id']][-1].update(
-                service_period=dict(period),
-                formal_link=row['transaction_id'] in completed_evidence)
-    evidence = {}
-    conflicts = 0
-    for tid, options in candidates.items():
-        if len({option['trip_id'] for option in options}) != 1:
-            conflicts += 1
-            continue
-        evidence[tid] = sorted(options, key=lambda option: option['evidence_digest'])[0]
+    evidence, conflicts = booking_period_evidence(report.get('matches', []), rows, trips, confirmed_only=False)
     summary = {'matched_facts': len(report.get('matches', [])),
                       'service_period_evidence': len(evidence), 'conflicting_periods': conflicts,
                       'source_errors': len(report.get('ota_source_errors', [])),
@@ -215,28 +185,33 @@ def require_writers_offline(port=8751):
         raise ValueError('WRITERS_NOT_OFFLINE')
 
 
-def require_offline_backup(host, evidence, db, *, isolated_copy=False):
+def require_offline_backup(host, evidence, db, *, isolated_copy=False,
+                           database_name='board.sqlite', board_port=None):
+    """Require a fresh, verified backup and, for live writes, a quiescent Board/SourceRefresh."""
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
-    for key in ('live_state_unchanged','all_database_tables_and_columns_compared','restored_review_binding_equal'):
+    from tools.verify_operational_backup_restore import backup_covers
+    for key in ('live_state_unchanged','restored_review_binding_equal'):
         if saved.get(key) is not True:
             raise ValueError('BACKUP_RESTORE_NOT_VERIFIED')
+    if not backup_covers(saved, host, [database_name]):
+        raise ValueError('BACKUP_RESTORE_NOT_VERIFIED')
     if not 0 <= (datetime.now(timezone.utc)-datetime.fromisoformat(saved['recorded_at'])).total_seconds() < 3600:
         raise ValueError('BACKUP_NOT_FRESH')
     backup = Path(saved['backup_directory']).resolve()
     if not backup.is_relative_to((host/'data/backups').resolve()):
         raise ValueError('BACKUP_LOCATION_INVALID')
     manifest = json.loads((backup/'manifest.json').read_text(encoding='utf-8'))
-    if manifest['databases']['board.sqlite'] != database_state(db):
+    if manifest['databases'][database_name] != database_state(db):
         raise ValueError('BACKUP_SOURCE_CHANGED')
     if isolated_copy:
-        live = Path('D:/WebLedgerHost/data/board.sqlite')
+        live = Path('D:/WebLedgerHost/data')/database_name
         if (host.resolve() == Path('D:/WebLedgerHost').resolve()
                 or db.resolve().parent != (host/'data').resolve()
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    require_writers_offline(ledger_route_port(host))
+    require_writers_offline(board_port if board_port is not None else ledger_route_port(host))
 
 
 def main(argv=None):
@@ -255,6 +230,7 @@ def main(argv=None):
     db = host/'data/board.sqlite'
     try:
         if args.apply:
+            core_switch_config.refuse_manual_apply(host)
             if not args.expected_digest or not args.backup_evidence:
                 raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
             require_offline_backup(host,args.backup_evidence,db)

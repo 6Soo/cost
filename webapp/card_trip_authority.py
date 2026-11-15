@@ -9,14 +9,15 @@ import json
 import os
 from pathlib import Path
 
-def trip_valid(flow, trip_id, *, google_periods, trip_authority, unchanged_workbook_schedule):
+def trip_valid(flow, trip_id, *, google_periods, trip_authority, unchanged_workbook_schedule, include_archived=False):
     """화면용 여행 탭의 기간이 원본 일정과 일치해야 한다.
 
-    원본은 연결된 구글 여행 탭의 시트 기간이다. 구글 기간과 맞지 않으면 기존 일정 권한 파일로 확인한다."""
+    원본은 연결된 구글 여행 탭의 시트 기간이다. 구글 기간과 맞지 않으면 기존 일정 권한 파일로 확인한다.
+    보관 여행은 승인된 교정 도구(`include_archived`)에서만 대상이 된다."""
     from ledger.domain.direct_trip_schedule_authority import load_document
     from . import real_review
     trip = flow.board.get_trip(trip_id)
-    if not trip or trip['deleted'] or trip['archived']:
+    if not trip or trip['deleted'] or (trip['archived'] and not include_archived):
         return False
     google = google_periods().get(trip_id, set())
     if trip['ends_on'] and any((start, end) == (trip['starts_on'], trip['ends_on']) for start, end, _ in google):
@@ -133,11 +134,13 @@ def retail_trip(flow, transaction, country, *, google_nets):
     return top['tab_id']
 
 
-def booking_trip(flow, transaction, period, *, google_nets, handover_days, overlaps_stay, stay_trip):
+def booking_trip(flow, transaction, period, *, google_nets, handover_days, overlaps_stay, stay_trip,
+                 include_archived=False):
     # 이용기간에 맞는 검증된 여행이다. 저장된 여행 이름이 그 기간과 겹치는 여행이면 그 여행을 쓴다.
     from app.trip_selection import card_trip_allowed
-    verified = [t for t in flow.board.list_trips() if flow.trip_valid(t['tab_id'])
-                and card_trip_allowed(transaction, t)]
+    trips = flow.board.list_trips(include_archived=True) if include_archived else flow.board.list_trips()
+    valid = (lambda tab: flow.trip_valid(tab, include_archived=True)) if include_archived else flow.trip_valid
+    verified = [t for t in trips if valid(t['tab_id']) and card_trip_allowed(transaction, t)]
     service = period.get('service', False)
     handover = handover_days(verified)
     named = [t for t in verified if t['display_key']==period.get('target_code')

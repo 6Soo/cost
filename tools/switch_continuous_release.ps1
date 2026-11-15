@@ -223,6 +223,19 @@ function Restore-WorkerRelease($Action,[string]$Candidate,[string]$Previous) {
     Start-ScheduledTask -TaskName WebLedger-Worker
     if(-not (Wait-WorkerRunning $Previous)){throw 'PREVIOUS_WORKER_DID_NOT_START'}
 }
+function Assert-CoreWritersAligned([string]$Sha,[bool]$RequireWorker) {
+    # Board and Worker write the same database; both must have applied card-flow.json's writer switches.
+    $module="$hostRoot\releases\$Sha\app\core_switch_config.py"
+    if(-not (Test-Path -LiteralPath $module -PathType Leaf) -or -not (Select-String -LiteralPath $module -Pattern '--verify-applied' -SimpleMatch -Quiet)){return 'UNSUPPORTED'}
+    $verify=@($module,'--verify-applied','--host-root',$hostRoot,'--release',$Sha)
+    if($RequireWorker){$verify+='--require-worker'}
+    for($attempt=0;$attempt -lt 20;$attempt++) {
+        $output=& $python @verify
+        if($LASTEXITCODE -eq 0){return 'VERIFIED'}
+        Start-Sleep -Milliseconds 500
+    }
+    throw "CORE_WRITER_MISMATCH_$($output -join ' ')"
+}
 function Assert-EntryIdentity([string]$Sha) {
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
         $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($entry.OwningProcess)"
@@ -250,6 +263,9 @@ try {
     $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
     Assert-EntryIdentity $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
+    # The Board runs the candidate release's own launcher (the host's default), never a host-bin copy
+    # that no deployment updates. Rollback restores $old, which keeps whatever launcher it had.
+    $newArguments=$newArguments -replace '(?i)\s-LauncherPath\s+(?:"[^"]+"|\S+)',''
     $newArguments=$newArguments -replace "(?i)(--port\s+)$oldPort(\s|$)", ('${1}'+$newPort+'${2}')
     if($canPrepare) {
         if($newArguments -notmatch '(?i)-DeploymentRoute\s'){$newArguments+=' -DeploymentRoute "'+$route+'"'}
@@ -331,7 +347,8 @@ try {
     Wait-BoardTask
     Wait-Backend $newPort $CandidateSha
     Switch-WorkerRelease $PreviousSha $CandidateSha | Out-Null
-    @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;worker_switched=[bool]$workerPrevious;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
+    $writerCheck=Assert-CoreWritersAligned $CandidateSha ([bool]$workerPrevious)
+    @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;worker_switched=[bool]$workerPrevious;core_writers=$writerCheck;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
 } catch {
     $originalError=$_.FullyQualifiedErrorId
     $originalMessage=$_.Exception.Message

@@ -114,6 +114,8 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _airline_exact_amount_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _gotogate_exact_amount_periods(data, manual).items():
+        result.setdefault(tid, metadata)
     for tid, metadata in _airbnb_code_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
@@ -122,6 +124,181 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _trip_preauthorization_cards(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _forest_order_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    for tid, metadata in _onsite_property_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _forest_order_periods(data, manual):
+    """A matched 숲나들e payment names its order; the same order and amount in the booking states the stay.
+
+    The payment mail carries no stay and the booking no card, so the two meet only here.
+    Display only: the existing payment link is untouched and no booking number is invented.
+    """
+    from datetime import date
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    bookings = defaultdict(list)
+    for event in events.values():
+        if event.get('provider') == 'forest' and event.get('event_type') == 'reservation':
+            order = str(event.get('booking_ref') or '').rsplit(':', 1)[-1]
+            if order:
+                bookings[order].append(event)
+    if not bookings:
+        return {}
+    claimed = defaultdict(set)
+    for record in data.get('results', []):
+        for tid in [record.get('transaction_id'), *(record.get('reserved_card_ids') or ())]:
+            if tid:
+                claimed[str(tid)].add(str(record.get('ota_event_id')))
+        relation = record.get('payment_relation') or {}
+        if relation.get('status') == 'LINKED':
+            for tid in relation.get('transaction_ids') or ():
+                claimed[str(tid)].add(str(record.get('ota_event_id')))
+        if (record.get('reservation_link') or {}).get('transaction_id'):
+            claimed[str(record['reservation_link']['transaction_id'])].add(str(record.get('ota_event_id')))
+    for event_id, link in (data.get('links') or {}).items():
+        if isinstance(link, dict) and link.get('transaction_id'):
+            claimed[str(link['transaction_id'])].add(str(event_id))
+    result = {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        tid = str(record.get('transaction_id') or '')
+        order = str(event.get('order_number') or '')
+        amount = event.get('amount_krw')
+        if (event.get('provider') != 'forest' or event.get('event_type') != 'charge' or not order or not tid
+                or record.get('status') not in ('MATCHED_AUTO', 'MATCHED_USER')
+                or event.get('evidence_status') != 'paid_verified' or not isinstance(amount, int) or amount <= 0
+                or claimed[tid] != {str(event['ota_event_id'])}
+                or any(obj.get(k) for obj in (event, record) for k in flags)):
+            continue
+        same = [b for b in bookings.get(order, ())
+                if (b.get('reservation_amount_krw') if b.get('reservation_amount_krw') is not None
+                    else b.get('amount_krw')) == amount]
+        # One order, one amount: a second booking under the order or an amount that differs is no match.
+        if len(same) != 1 or len(bookings[order]) != 1:
+            continue
+        booking = same[0]
+        period = booking.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 < (end - start).days <= 60
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        card = cards.get(tid) or {}
+        if (not valid or booking.get('reservation_status') not in ('confirmed', 'completed', 'observed')
+                or not booking.get('source_digest') or any(booking.get(k) for k in flags)
+                or booking.get('refund_status') not in (None, '', 'none_displayed')
+                or 'card-' + tid in manual or not card.get('source_hash')
+                or card.get('transaction_direction') != 'purchase'
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': order, 'booking_refs': [order], 'item': '숙박비',
+                       'service_period': start.isoformat() + '~' + end.isoformat(),
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+_GENERIC_NAME_TOKENS = frozenset({'HOTEL', 'HOTELS', 'RESORT', 'INN', 'SPA', 'THE', 'AND', 'JAPAN', 'TOKYO',
+                                  'OSAKA', 'KYOTO', 'CO', 'LTD', 'INC'})
+
+
+def _name_tokens(value):
+    import re
+    return [t for t in re.split(r'[^A-Z]+', str(value or '').upper()) if len(t) >= 4]
+
+
+def _same_lodging(merchant, name):
+    """Every distinctive romanized merchant token sits in the booking's lodging name."""
+    import re
+    # A card merchant field trails the city and country after a wide gap (split, not a backtracking sub).
+    head = re.split(r'\s{2,}', str(merchant or ''), maxsplit=1)[0]
+    tokens = [t for t in _name_tokens(head) if t not in _GENERIC_NAME_TOKENS]
+    compact = re.sub(r'[^A-Z]', '', str(name or '').upper())
+    return bool(tokens) and sum(map(len, tokens)) >= 8 and all(t in compact for t in tokens)
+
+
+def _onsite_property_periods(data, manual):
+    """A hotel card inside the stay of the one pay-at-property booking that names that hotel.
+
+    The booking has no OTA charge, so the card the hotel itself took is its payment. The
+    merchant's romanized name must be the booking's lodging name and the card day must fall
+    in the stay; two bookings that fit make no match. Display only (LINK-109).
+    """
+    from datetime import date
+    from app.ota_matching_defaults import provider_for_merchant
+    names = data.get('property_names') or {}
+    if not names:
+        return {}
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    by_booking = defaultdict(list)
+    for event in data.get('events', []):
+        if event.get('provider') in ('agoda', 'trip') and event.get('booking_ref'):
+            by_booking[(event['provider'], str(event['booking_ref']))].append(event)
+    stays = {}
+    for (provider, ref), related in by_booking.items():
+        lodging = names.get(f'{provider}:{ref}')
+        if not lodging:
+            continue
+        # A charge, a cancellation or any refund means the OTA, not the hotel, is paid; a scheduled charge is not a charge.
+        # An Agoda scheduled auto-charge (a dated one) is the OTA's own payment (LINK-069), not the hotel's.
+        if provider == 'agoda' and any(
+                e.get('scheduled_for') and 'scheduled' in str(e.get('event_type')) + str(e.get('payment_status'))
+                + str(e.get('evidence_status')) for e in related):
+            continue
+        if any(e.get('event_type') in ('refund', 'cancellation_notice')
+               or e.get('evidence_status') in ('paid_verified', 'refund_verified', 'conflict',
+                                               'evidence_conflict', 'refund_conflict')
+               or e.get('payment_status') == 'paid'
+               or e.get('item') not in (None, '', '숙박비')
+               or e.get('reservation_status') in ('cancelled', 'refunded')
+               or e.get('refund_status') not in (None, '', 'none_displayed', 'refund_pending')
+               or any(e.get(k) for k in flags) for e in related):
+            continue
+        periods = set()
+        for event in related:
+            period = event.get('service_period') or {}
+            if (event.get('reservation_status') in ('observed', 'confirmed', 'completed')
+                    and event.get('source_digest') and period.get('starts_on') and period.get('ends_on')):
+                periods.add((str(period['starts_on']), str(period['ends_on'])))
+        if len(periods) != 1:
+            continue
+        try:
+            start, end = (date.fromisoformat(v) for v in next(iter(periods)))
+        except ValueError:
+            continue
+        if 0 < (end - start).days <= 60:
+            stays[(provider, ref)] = (start, end, lodging)
+    if not stays:
+        return {}
+    occupied = _occupied_cards(data)
+    result = {}
+    for card in data.get('transactions', []):
+        tid = str(card.get('transaction_id') or '')
+        if (not tid or tid in occupied or 'card-' + tid in manual or card.get('transaction_direction') != 'purchase'
+                or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')
+                or provider_for_merchant(str(card.get('merchant') or '').casefold())):
+            continue
+        try:
+            day = date.fromisoformat(str(card.get('approval_date') or ''))
+        except ValueError:
+            continue
+        fits = [key for key, (start, end, lodging) in stays.items()
+                if start <= day <= end and any(_same_lodging(card.get('merchant'), n) for n in lodging)]
+        if len(fits) != 1:
+            continue
+        start, end, _ = stays[fits[0]]
+        result[tid] = {'booking_ref': fits[0][1], 'booking_refs': [fits[0][1]], 'item': '숙박비',
+                       'service_period': start.isoformat() + '~' + end.isoformat(),
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
@@ -139,11 +316,34 @@ def _trip_preauthorization_cards(data, manual):
              # A cancelled order's hold was still charged; an order of unknown state is not used.
              and e.get('reservation_status') in ('confirmed', 'completed', 'cancelled')
              and isinstance(e.get('preauthorization_amount_krw'), int) and e['preauthorization_amount_krw'] > 0]
+    # The confirmation mail states the same hold when the portal was never read (LINK-092, RFND-047).
+    portal_refs = {str(e.get('booking_ref')) for e in holds}
+    mail_holds = [dict(e, preauthorization_amount_krw=e['preauthorized_amount_krw'])
+                  for e in data.get('events', [])
+                  if e.get('provider') == 'trip' and e.get('evidence_kind') == 'authenticated_payment_mail'
+                  and e.get('evidence_status') == 'preauthorized' and e.get('event_type') == 'reservation'
+                  and e.get('reservation_status') in ('confirmed', 'completed', 'cancelled')
+                  and e.get('booking_ref') and str(e['booking_ref']) not in portal_refs
+                  and isinstance(e.get('preauthorized_amount_krw'), int) and e['preauthorized_amount_krw'] > 0
+                  and _valid_day(e.get('preauthorized_on'))]
+    # One booking mailed more than once is one hold; two different holds of a booking are not guessed.
+    by_ref = defaultdict(list)
+    for e in mail_holds:
+        by_ref[str(e['booking_ref'])].append(e)
+    mail_holds = [group[0] for group in by_ref.values()
+                  if len({(e['preauthorized_amount_krw'], e['preauthorized_on'],
+                           (e.get('service_period') or {}).get('starts_on')) for e in group}) == 1
+                  and len({e['reservation_status'] == 'cancelled' for e in group}) == 1]
+    holds += mail_holds
     if not holds:
         return {}
     occupied = _occupied_cards(data)
+    mail_ids = {str(e['ota_event_id']) for e in mail_holds}
 
     def window(event):
+        if str(event.get('ota_event_id')) in mail_ids:
+            day = date.fromisoformat(event['preauthorized_on'])
+            return day - timedelta(days=1), day + timedelta(days=1)
         period = event.get('service_period') or {}
         try:
             booked = date.fromisoformat(str(event.get('booked_on')))
@@ -180,29 +380,43 @@ def _trip_preauthorization_cards(data, manual):
                     and (not event.get('card_last4') or str(row.get('card_tail') or '') == event['card_last4'])):
                 candidates[tid].add(hold_id)
                 reverse[hold_id].add(tid)
-    result, seen = {}, set()
-    for start_card in list(candidates):
-        if start_card in seen:
-            continue
-        group_cards, group_holds, todo = set(), set(), [start_card]
-        while todo:
-            tid = todo.pop()
-            if tid in group_cards:
+    def components():
+        found, done = [], set()
+        for start_card in list(candidates):
+            if start_card in done:
                 continue
-            group_cards.add(tid)
-            for hold in candidates[tid]:
-                if hold not in group_holds:
-                    group_holds.add(hold)
-                    todo.extend(reverse[hold])
-        seen |= group_cards
+            group_cards, group_holds, todo = set(), set(), [start_card]
+            while todo:
+                tid = todo.pop()
+                if tid in group_cards:
+                    continue
+                group_cards.add(tid)
+                for hold in candidates[tid]:
+                    if hold not in group_holds:
+                        group_holds.add(hold)
+                        todo.extend(reverse[hold])
+            done |= group_cards
+            found.append((group_cards, group_holds))
+        return found
+
+    # A group with portal evidence keeps its fixed shape: mail holds never join it (LINK-092).
+    for group_cards, group_holds in components():
+        if group_holds & mail_ids and group_holds - mail_ids:
+            for hold in group_holds & mail_ids:
+                for tid in reverse.pop(hold, ()):
+                    candidates[tid].discard(hold)
+    candidates = defaultdict(set, {tid: held for tid, held in candidates.items() if held})
+    result = {}
+    for group_cards, group_holds in components():
         if len(group_cards) != len(group_holds):
             continue
         events = [by_id[h] for h in sorted(group_holds)]
         periods = sorted({(e['service_period']['starts_on'], e['service_period']['ends_on'])
                           for e in events if e.get('service_period')})
-        refunds = {e.get('preauthorization_refund') for e in events}
+        refunds = {('unknown' if str(e['ota_event_id']) in mail_ids else e.get('preauthorization_refund'))
+                   for e in events}
         refund = ('refunded' if refunds == {'refunded'} else 'not_refunded' if refunds == {'not_refunded'}
-                  else 'partly_refunded')
+                  else 'unknown' if 'unknown' in refunds else 'partly_refunded')
         refs = sorted(str(e['booking_ref']) for e in events)
         for tid in group_cards:
             result[tid] = {'booking_ref': refs[0] if len(refs) == 1 else '', 'booking_refs': refs,
@@ -215,6 +429,15 @@ def _trip_preauthorization_cards(data, manual):
                                             'periods': [a + '~' + b for a, b in periods],
                                             'payment_verified': False}}
     return result
+
+
+def _valid_day(value):
+    from datetime import date
+    try:
+        date.fromisoformat(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 def _trip_price_change_periods(data, manual):
@@ -553,6 +776,76 @@ def _airline_exact_amount_periods(data, manual):
     return result
 
 
+def _gotogate_exact_amount_periods(data, manual):
+    """A Mytrip/Gotogate confirmation mail names its flight dates for the one gateway card that equals its total.
+
+    The mail carries no card tail and the gateway descriptor no order, so the pairing is the exact KRW
+    total, the gateway's own descriptor and the day the mail was sent (+-1 day), one-to-one on both sides.
+    Display only (reservation_period_inferred): no payment, trip or reservation relation is made.
+    """
+    from datetime import date, timedelta
+    from app.ota_matching_defaults import provider_for_merchant
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    held = {}
+    for event in data.get('events', []):
+        if (event.get('provider') != 'gotogate' or event.get('event_type') != 'reservation'
+                or event.get('reservation_status') != 'observed' or not event.get('booking_ref')
+                or not event.get('source_digest') or any(event.get(k) for k in flags)
+                or str(event.get('currency') or '').upper() != 'KRW'):
+            continue
+        amount = _decimal(event.get('amount_krw'))
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            days = [date.fromisoformat(day) for day in event.get('reservation_observed_on') or ()]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if amount is None or amount <= 0 or not 0 <= (end - start).days <= 366 or len(days) != 1:
+            continue
+        held[str(event.get('ota_event_id'))] = (amount, start, end, days[0], str(event['booking_ref']))
+    if not held:
+        return {}
+    occupied = _occupied_cards(data)
+    cards = {}
+    for card in data.get('transactions', []):
+        if provider_for_merchant(card.get('merchant')) == 'gotogate':
+            cards[str(card.get('transaction_id'))] = card
+    matches, claims = defaultdict(set), defaultdict(set)
+    for event_id, (amount, _start, _end, sent, _ref) in held.items():
+        for tid, card in cards.items():
+            try:
+                bought = date.fromisoformat(str(card.get('approval_date') or card.get('transaction_date') or '')[:10])
+            except ValueError:
+                continue
+            if _decimal(card.get('amount_krw')) == amount and abs(bought - sent) <= timedelta(days=1):
+                matches[event_id].add(tid)
+                claims[tid].add(event_id)
+    # Uniqueness counts every confirmation naming that total, cancelled or re-sent on another day included.
+    same_amount = defaultdict(set)
+    for event in data.get('events', []):
+        if event.get('provider') == 'gotogate' and event.get('event_type') == 'reservation':
+            total = _decimal(event.get('amount_krw'))
+            if total is not None and total > 0:
+                same_amount[total].add(str(event.get('ota_event_id')))
+    result = {}
+    for event_id, tids in matches.items():
+        amount, start, end, _sent, booking_ref = held[event_id]
+        if len(tids) != 1 or len(same_amount[amount]) != 1:
+            continue
+        tid = next(iter(tids))
+        card = cards[tid]
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
+                       'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
 def _airbnb_code_periods(data, manual):
     """An Airbnb card descriptor carries the reservation code its confirmation mail names.
 
@@ -822,3 +1115,89 @@ def period_for(row, index):
             and reservation not in (found.get('booking_refs') or ())):
         return ''
     return found.get('service_period') or ''
+
+
+def verified_period_for(row, index):
+    """period_for without the screen-only inference (DATE-109): a stored value, or a verified link."""
+    period = period_for(row, index)
+    if not period or str(row.get('service_period') or '').strip():
+        return period
+    row_id = str(row.get('row_id') or '')
+    evidence = (index.get(str(row.get('source_event_id') or row_id[5:])) or {}).get('ota_evidence') or {}
+    if evidence.get('kind') == 'reservation_period_inferred' or evidence.get('payment_verified') is False:
+        return ''
+    return period
+
+
+def manual_period_rows(store) -> set:
+    """row_ids whose service period a person set (an empty value is an explicit "unknown")."""
+    if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
+        return set()
+    with store._lock:
+        return {str(r[0]) for r in store.conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
+
+
+def read_period(row, stored, manual, compute, *, export=False):
+    """(period, source) for a screen or export. A person's value wins; then the stored decision; computing is the fallback.
+
+    `stored` is `core_writer.load_stored_periods()` (None while Python writes: `compute()` as before). With a Rust
+    decision the period is only read, never recomputed; a card without one is computed and counted until backfilled.
+    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred period is read only by
+    a screen (`export=False`, source 'decision_inferred'); copies, the paste pack and reconciliation (`export=True`)
+    take verified periods only (DATE-109).
+    """
+    value = str(row.get('service_period') or '').strip()
+    if value:
+        return value, 'row'
+    row_id = str(row.get('row_id') or '')
+    if stored is None or not row_id.startswith('card-'):
+        return compute(), 'computed'
+    if row_id in manual:
+        return '', 'manual'
+    tid = str(row.get('source_event_id') or row_id[5:])
+    if row_id != 'card-' + tid:
+        return '', 'decision'
+    from app import core_writer
+    if tid in stored:
+        core_writer.note_period_source(tid, True)
+        found = stored[tid]
+        if found.get('kind') == 'inferred' and not export:
+            return core_writer.period_text(found, inferred=True), 'decision_inferred'
+        return core_writer.period_text(found), 'decision'
+    core_writer.note_period_source(tid, False, row)
+    return compute(), 'computed'
+
+
+def flight_departure_days(found):
+    """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
+
+    Shared by the flight label on screen and the Rust period rule's flight evidence.
+    """
+    from datetime import date
+    if (not found or found.get('conflict') or not found.get('source_digests')
+            or found.get('cancellation_status') != 'NONE'
+            or any(found.get(flag) for flag in
+                   ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+        return None
+    legs = found.get('legs') or []
+    if not legs or any(not leg.get('departure_on') for leg in legs):
+        return None
+    try:
+        return sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
+    except (ValueError, TypeError):
+        return None
+
+
+def export_index(store):
+    """The screen's stay index for output paths; a store without a ledger connection has none."""
+    if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
+        return {}
+    return stay_index(store)
+
+
+def index_from_snapshot(data, manual):
+    """The same index the screen builds, from a full reconciliation result (offline tools)."""
+    from app.ota_matching_defaults import provider_resolution_scope
+    with provider_resolution_scope():
+        return _build_index(data, manual)

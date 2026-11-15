@@ -1,4 +1,5 @@
 """User-visible duplicate protection in the existing trip expense list."""
+from webapp.static_assets import inline_document
 from copy import deepcopy
 
 import pytest
@@ -96,7 +97,7 @@ def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
                                     match_annotations=annotations)
               + design._trip_copy_html('trip-synthetic', rows, preview))
     assert '<img src=x' not in markup and '&lt;img' in markup
-    document = design.render("<main id='main'>" + markup + '</main>')
+    document = inline_document(design.render("<main id='main'>" + markup + '</main>'))
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
@@ -139,7 +140,7 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
     preview.update(source_available=False, source_info={'reason': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
     markup = ("<div class='income-sync'><span data-google-sync-status>수입 안내</span></div>"
               "<input name='csrf' value='stale-token'>" + design._trip_copy_html('trip-synthetic', rows, preview))
-    document = design.render("<main id='main'>" + markup + '</main>')
+    document = inline_document(design.render("<main id='main'>" + markup + '</main>'))
     calls = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -196,3 +197,13 @@ def test_unavailable_source_does_not_add_detail_or_user_task(copy_state, monkeyp
     monkeypatch.setattr(design, '_selected_rows', lambda tab: ([], rows, [], rows))
     monkeypatch.setattr(design, '_expense_copy_preview', lambda tab, costs: preview)
     assert design._google_match_detail(rows[0]) == ''
+
+
+def test_source_failure_guidance_names_buttons_present_in_the_same_markup(copy_state):
+    rows, preview = copy_state
+    preview.update(source_available=False, source_info={'reason': 'SOURCE_NOT_SELECTED'})
+    markup = design._trip_copy_html('trip-synthetic', rows, preview)
+    assert '장부 동기화 후 다시 확인' in markup
+    assert 'data-google-sync' in markup and '>장부 동기화</button>' in markup
+    assert 'data-copy-recheck' in markup and '>다시 확인</button>' in markup
+    assert '연결 설정' not in markup

@@ -35,8 +35,8 @@ def completed_trip(trip):
     return '2025-01-01' <= day <= '2026-03-31'
 
 
-def exception_trip(row, trips, *, evidence=None, manual=False):
-    valid = trip_map(trips)
+def exception_trip(row, trips, *, evidence=None, manual=False, valid=None):
+    valid = trip_map(trips) if valid is None else valid
     current = row.get('trip_id') or row.get('display_tab_id')
     if manual and open_trip(valid.get(current)):
         return current
@@ -53,17 +53,17 @@ def exception_trip(row, trips, *, evidence=None, manual=False):
     return None
 
 
-def excluded(row, trips=(), *, evidence=None, manual=False):
+def excluded(row, trips=(), *, evidence=None, manual=False, valid=None):
     if not completed_period(row):
         return False
-    valid = trip_map(trips)
+    valid = trip_map(trips) if valid is None else valid
     closed_quarters = {'quarter:2025:'+str(n) for n in range(1,5)} | {'quarter:2026:1'}
     if any(row.get(k) in closed_quarters for k in ('trip_id','display_tab_id')):
         return True
     # Submitted historical travel ledgers are immutable even with later facts.
     if any(completed_trip(valid.get(row.get(k))) for k in ('trip_id', 'display_tab_id')):
         return True
-    return not exception_trip(row, trips, evidence=evidence, manual=manual)
+    return not exception_trip(row, trips, evidence=evidence, manual=manual, valid=valid)
 
 
 def manual_ids(conn):
@@ -71,7 +71,8 @@ def manual_ids(conn):
     ids = {r[0] for r in conn.execute('SELECT d.transaction_id FROM review_decisions d WHERE ('
         "COALESCE(d.item,'')!='' OR COALESCE(d.display_tab_id,'') NOT IN ('','unclassified')) AND "
         + active_decision_sql(conn=conn))}
-    ids.update(r[0][5:] for r in conn.execute("SELECT row_id FROM board_manual_overrides WHERE row_id LIKE 'card-%'"))
+    from .manual_overrides import manual_rows
+    ids.update(row_id[5:] for row_id in manual_rows(conn) if row_id.startswith('card-'))
     return ids
 
 
@@ -98,6 +99,47 @@ def formal_facts(facts, trips):
             if all(v == values[0] for v in values)}
 
 
+BOOKING_STATUSES = ('confirmed', 'completed', 'observed')
+
+
+def booking_period_evidence(matches, rows, trips, *, confirmed_only=True):
+    """Source-bound unique reservation-period facts for purchases (TRIP-036/041/062).
+
+    With ``confirmed_only`` (production) only confirmed statuses count; cancelled, unknown or empty never do. Returns
+    ``(evidence, conflict_count)`` and reads nothing but its arguments.
+    """
+    from collections import defaultdict
+    from .provisional_assignment import ota_service_period_candidate
+    formal = formal_facts(matches, trips)
+    candidates = defaultdict(list)
+    for fact in matches:
+        row = rows.get(fact.get('transaction_id'))
+        if (not row or row['source_hash'] != fact.get('source_hash')
+                or row['transaction_direction'] != 'purchase'
+                or (fact.get('reservation_status') not in BOOKING_STATUSES if confirmed_only
+                    else fact.get('reservation_status') == 'cancelled')
+                or fact.get('period_conflict') or fact.get('service_period_conflict')):
+            continue
+        period = fact.get('period') or fact.get('service_period')
+        if not isinstance(period, dict) or not period.get('starts_on') or not period.get('ends_on'):
+            continue
+        options = ota_service_period_candidate({'service_period': period}, trips)
+        if len(options) == 1:
+            candidates[row['transaction_id']].append(dict(
+                source_hash=row['source_hash'], trip_id=options[0]['trip_id'],
+                item=fact.get('item') or '',
+                basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
+                evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest(),
+                service_period=dict(period), formal_link=row['transaction_id'] in formal))
+    evidence, conflicts = {}, 0
+    for tid, options in candidates.items():
+        if len({option['trip_id'] for option in options}) != 1:
+            conflicts += 1
+            continue
+        evidence[tid] = sorted(options, key=lambda option: option['evidence_digest'])[0]
+    return evidence, conflicts
+
+
 def open_scope(row, trips):
     valid = trip_map(trips)
     return (any(open_trip(valid.get(row.get(k))) for k in ('trip_id','display_tab_id'))
@@ -111,6 +153,6 @@ def excluded_ids(conn, trips=(), *, evidence=None):
     completed = [r for r in rows if completed_period(r)]
     if not completed:
         return set()
-    manual = manual_ids(conn)
+    manual, valid = manual_ids(conn), trip_map(trips)
     return {r['transaction_id'] for r in completed
-            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual)}
+            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual,valid=valid)}

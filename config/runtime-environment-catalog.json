@@ -418,54 +418,24 @@
       "source_refs": "app/reservation_authority.py:configured_token; webapp/guide_airfare_review.py:_token_file"
     },
     {
-      "name": "OPENROUTER_API_KEY",
-      "owner": "app.opencode_receipt_vision",
-      "role": "secret:provider-api-key",
-      "required": "optional",
-      "default": "none",
-      "status": "confirmed",
-      "evidence": "Optional credential-presence check; photo transmission additionally requires explicit approval; auth-file fallback is separate.",
-      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
-    },
-    {
-      "name": "WEBLEDGER_RECEIPT_INKLING",
-      "owner": "app.opencode_receipt_vision",
-      "role": "feature:external-vision-consent",
-      "required": "optional",
-      "default": "disabled unless approved",
-      "status": "confirmed",
-      "evidence": "Optional; exact value approved is required before OpenRouter-backed photo processing.",
-      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
-    },
-    {
       "name": "WEBLEDGER_RECEIPT_VISION",
-      "owner": "app.opencode_receipt_vision",
-      "role": "feature:local-vision-provider",
+      "owner": "app.receipt_vision",
+      "role": "feature:receipt-vision-provider",
       "required": "optional",
       "default": "disabled unless provider selected",
       "status": "confirmed",
-      "evidence": "Optional; Windows-only and exact provider selector opencode-muse-free.",
-      "source_refs": "app/opencode_receipt_vision.py:enabled"
+      "evidence": "Optional; Windows-only and exact provider selector claude-opus (subscription Claude opus, medium effort, tool-free).",
+      "source_refs": "app/receipt_vision.py:enabled"
     },
     {
-      "name": "WEBLEDGER_OPENCODE_EXE",
-      "owner": "app.opencode_receipt_vision",
+      "name": "WEBLEDGER_CLAUDE_EXE",
+      "owner": "app.receipt_vision",
       "role": "path:executable",
       "required": "optional",
-      "default": "platform discovery",
+      "default": "PATH discovery",
       "status": "confirmed",
-      "evidence": "Optional executable path; when unset searches PATH then the platform npm-global location.",
-      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
-    },
-    {
-      "name": "APPDATA",
-      "owner": "app.opencode_receipt_vision",
-      "role": "path:platform-application-data",
-      "required": "platform-provided optional",
-      "default": "platform value",
-      "status": "confirmed",
-      "evidence": "Optional Windows-provided location used only to locate npm global opencode.cmd.",
-      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
+      "evidence": "Optional claude executable path; when unset searches PATH. .cmd/.bat/.ps1 shims are refused.",
+      "source_refs": "app/receipt_vision.py:_executable"
     },
     {
       "name": "WEBLEDGER_OTA_MATCHING_DEFAULTS",
@@ -566,6 +536,46 @@
       "status": "confirmed",
       "evidence": "default_db_path returns the configured Path or this static local archive path.",
       "source_refs": "app/participant_roster.py:default_db_path"
+    },
+    {
+      "name": "WEBLEDGER_CLASSIFICATION_WRITER",
+      "owner": "app.core_writer",
+      "role": "switch:classification-writer",
+      "required": "optional; only the value rust selects the Rust core",
+      "default": "python (unset or any other value)",
+      "status": "confirmed",
+      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. The production launcher and worker set it only from card-flow.json classification_writer.",
+      "source_refs": "app/core_writer.py:selected; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_LINKS_PRODUCER",
+      "owner": "app.core_links",
+      "role": "switch:links-producer",
+      "required": "optional; only the value rust selects the Rust core for refund pairs",
+      "default": "python (unset or any other value)",
+      "status": "confirmed",
+      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. Independent of WEBLEDGER_CLASSIFICATION_WRITER.",
+      "source_refs": "app/core_links.py:selected; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_COSTCORE_BIN",
+      "owner": "app.core_writer",
+      "role": "path:costcore-binary",
+      "required": "required only when the writer or the links producer is rust",
+      "default": "none; rust writer refuses without it",
+      "status": "confirmed",
+      "evidence": "apply() refuses with CORE_WRITER_NOT_CONFIGURED when absent.",
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
+    },
+    {
+      "name": "WEBLEDGER_CORE_DB",
+      "owner": "app.core_writer",
+      "role": "path:core-database",
+      "required": "required when the writer is rust or stored periods are read",
+      "default": "none; refused when absent",
+      "status": "confirmed",
+      "evidence": "Path of core.sqlite (decisions, decision_history); read-only for stored_service_period.",
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
     }
   ]
 }

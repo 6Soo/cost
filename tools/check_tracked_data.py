@@ -6,14 +6,21 @@ Use --source-references to scan only tracked Python under app/, webapp/, tools/,
 ledger/domain/, and known root launchers. It compares exact path literals with
 Git metadata paths; dynamic/indirect use remains UNKNOWN and UNVERIFIED.
 This is a candidate scan, not proof of active use or sensitivity safety.
+
+Policy changes: base mode judges against config/tracked-data-policy.json as committed
+at the base revision, so a PR cannot loosen the policy and delete protected files at
+once. Merge the policy-change PR first (it must not delete protected files), then delete
+in a separate PR. run_quality_checks.py records policy/guard changes in run-summary.json.
 """
 from __future__ import annotations
 import argparse
 import ast
 from collections import Counter
 import fnmatch
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,7 +187,10 @@ def index(root):
 
 
 def load_policy(path=POLICY):
-    value = json.loads(Path(path).read_text(encoding='utf-8'))
+    return _validate_policy(json.loads(Path(path).read_text(encoding='utf-8')))
+
+
+def _validate_policy(value):
     if not isinstance(value, dict):
         raise ValueError('INVALID_POLICY')
     required = ('protected_prefixes', 'denied_names', 'data_extensions', 'synthetic_allowlist')
@@ -192,7 +202,58 @@ def load_policy(path=POLICY):
     for entry in value['synthetic_allowlist']:
         if not entry.startswith('tests/fixtures/') or '..' in PurePosixPath(entry).parts or any(c in entry for c in '*?['):
             raise ValueError('INVALID_SYNTHETIC_ALLOWLIST')
+    _validate_preserved(value)
     return value
+
+
+POLICY_REL = 'config/tracked-data-policy.json'
+GUARD_REL = 'tools/check_tracked_data.py'
+
+
+def load_base_policy(root, base):
+    """Policy as committed at the base revision; a PR cannot loosen its own gate."""
+    return _validate_policy(json.loads(git(root, 'show', f'{base}:{POLICY_REL}').decode('utf-8')))
+
+
+def _hex(value, length):
+    return isinstance(value, str) and re.fullmatch(f'[0-9a-f]{{{length}}}', value) is not None
+
+
+def _validate_preserved(policy):
+    """Exact path+hash entries copied out of Git; never a prefix or wildcard."""
+    batches = policy.get('externally_preserved', [])
+    if not isinstance(batches, list):
+        raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+    seen = set()
+    for batch in batches:
+        if (not isinstance(batch, dict) or set(batch) != {'archive', 'manifest_sha256', 'files'}
+                or not isinstance(batch['archive'], str) or not batch['archive'].strip()
+                or not _hex(batch['manifest_sha256'], 64)
+                or not isinstance(batch['files'], list) or not batch['files']):
+            raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+        for entry in batch['files']:
+            if not isinstance(entry, dict) or set(entry) != {'path', 'sha256', 'git_blob'}:
+                raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+            path = entry['path']
+            if (not isinstance(path, str)
+                    or '\\' in path or '..' in PurePosixPath(path).parts or any(c in path for c in '*?[')
+                    or not any(path.lower().startswith(p.lower()) for p in policy['protected_prefixes'])
+                    or not _hex(entry['sha256'], 64) or not _hex(entry['git_blob'], 40) or path in seen):
+                raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+            seen.add(path)
+
+
+def preserved_entries(policy):
+    return {entry['path']: entry for batch in policy.get('externally_preserved', [])
+            for entry in batch['files']}
+
+
+def externally_preserved(root, path, info, preserved):
+    """Only the exact recorded blob may leave Git; content hash is rechecked from the baseline."""
+    entry = preserved.get(path)
+    if entry is None or info['kind'] != 'blob' or info['oid'] != entry['git_blob']:
+        return False
+    return hashlib.sha256(git(root, 'cat-file', 'blob', info['oid'])).hexdigest() == entry['sha256']
 
 
 def reasons(path, info, policy):
@@ -212,12 +273,25 @@ def reasons(path, info, policy):
     return result
 
 
-def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source_references=False):
+def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=None, source_references=False):
     if mode not in ('inventory', 'staged', 'base'):
         raise ValueError('INVALID_MODE')
-    policy = load_policy(policy_path)
     baseline = tree(root, base)
     current = baseline if mode == 'inventory' else index(root) if mode == 'staged' else tree(root, 'HEAD')
+    policy_source = 'EXPLICIT' if policy_path is not None else 'WORKTREE'
+    if policy_path is not None:
+        policy = load_policy(policy_path)
+    elif mode == 'base':
+        try:
+            policy, policy_source = load_base_policy(root, base), 'BASE'
+        except (subprocess.CalledProcessError, UnicodeError, ValueError):
+            policy, policy_source = load_policy(POLICY), 'BASE_UNAVAILABLE'
+    else:
+        policy = load_policy(POLICY)
+    flags = []
+    if mode == 'base' and any(baseline.get(x, {}).get('oid') != current.get(x, {}).get('oid')
+                              for x in (POLICY_REL, GUARD_REL)):
+        flags.append('POLICY_CHANGED')
     protected_oids = {info['oid'] for path, info in baseline.items() if reasons(path, info, policy)}
     files = []
     for path, info in sorted(current.items()):
@@ -234,14 +308,17 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source
                       'blocked': mode != 'inventory' and bool(markers),
                       'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
     deleted_paths = sorted(set(baseline) - set(current))
+    preserved = preserved_entries(policy)
     for path in deleted_paths:
         info = baseline[path]
         markers = reasons(path, info, policy)
         if markers:
+            cleared = externally_preserved(root, path, info, preserved)
             files.append({'path': path, 'size': info['size'], 'status': 'DELETED',
                           'sensitivity': 'UNASSESSED',
-                          'risk_markers': ['PROTECTED_DELETION', *markers],
-                          'blocked': mode != 'inventory',
+                          'risk_markers': ['EXTERNALLY_PRESERVED_UNTRACK' if cleared else 'PROTECTED_DELETION',
+                                           *markers],
+                          'blocked': mode != 'inventory' and not cleared,
                           'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
     source_errors, source_scanned, source_reference_count = (
         _add_source_references(root, index(root), files) if source_references else ([], 0, 0)
@@ -256,7 +333,8 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source
             'source_text': 'working tree',
         },
     } if source_references else {})
-    return {'schema_version': 1, 'mode': mode, 'base': base, 'metadata_only': not source_references,
+    return {'schema_version': 1, 'mode': mode, 'base': base, 'policy_source': policy_source,
+            'flags': flags, 'metadata_only': not source_references,
             **source_scan_fields,
             'files': files, 'blocked_count': sum(x['blocked'] for x in files),
             'deleted_count': len(deleted_paths),
@@ -271,7 +349,8 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--mode', choices=('inventory', 'staged', 'base'), default='staged')
     parser.add_argument('--base', default='HEAD', help='Explicit Git baseline; base mode compares HEAD to it')
-    parser.add_argument('--policy', type=Path, default=POLICY)
+    parser.add_argument('--policy', type=Path, default=None,
+                        help='explicit policy file; base mode otherwise reads it from the base commit')
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--source-references', action='store_true',
                         help='opt in to exact data-path literal candidates in approved tracked Python source; dynamic use remains unverified')
@@ -282,10 +361,13 @@ def main(argv=None):
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(json.dumps({'status': 'ERROR', 'code': type(exc).__name__}))
         return 2
+    if result['policy_source'] == 'BASE_UNAVAILABLE':
+        print(json.dumps({'status': 'ERROR', 'code': 'BASE_POLICY_UNAVAILABLE'}))
+        return 2
     if args.json:
         print(json.dumps(result, ensure_ascii=True, indent=2))
     else:
-        summary = {'mode': args.mode, 'files': len(result['files']),
+        summary = {'mode': args.mode, 'flags': result['flags'], 'files': len(result['files']),
                    'blocked_count': result['blocked_count'], 'deleted_count': result['deleted_count'],
                    'risk_counts': dict(Counter(r for x in result['files'] for r in x['risk_markers']))}
         if args.source_references:
