@@ -737,6 +737,28 @@ fn plan_input_reads_the_planner_columns_and_does_not_modify_the_file() {
 }
 
 #[test]
+fn plan_input_counts_only_overrides_written_by_a_person() {
+    let dir = TempDir::new();
+    let path = synthetic_board(&dir, true);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE board_revisions (row_id TEXT, revision INTEGER, event_id TEXT, actor TEXT);
+             INSERT INTO board_revisions VALUES ('card-t2',2,'e1','authority-review-20261016');
+             INSERT INTO board_revisions VALUES ('card-t3',2,'e3','owner');
+             INSERT INTO board_revisions VALUES ('card-t4',2,'e4','owner-chat-20261029');
+             INSERT INTO board_manual_overrides VALUES ('card-t3','display_tab_id','e3');
+             INSERT INTO board_manual_overrides VALUES ('card-t4','display_tab_id','e4');
+             INSERT INTO board_manual_overrides VALUES ('card-t5','display_tab_id','');
+             INSERT INTO board_manual_overrides VALUES ('card-t6','display_tab_id','unknown');",
+        )
+        .unwrap();
+    let input = read_plan_input(&path).unwrap();
+    let found: Vec<&str> = input.overrides.iter().map(String::as_str).collect();
+    assert_eq!(found, ["card-t3", "card-t4", "card-t5", "card-t6"]);
+}
+
+#[test]
 fn every_projection_write_statement_assigns_only_listed_columns() {
     for (write, list) in [
         (Write::Transactions, TRANSACTIONS_WRITE),

@@ -77,6 +77,23 @@ fn default_trips(conn: &Connection) -> Result<Vec<Value>, StoreError> {
     Ok(trips)
 }
 
+/// 수동 교정 SQL(`app/manual_overrides.py`와 같은 조건). 저장 이력의 작성자가 도구·자동 저장이면 기록은 보존하되 수동이 아니다.
+/// 저장 이력을 찾을 수 없는 기록과 `board_revisions`가 없는 옛 사본은 수동으로 본다.
+const HUMAN_OVERRIDES_SQL: &str = "SELECT o.row_id FROM board_manual_overrides o WHERE NOT EXISTS(    SELECT 1 FROM board_revisions hr WHERE hr.row_id=o.row_id AND hr.event_id=o.event_id AND o.event_id!=''     AND NOT (hr.actor='owner' OR hr.actor LIKE 'owner-%'))";
+
+fn manual_overrides_sql(conn: &Connection) -> Result<&'static str, StoreError> {
+    let has_revisions: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='board_revisions')",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(if has_revisions {
+        HUMAN_OVERRIDES_SQL
+    } else {
+        "SELECT row_id FROM board_manual_overrides"
+    })
+}
+
 /// 이미 열린 연결(읽기 트랜잭션 또는 쓰기 트랜잭션 안)에서 계획 입력을 읽는다. 투영 쓰기가 같은 트랜잭션에서 쓴다.
 pub fn read_inside(conn: &Connection) -> Result<PlanInput, StoreError> {
     let sql = format!(
@@ -141,7 +158,7 @@ pub fn read_inside(conn: &Connection) -> Result<PlanInput, StoreError> {
         excluded: ids(
             "SELECT transaction_id FROM transaction_company_exclusions WHERE excluded=1",
         )?,
-        overrides: ids("SELECT row_id FROM board_manual_overrides")?,
+        overrides: ids(manual_overrides_sql(conn)?)?,
         closed_reviews: closed_review_ids(conn)?.into_iter().collect(),
         decisions,
         ledger,

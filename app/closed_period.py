@@ -71,7 +71,8 @@ def manual_ids(conn):
     ids = {r[0] for r in conn.execute('SELECT d.transaction_id FROM review_decisions d WHERE ('
         "COALESCE(d.item,'')!='' OR COALESCE(d.display_tab_id,'') NOT IN ('','unclassified')) AND "
         + active_decision_sql(conn=conn))}
-    ids.update(r[0][5:] for r in conn.execute("SELECT row_id FROM board_manual_overrides WHERE row_id LIKE 'card-%'"))
+    from .manual_overrides import manual_rows
+    ids.update(row_id[5:] for row_id in manual_rows(conn) if row_id.startswith('card-'))
     return ids
 
 
