@@ -394,6 +394,12 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
 """
 
 
+# Kept apart from SCHEMA_SQL, which a test pins to its base commit.
+INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_board_rows_display_tab ON board_rows(display_tab_id, row_id);
+"""
+
+
 def _ensure_correction_columns(conn) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(income_corrections)").fetchall()}
     if "corrected_occurred_on" not in cols:

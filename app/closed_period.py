@@ -35,8 +35,8 @@ def completed_trip(trip):
     return '2025-01-01' <= day <= '2026-03-31'
 
 
-def exception_trip(row, trips, *, evidence=None, manual=False):
-    valid = trip_map(trips)
+def exception_trip(row, trips, *, evidence=None, manual=False, valid=None):
+    valid = trip_map(trips) if valid is None else valid
     current = row.get('trip_id') or row.get('display_tab_id')
     if manual and open_trip(valid.get(current)):
         return current
@@ -53,17 +53,17 @@ def exception_trip(row, trips, *, evidence=None, manual=False):
     return None
 
 
-def excluded(row, trips=(), *, evidence=None, manual=False):
+def excluded(row, trips=(), *, evidence=None, manual=False, valid=None):
     if not completed_period(row):
         return False
-    valid = trip_map(trips)
+    valid = trip_map(trips) if valid is None else valid
     closed_quarters = {'quarter:2025:'+str(n) for n in range(1,5)} | {'quarter:2026:1'}
     if any(row.get(k) in closed_quarters for k in ('trip_id','display_tab_id')):
         return True
     # Submitted historical travel ledgers are immutable even with later facts.
     if any(completed_trip(valid.get(row.get(k))) for k in ('trip_id', 'display_tab_id')):
         return True
-    return not exception_trip(row, trips, evidence=evidence, manual=manual)
+    return not exception_trip(row, trips, evidence=evidence, manual=manual, valid=valid)
 
 
 def manual_ids(conn):
@@ -152,6 +152,6 @@ def excluded_ids(conn, trips=(), *, evidence=None):
     completed = [r for r in rows if completed_period(r)]
     if not completed:
         return set()
-    manual = manual_ids(conn)
+    manual, valid = manual_ids(conn), trip_map(trips)
     return {r['transaction_id'] for r in completed
-            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual)}
+            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual,valid=valid)}
