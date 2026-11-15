@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright
 
-from app import local_receipt_ocr, opencode_receipt_vision
+from app import local_receipt_ocr, receipt_vision
 from app import receipt_trip_match as match
 from webapp.tests import test_receipt_review as base
 from webapp.tests.test_receipt_review import PNG, make_png
@@ -82,11 +82,11 @@ class AdapterTests(unittest.TestCase):
     def test_vision_result_carries_the_header_but_never_a_trip(self):
         body = {'header_text': ' 0625_아키타 ', 'receipts': [{'merchant': '라멘집', 'date': '2027-06-26', 'amount': 900,
                                                            'currency': 'JPY', 'payment': 'cash'}]}
-        result = opencode_receipt_vision.validate_response(body, image_hash='a' * 64)
+        result = receipt_vision.validate_response(body, image_hash='a' * 64)
         self.assertEqual(result['header_text'], '0625_아키타')
         self.assertFalse(result['trip_inferred'])
-        self.assertIsNone(opencode_receipt_vision.validate_response({'receipts': []}, image_hash='a' * 64)['header_text'])
-        self.assertIn('header_text', opencode_receipt_vision.SCHEMA)
+        self.assertIsNone(receipt_vision.validate_response({'receipts': []}, image_hash='a' * 64)['header_text'])
+        self.assertIn('header_text', receipt_vision.SCHEMA_PATH.read_text(encoding='utf-8'))
 
     def test_windows_ocr_reports_line_positions(self):
         out = json.dumps({'text': 'a\nb', 'width': 10, 'height': 10,

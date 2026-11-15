@@ -1,6 +1,6 @@
 """The receipt page as one owner works it: three photos, analysis, review, registration, re-reading, grouping, copy.
 
-Muse is replaced by a fixed answer per photo, so the flow is checked without a model call. Screenshots of each step
+The reading model is replaced by a fixed answer per photo, so the flow is checked without a model call. Screenshots of each step
 are written to WEBLEDGER_FLOW_SHOTS when that variable names a folder.
 """
 import os
@@ -296,8 +296,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         with receipt_vision_jobs._LOCK:
             receipt_vision_jobs._JOBS.clear()
             receipt_vision_jobs._BY_IMAGE.clear()
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), \
-             patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), \
+             patch('webapp.receipt_review.receipt_vision.recognize_with_fallback',
                    side_effect=lambda path, **kw: answer if Path(path).stem == first_sha else {'receipts': []}), \
              sync_playwright() as api:
             browser = api.chromium.launch()
@@ -344,7 +344,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                              'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
                                            'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
         self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 contexts = [browser.new_context(), browser.new_context()]
@@ -369,7 +369,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 browser.close()
 
     def test_lost_analysis_response_recovers_unknown_without_automatic_resubmit(self):
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 first = browser.new_context()
@@ -406,7 +406,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                              'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
                                            'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
         self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 page = browser.new_page()
@@ -508,10 +508,10 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                      receipt('FERRY', '2026-10-10', 820, payment=None, box=[0.6, 0.1, 0.9, 0.4])]
             if kwargs.get('guidance') and 'Owner feedback' in kwargs['guidance']:
                 found.append(receipt('NEW STOP', '2026-10-12', 700, payment='cash'))
-            return {'receipts': found, 'label': 'Muse', 'lesson': None}
+            return {'receipts': found, 'label': 'Claude opus', 'lesson': None}
         if name == self.photos[1]:
-            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
-        return {'receipts': [], 'label': 'Muse', 'lesson': None}
+            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Claude opus', 'lesson': None}
+        return {'receipts': [], 'label': 'Claude opus', 'lesson': None}
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
         from webapp import receipt_vision_jobs
@@ -520,13 +520,13 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             receipt_vision_jobs._BY_IMAGE.clear()
         shots = os.environ.get('WEBLEDGER_FLOW_SHOTS')
         self.photos = []
-        env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'opencode-muse-free',
+        env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'claude-opus',
                                       'WEBLEDGER_RECEIPT_LEARNING': str(Path(self._dir.name) / 'learning.jsonl')})
         env.start()
-        recognizer = patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
+        recognizer = patch('webapp.receipt_review.receipt_vision.recognize_with_fallback',
                            side_effect=lambda path, **kw: self._answers(path, **kw))
         recognizer.start()
-        engine = patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True)
+        engine = patch('webapp.receipt_review.receipt_vision.enabled', return_value=True)
         engine.start()
         try:
             with sync_playwright() as api:

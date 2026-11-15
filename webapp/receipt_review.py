@@ -25,7 +25,7 @@ from contextlib import contextmanager
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
-from app import opencode_receipt_vision
+from app import receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
 from app import receipt_trip_match as trip_match
@@ -494,8 +494,8 @@ def reading_key(values: dict) -> str:
 
 def _recognizer(guidance, lesson=False):
     def run(image_path):
-        result = opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
-        # The reading is what Muse first gave; a later correction must not change which receipt it is.
+        result = receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+        # The reading is what the model first gave; a later correction must not change which receipt it is.
         for item in result.get('receipts', []):
             item['reading'] = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
                                            'currency': item['currency'], 'payment': item['payment']})
@@ -544,11 +544,11 @@ def vision_new(path: Path, *, image: str, job_id: str) -> dict:
     for key, entries in groups.items():
         unmatched_known = 0
         for box in known.get(key, []):
-            box = opencode_receipt_vision._valid_box(box)
+            box = receipt_vision._valid_box(box)
             choices = []
             if box is not None:
                 for index, item in entries:
-                    other = opencode_receipt_vision._valid_box(item.get('box'))
+                    other = receipt_vision._valid_box(item.get('box'))
                     if index not in matched and other is not None:
                         choices.append((rc._overlap(box, other), index))
             best = max(choices, default=(0, -1))
@@ -1049,9 +1049,9 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
         elif parsed.path == "/api/receipts/vision":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1067,9 +1067,9 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 return True
             handler._send_json(state, 202)
         elif parsed.path == "/api/receipts/vision/rescan":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1282,7 +1282,8 @@ const receiptCard=(group,index,receipt)=>{
  const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
- card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
+ const hint=document.createElement('p');hint.className='receipt-reading-note';hint.textContent=receipt.note?'판독 메모: '+receipt.note:'';hint.hidden=!receipt.note;
+ card.append(top,preview,regionNote,regionFields,merchant,amount,row2,hint,error,remove);
  if(receiptBusy)card.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);
  return card;
 };
@@ -1312,12 +1313,13 @@ const pollJob=async(state,label)=>{const t0=Date.now();
  }
  return state};
 const jobFailure=state=>state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':
- state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 직접 입력해 주세요.';
+ '영수증 판독에 실패했습니다. 직접 입력해 주세요.';
 const completeJob=async(group,state)=>{
  if(state.status!=='done')throw new Error(jobFailure(state));
  const source=group.kind==='rescan'?(await post('/api/receipts/vision/new',{image:group.sha,job_id:state.job_id})).new:state.result.receipts;
- group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}));
- group.jobId=state.job_id;if(state.result.header_text)group.headerText=state.result.header_text;delete group.status;group.empty=group.receipts.length===0;
+ group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,note:r.note??null,reading:r.reading,ordinal:r.ordinal,include:true}));
+ group.jobId=state.job_id;if(state.result.header_text)group.headerText=state.result.header_text;
+ if(state.result.engine==='windows_ocr')say('Claude 판독이 끝나지 않아('+(state.result.fallback_reason||'')+') Windows OCR 참고값으로 대신했습니다. 값을 꼭 확인해 주세요.');delete group.status;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
 };
@@ -1521,7 +1523,7 @@ def _photo_strip(data: dict) -> str:
             "<div class='photo'>"
             f"<button type='button' data-image-sha='{sha}' data-photo-index='{index}' aria-pressed='{pressed}' "
             f"aria-label='사진 {index} 선택'><img loading='lazy' src='/api/receipts/image/{sha}' alt='사진 {index}'></button>"
-            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}'{checked}> 분석</label>" if opencode_receipt_vision.enabled() else '')
+            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}'{checked}> 분석</label>" if receipt_vision.enabled() else '')
             +
             f"<span class='photo-state' data-photo-state='{sha}'>{state}</span>"
             + (f"<button type='button' data-manual-image='{sha}'>내용 직접 입력</button>" if sha not in covered else '')
@@ -1582,7 +1584,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                 for i, sha in enumerate(pdf['pages'], 1)) + "</ul></li>"
         for pdf in data.get('pdfs', []) if pdf['sha256'] not in recorded_pdfs
     )
-    ai = opencode_receipt_vision.enabled()
+    ai = receipt_vision.enabled()
     script = (
         f"const csrf={json.dumps(csrf)};const aiAvailable={json.dumps(ai)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -1707,7 +1709,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
            if local_receipt_ocr.enabled() else
            "<p id='receipt-ocr-disabled'>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>")
     ai_section = ("<section id='step-ai'><h2>영수증 분석 결과</h2>"
-                  + ("<p class='hint'>체크한 사진을 Muse가 한 장씩 읽습니다. 원본 사진은 무료 AI 모델로 전송되며, 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
+                  + ("<p class='hint'>체크한 사진을 Claude(구독 opus)가 한 장씩 읽습니다. 원본 사진은 Anthropic으로 전송되며, 실패하면 이 PC의 Windows OCR 결과로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
                      "<button type='button' id='vision-go'>체크한 사진 분석</button>" if ai else
                      "<p>자동 분석을 사용할 수 없습니다. 저장된 결과를 확인하거나 직접 입력해 주세요.</p>")
                   + "<p id='draft-status' role='status'></p><div id='draft-recovery'></div>"

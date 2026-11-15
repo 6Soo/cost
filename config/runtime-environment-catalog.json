@@ -418,54 +418,24 @@
       "source_refs": "app/reservation_authority.py:configured_token; webapp/guide_airfare_review.py:_token_file"
     },
     {
-      "name": "OPENROUTER_API_KEY",
-      "owner": "app.opencode_receipt_vision",
-      "role": "secret:provider-api-key",
-      "required": "optional",
-      "default": "none",
-      "status": "confirmed",
-      "evidence": "Optional credential-presence check; photo transmission additionally requires explicit approval; auth-file fallback is separate.",
-      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
-    },
-    {
-      "name": "WEBLEDGER_RECEIPT_INKLING",
-      "owner": "app.opencode_receipt_vision",
-      "role": "feature:external-vision-consent",
-      "required": "optional",
-      "default": "disabled unless approved",
-      "status": "confirmed",
-      "evidence": "Optional; exact value approved is required before OpenRouter-backed photo processing.",
-      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
-    },
-    {
       "name": "WEBLEDGER_RECEIPT_VISION",
-      "owner": "app.opencode_receipt_vision",
-      "role": "feature:local-vision-provider",
+      "owner": "app.receipt_vision",
+      "role": "feature:receipt-vision-provider",
       "required": "optional",
       "default": "disabled unless provider selected",
       "status": "confirmed",
-      "evidence": "Optional; Windows-only and exact provider selector opencode-muse-free.",
-      "source_refs": "app/opencode_receipt_vision.py:enabled"
+      "evidence": "Optional; Windows-only and exact provider selector claude-opus (subscription Claude opus, medium effort, tool-free).",
+      "source_refs": "app/receipt_vision.py:enabled"
     },
     {
-      "name": "WEBLEDGER_OPENCODE_EXE",
-      "owner": "app.opencode_receipt_vision",
+      "name": "WEBLEDGER_CLAUDE_EXE",
+      "owner": "app.receipt_vision",
       "role": "path:executable",
       "required": "optional",
-      "default": "platform discovery",
+      "default": "PATH discovery",
       "status": "confirmed",
-      "evidence": "Optional executable path; when unset searches PATH then the platform npm-global location.",
-      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
-    },
-    {
-      "name": "APPDATA",
-      "owner": "app.opencode_receipt_vision",
-      "role": "path:platform-application-data",
-      "required": "platform-provided optional",
-      "default": "platform value",
-      "status": "confirmed",
-      "evidence": "Optional Windows-provided location used only to locate npm global opencode.cmd.",
-      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
+      "evidence": "Optional claude executable path; when unset searches PATH. .cmd/.bat/.ps1 shims are refused.",
+      "source_refs": "app/receipt_vision.py:_executable"
     },
     {
       "name": "WEBLEDGER_OTA_MATCHING_DEFAULTS",
