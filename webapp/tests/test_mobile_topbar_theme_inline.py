@@ -18,7 +18,9 @@ def test_native_header_uses_current_title_and_shared_typography_tokens():
     doc = '<html><head><title>장부 &amp; 여행</title></head><body><aside id="nav"></aside><main id="main"><div class="page-hd"><h1>장부</h1></div></main></body></html>'
     result = site_shell.wrap_document(doc, '/board')
     header = result.split('<header class="site-topbar">', 1)[1].split('</header>', 1)[0]
-    assert '장부 &amp; 여행' in header
+    # The top bar names the screen exactly as its h1 does (2026-11-15 shell requirement).
+    assert ">장부</span>" in header and '장부 &amp; 여행' not in header
+    assert '<title>장부 · 숲길여행 회계</title>' in result
     assert result.count('id="site-theme-toggle"') == 1
     assert '--shell-title-size: var(--t-h1)' in result
     assert '--t-h1: 1.5rem' in result
