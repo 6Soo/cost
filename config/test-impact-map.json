@@ -293,8 +293,8 @@
     },
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/test_request_recompute_cache.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
     },
     {
       "name": "google-readonly",
