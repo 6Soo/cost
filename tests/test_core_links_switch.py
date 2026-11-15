@@ -293,11 +293,37 @@ def test_unusable_binary_output_and_missing_configuration_fail(monkeypatch, tmp_
         pr.refund_links(conn, ['syn-r2'])
 
 
-def test_an_in_memory_database_has_no_file_for_costcore_to_read(stand_in, monkeypatch):
+def test_an_in_memory_clone_is_served_from_its_own_rows_equal_to_python(stand_in, monkeypatch, tmp_path):
+    """The bulk-maintenance preview clones the board into :memory: and reads refund pairs there."""
+    path = _build(tmp_path, _scenarios()[2][1])
+    ids = ['syn-r1', 'syn-r2']
+    with closing(sqlite3.connect(path)) as src, closing(sqlite3.connect(':memory:')) as clone:
+        src.backup(clone)
+        monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
+        expected = pr.refund_links(clone, ids)
+        monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+        assert pr.refund_links(clone, ids) == expected
+        clone.execute("UPDATE transactions SET conflict_reason='x' WHERE transaction_id='syn-r1'")
+        monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
+        edited = pr.refund_links(clone, ids)
+        monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+        assert pr.refund_links(clone, ids) == edited  # a clone's own edit is read from its rows
+        assert edited != expected
+    assert stand_in.stdin_runs and stand_in.runs == []
+
+
+def test_the_bulk_maintenance_clone_reads_refund_pairs_under_rust(stand_in, monkeypatch, tmp_path):
+    from webapp import expense_bulk_maintenance as bulk
     monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
-    conn = sqlite3.connect(':memory:')
-    with pytest.raises(RuntimeError, match='CORE_LINKS_NEEDS_FILE_DATABASE'):
-        core_links.analyse(conn)
+    path = _build(tmp_path, _scenarios()[2][1])
+    with closing(sqlite3.connect(path)) as src:
+        board = type('Board', (), {'conn': src, '_lock': __import__('threading').RLock(), 'close': lambda self: None})()
+        clone = bulk.copy.copy(board)
+        clone.conn = sqlite3.connect(':memory:', isolation_level=None)
+        src.backup(clone.conn)
+        assert pr.refund_links(clone.conn, ['syn-r1', 'syn-r2']) is not None
+        clone.conn.close()
+    assert stand_in.stdin_runs
 
 
 def test_uncommitted_source_rows_are_refused_but_an_unchanged_open_transaction_is_served(
