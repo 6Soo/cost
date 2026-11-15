@@ -577,8 +577,12 @@ def _conflict_id(transaction_id: str, row_index: int, batch_id: str) -> str:
 
 # --------------------------------------------------------------- get_batch
 
-def get_batch(store, batch_id: str) -> BatchRead:
-    """One batch's summary and rows, with the original cells attached."""
+def get_batch(store, batch_id: str, *, transaction_ids=None) -> BatchRead:
+    """One batch's summary and rows, with the original cells attached.
+
+    `transaction_ids` narrows the rows to those ids and leaves the summary's `counts` empty, so a caller
+    working on a few rows does not read the whole batch.
+    """
     found = store.conn.execute(
         "SELECT filename, content_sha256, byte_size, parser, received_at,"
         " parsed_at, row_count, error_count, status FROM import_batches"
@@ -594,13 +598,16 @@ def get_batch(store, batch_id: str) -> BatchRead:
         " parse_error, classification_state, classification_source,"
         " classification_basis, item, description, display_tab_id, trip_id,"
         " revision, " + decided_sql() + ", decided_at FROM transactions"
-        " WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index", (batch_id,)).fetchall()
+        " WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
+        + ("" if transaction_ids is None else " AND transaction_id IN (SELECT value FROM json_each(?))")
+        + " ORDER BY row_index",
+        (batch_id,) if transaction_ids is None else (batch_id, json.dumps(sorted(transaction_ids)))).fetchall()
     summary = {
         "batch_id": batch_id, "filename": found[0], "content_sha256": found[1],
         "byte_size": found[2], "parser": found[3], "received_at": found[4],
         "parsed_at": found[5], "row_count": found[6], "error_count": found[7],
         "status": found[8],
-        "counts": _counts(store, batch_id),
+        "counts": _counts(store, batch_id) if transaction_ids is None else {},
     }
     return {"batch_id": batch_id, "summary": summary,
             "rows": [_row_dict(r) for r in rows]}

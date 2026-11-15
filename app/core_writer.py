@@ -329,6 +329,10 @@ def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
     core = os.environ.get(CORE_DB_ENV, '')
     if not core:
         raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    signature = _core_signature() if transaction_ids is None else None
+    cached = _PERIOD_CACHE.get('entry')
+    if signature is not None and cached is not None and cached[0] == signature:
+        return dict(cached[1])
     with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=timeout)) as conn:
         rows = conn.execute('SELECT transaction_id, service_period_json FROM decisions').fetchall()
     wanted = None if transaction_ids is None else set(transaction_ids)
@@ -339,7 +343,10 @@ def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
                 found[str(tid)] = _normalized(text)
             except (TypeError, ValueError, AttributeError):
                 found[str(tid)] = {'kind': 'unknown'}
-    return found
+    # 읽는 사이 파일이 바뀌지 않았을 때만 저장한다. 바뀌었으면 다음 호출이 다시 읽는다.
+    if signature is not None and _core_signature() == signature:
+        _PERIOD_CACHE['entry'] = (signature, found)
+    return dict(found)
 
 
 _FALLBACK: dict = {}
@@ -350,6 +357,27 @@ _LAST_READ: dict = {'periods': None}
 _PUBLISHED = {'key': None}
 READ_TIMEOUT = 1.0
 STATUS_FILE = 'period-read-status.json'
+_PERIOD_CACHE: dict = {'entry': None}
+
+
+def _core_signature():
+    """Cheap change marker of core.sqlite: path, stat of db/-wal/-journal and the header change counter, or None when unreadable."""
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not core:
+        return None
+    try:
+        parts = [str(Path(core).resolve())]
+        for suffix in ('', '-wal', '-journal'):
+            try:
+                info = os.stat(core + suffix)
+                parts.append((info.st_mtime_ns, info.st_size))
+            except FileNotFoundError:
+                parts.append(None)
+        with open(core, 'rb') as handle:
+            parts.append(handle.read(100)[24:28])
+        return tuple(parts)
+    except OSError:
+        return None
 
 
 def load_stored_periods() -> dict | None:

@@ -100,7 +100,11 @@ def _trip_label(tab_id):
     return str((trip or {}).get('display_title') or (trip or {}).get('display_key') or tab_id or '')
 
 
-def _screen_title(path, original, query):
+BRAND = '숲길여행 회계'
+SPECIAL_TABS = {'refunds': '환불', 'unclassified': '미분류'}
+
+
+def _screen_title(path, original, query, heading=''):
     path = urlsplit(path or '/').path or '/'
     q = _query_dict(query)
     tab = _first(q.get('tab'))
@@ -111,11 +115,13 @@ def _screen_title(path, original, query):
         '/participants': '참가자·보험', '/reserve-links': '예약 연결', '/rules': '거래',
         '/flight-passengers': '항공권 예약', '/board': '여행 장부',
     }
-    title = re.sub(r'\s*[·|｜-]\s*숲길여행 회계\s*$', '', (original or '').strip()).strip()
-    if not title or '웹 장부' in title or title.lower() in {'cost', 'synthetic shell', 'board'}:
-        title = defaults.get(path, '숲길여행 회계')
-    if path == '/board' and tab:
-        title = _trip_label(tab) or title
+    # The visible h1 names the screen; the top bar and <title> must say the same.
+    title = re.sub(r'\s*[·|｜-]\s*' + BRAND + r'\s*$', '', (heading or original or '').strip()).strip()
+    if path == '/board' and tab and not heading:
+        known = SPECIAL_TABS.get(tab) or (_trip_label(tab) if tab.startswith('quarter:') or _trip(tab) else '')
+        title = known or defaults['/board']
+    elif not title or title == BRAND or '웹 장부' in title or title.lower() in {'cost', 'synthetic shell', 'board'}:
+        title = defaults.get(path, '여행 장부')
     return title
 
 
@@ -137,10 +143,6 @@ def _breadcrumb(path, query, title):
                 "<li><a href='/trips'>여행</a></li><li><a href='/board?" +
                 _esc(urlencode({'tab': tab})) + "'>" + _esc(trip_title) + "</a></li><li aria-current='page'>" +
                 _esc(title) + "</li></ol></nav>")
-    if path_name.startswith('/access/') or path_name == '/google-ledger':
-        return "<nav class='breadcrumb' aria-label='현재 위치'><ol><li aria-current='page'>관리</li></ol></nav>"
-    if section_for(path, query) == 'transactions':
-        return "<nav class='breadcrumb' aria-label='현재 위치'><ol><li aria-current='page'>거래</li></ol></nav>"
     return ''
 
 
@@ -151,8 +153,7 @@ def _active_trip_nav(tab_id, role='owner'):
         if role == 'viewer':
             allowed = ledger_board.viewer_visible_tabs(ledger_board.current_request_session())
             trips = [trip for trip in trips if trip.get('tab_id') in allowed]
-        previous = ledger_board.is_previous_trip
-        trips = [trip for trip in trips if not trip.get('deleted') and not trip.get('archived') and not previous(trip)]
+        trips = [trip for trip in trips if ledger_board.is_default_listed_trip(trip)]
     except Exception:
         trips = []
     trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))[:8]
@@ -171,7 +172,7 @@ def _active_trip_nav(tab_id, role='owner'):
         href = '/board?' + urlencode({'tab': tab})
         links.append("<li><a class='nv{}' href='{}'{}><span class='nv-icon'>{}</span><span class='nm'>{}</span><span class='ct'>{}</span></a></li>".format(
             ' nv-current' if current else '', _esc(href), " aria-current='page'" if current else '',
-            ui_icons.icon('plane', 18), _esc(label), _esc(period)))
+            ui_icons.icon('plane', 18), _esc(label), _esc(period)).replace('<a ', "<a title='" + _esc(label) + "' ", 1))
     if role == 'owner':
         quarter = (date.today().month - 1) // 3 + 1
         year = date.today().year
@@ -215,10 +216,14 @@ def sidebar(section='trips', tab_id='', role=None, live_nav=None):
 
 
 def _topbar(title, back_href='', role='owner'):
-    back = ("<a class='site-back' href='" + _esc(back_href) + "' aria-label='이전'>" + ui_icons.icon('chevron-left', 20) + "</a>"
-            if back_href else "<a class='site-brand-mobile' href='/' aria-label='숲길여행 회계 홈으로 이동'>숲길여행 회계</a>")
+    # The brand appears once; a screen name (also the h1) is shown only beside the back link.
+    if back_href:
+        lead = ("<a class='site-back' href='" + _esc(back_href) + "' aria-label='이전'>" + ui_icons.icon('chevron-left', 20) + "</a>"
+                "<span class='site-topbar-title' title='" + _esc(title) + "'>" + _esc(title) + "</span>")
+    else:
+        lead = "<a class='site-brand-mobile' href='/' aria-label='" + BRAND + " 홈으로 이동'>" + BRAND + "</a>"
     theme = site_theme.BUTTON if role != 'viewer' else ''
-    return '<header class="site-topbar">' + back + "<span class='site-topbar-title'>" + _esc(title) + "</span>" + theme + "</header>"
+    return '<header class="site-topbar">' + lead + theme + "</header>"
 
 
 def _bottom_nav(section, role):
@@ -247,8 +252,7 @@ def _more_dialog(role, current_path=''):
 
 def app_shell(content, section='trips', title='', breadcrumb='', role=None, tab_id='', live_nav=None, back_href='', current_path=''):
     role = role or _role()
-    return ("<div class='site-app'>" + sidebar(section, tab_id, role, live_nav) + "<div id=\"site-content\">"
-            "<a class='skip-link' href='#main'>본문으로 건너뛰기</a>" +
+    return ("<a class='skip-link' href='#main'>본문으로 건너뛰기</a><div class='site-app'>" + sidebar(section, tab_id, role, live_nav) + "<div id=\"site-content\">" +
             _topbar(title, back_href, role) + (breadcrumb or '') + content +
             _bottom_nav(section, role) + _more_dialog(role, current_path) + "</div></div>")
 
@@ -290,7 +294,9 @@ def wrap_document(document, path, *, status=200):
     role = _role()
     title_match = re.search(r'<title\b[^>]*>(.*?)</title\s*>', document, re.I | re.S)
     original_title = html.unescape(re.sub(r'<[^>]*>', '', title_match.group(1))).strip() if title_match else ''
-    title = _screen_title(path, original_title, query)
+    h1_match = re.search(r'<h1\b[^>]*>(.*?)</h1\s*>', raw, re.I | re.S)
+    heading = ' '.join(html.unescape(re.sub(r'<[^>]*>', '', h1_match.group(1))).split()) if h1_match else ''
+    title = _screen_title(path, original_title, query, heading)
     tab_id = _request_tab(path, query)
     nav_tab_id = tab_id if urlsplit(path).path == '/board' else ''
     back_href = ''
@@ -325,7 +331,7 @@ def wrap_document(document, path, *, status=200):
         content = re.sub(r'(<main\b[^>]*>)', r'\1<h1>' + _esc(title) + '</h1>', content, count=1, flags=re.I)
     content = re.sub(r'<header\b[^>]*class=["\'][^"\']*site-topbar[^"\']*["\'][^>]*>.*?</header\s*>', '', content, flags=re.I | re.S)
     shell = app_shell(content, section, title, breadcrumb, role, nav_tab_id, live_nav, back_href, page_path)
-    title_html = '<title>' + _esc(title) + ' · 숲길여행 회계</title>'
+    title_html = '<title>' + _esc(title) + ' · ' + BRAND + '</title>'
     if title_match:
         document = document[:title_match.start()] + title_html + document[title_match.end():]
     else:

@@ -392,6 +392,9 @@ def extend_report(report, data):
     result = dict(report, matches=facts, rules=list(report.get('rules', [])))
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    # 사실마다 규칙 목록을 다시 거르면 O(N²)이다. 같은 source_hash의 앞선 규칙은 뒤 규칙이 대체한다.
+    base_rules = result['rules']
+    added = {}
     for fact in updated:
         card = cards[fact['transaction_id']]
         event = events[str(fact['ota_event_id'])]
@@ -406,13 +409,15 @@ def extend_report(report, data):
         label = ('반복 거래 순서 배정 · 개별 결제 근거 미확인' if basis in
                  ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
                  else '검증된 OTA 결제 연결')
-        result['rules'] = [rule for rule in result['rules']
-                           if rule.get('optional', {}).get('source_hash') != fact['source_hash']]
-        result['rules'].append({
+        added.pop(fact['source_hash'], None)
+        added[fact['source_hash']] = {
             'conditions': {'merchant_normalized': normalize_merchant(fact['merchant']),
                            'transaction_direction': 'purchase'},
             'optional': {'source_hash': fact['source_hash']},
             'effects': {'item': fact['item'], 'description': '예약 ' + fact['booking_ref'] + ' · ' + label},
             'origin': 'ota-mail-live', 'note': label,
-        })
+        }
+    if added:
+        result['rules'] = [rule for rule in base_rules
+                           if rule.get('optional', {}).get('source_hash') not in added] + list(added.values())
     return result

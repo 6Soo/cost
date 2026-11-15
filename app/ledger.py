@@ -20,6 +20,7 @@ reaches the ledger; a candidate and a review row book nothing.
 from __future__ import annotations
 
 import hashlib
+import json
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
@@ -34,7 +35,8 @@ def recordable_rows(rows):
                  if not row.get('blocked') and not row.get('already_booked')}.values())
 
 
-def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full_refunds=False):
+def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full_refunds=False,
+                transaction_ids=None):
     """Keep ordinary previews scoped to their file; expand only verified zero-net
     refund groups for the automatic recorder. Inferred links are never expanded.
     """
@@ -51,7 +53,10 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     rows = list(store.conn.execute(
         "SELECT " + columns + " FROM transactions WHERE " + eligible +
         " AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
-        " ORDER BY transaction_id", (review_from, review_from, batch_id)).fetchall())
+        + ("" if transaction_ids is None else " AND transaction_id IN (SELECT value FROM json_each(?))") +
+        " ORDER BY transaction_id",
+        (review_from, review_from, batch_id) if transaction_ids is None
+        else (review_from, review_from, batch_id, json.dumps(sorted(transaction_ids)))).fetchall())
     if not include_verified_full_refunds:
         return rows
     from .partial_refund import refund_links, refund_group, is_numbered_partial, partial_group_exclusion
@@ -82,7 +87,7 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     return sorted(rows, key=lambda row: row[0])
 
 
-def _decision_rows(store, batch_id: str):
+def _decision_rows(store, batch_id: str, transaction_ids=None):
     """Latest decision per transaction, for the preview to reflect."""
     from .decision_provenance import active_decision_sql
     rows = store.conn.execute(
@@ -91,8 +96,9 @@ def _decision_rows(store, batch_id: str):
         " JOIN transactions t ON t.transaction_id = d.transaction_id"
         " WHERE t.transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) AND d.revision ="
         " (SELECT MAX(revision) FROM review_decisions x"
-        "  WHERE x.transaction_id = d.transaction_id) AND "+active_decision_sql(),
-        (batch_id,)).fetchall()
+        "  WHERE x.transaction_id = d.transaction_id) AND "+active_decision_sql()
+        + ("" if transaction_ids is None else " AND t.transaction_id IN (SELECT value FROM json_each(?))"),
+        (batch_id,) if transaction_ids is None else (batch_id, json.dumps(sorted(transaction_ids)))).fetchall()
     return {r[0]: {"revision": r[1], "item": r[2], "description": r[3],
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
 
@@ -120,7 +126,7 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
              additional_holds=None, group_original=None,
-             include_verified_full_refunds=False) -> dict:
+             include_verified_full_refunds=False, transaction_ids=None) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -142,8 +148,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
         raise StoreError(CODE_NOT_FOUND, "없는 접수 건이에요")
 
     source_rows = _ready_rows(store, batch_id, review_from,
-                              include_verified_full_refunds=include_verified_full_refunds)
-    decisions = _decision_rows(store, batch_id)
+                              include_verified_full_refunds=include_verified_full_refunds,
+                              transaction_ids=transaction_ids)
+    decisions = _decision_rows(store, batch_id, transaction_ids)
     if include_verified_full_refunds:
         # A counterpart may have a user decision in another import batch.
         batch_ids = {r[0] for r in store.conn.execute(
@@ -627,7 +634,7 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
-           automatic_record=False, include_verified_full_refunds=False) -> dict:
+           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -670,7 +677,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                         tab_validator=tab_validator, review_from=review_from,
                         entry_metadata=entry_metadata, additional_holds=additional_holds,
                         group_original=group_original,
-                        include_verified_full_refunds=include_verified_full_refunds)
+                        include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
         if (probe["digest"] == preview_digest_value
                 and probe.get("rows")
                 and all(row.get("already_booked") for row in probe["rows"])):
@@ -689,7 +697,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
                       group_original=group_original,
-                      include_verified_full_refunds=include_verified_full_refunds)
+                      include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
     if current["digest"] != preview_digest_value:
         if group_original is not None:
             with store.lock:
@@ -700,7 +709,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                                      tab_validator=tab_validator, review_from=review_from,
                                      entry_metadata=entry_metadata, additional_holds=additional_holds,
                                      group_original=group_original,
-                                     include_verified_full_refunds=include_verified_full_refunds)
+                                     include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
                     replay = _committed_group_replay(store, payload_sha,
                                                      locked["digest"], locked)
                     if replay is not None:
@@ -795,7 +805,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                     tab_validator=tab_validator, review_from=review_from,
                     entry_metadata=entry_metadata, additional_holds=additional_holds,
                     group_original=group_original,
-                    include_verified_full_refunds=include_verified_full_refunds)
+                    include_verified_full_refunds=include_verified_full_refunds,
+                        transaction_ids=transaction_ids)
                 replay_post_digest = post_preview["digest"]
                 replay_post_revisions = {
                     entry["transaction_id"]: entry.get("revision")

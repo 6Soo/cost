@@ -2,6 +2,7 @@
 
     python -I links_python.py build <scenario.json> <db>
     python -I links_python.py rows <db>
+    python -I links_python.py build-many <manifest.json>   # [{"scenario","db","rows"?}, ...]
 """
 import json
 import sqlite3
@@ -26,14 +27,26 @@ def build(scenario_path, target):
         src.close()
 
 
-def rows(db):
+def rows_json(db):
     """The JSON the Python adapter sends to `links refund --rows-stdin` for this database."""
     from app import core_links
     conn = sqlite3.connect(db)
     try:
-        print(json.dumps(core_links.row_dicts(core_links.fetch_rows(conn))))  # ASCII escapes: stdout encoding is not UTF-8 on Windows
+        return json.dumps(core_links.row_dicts(core_links.fetch_rows(conn)))  # ASCII escapes: stdout encoding is not UTF-8 on Windows
     finally:
         conn.close()
+
+
+def rows(db):
+    print(rows_json(db))
+
+
+def build_many(manifest_path):
+    """One process for many cases: build each DB and, when `rows` is given, write its rows JSON there."""
+    for item in json.loads(Path(manifest_path).read_text(encoding='utf-8')):
+        build(item['scenario'], item['db'])
+        if item.get('rows'):
+            Path(item['rows']).write_text(rows_json(item['db']), encoding='ascii')
 
 
 if __name__ == '__main__':
@@ -41,3 +54,5 @@ if __name__ == '__main__':
         build(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == 'rows':
         rows(sys.argv[2])
+    elif sys.argv[1] == 'build-many':
+        build_many(sys.argv[2])

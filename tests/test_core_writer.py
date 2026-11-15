@@ -583,3 +583,28 @@ def test_links_are_read_at_apply_time_so_a_moved_link_reaches_the_digest_check(e
     with pytest.raises(ValueError, match='CLASSIFICATION_PREVIEW_STALE'):
         core_writer.apply(conn, {'digest': 'old'}, [])
     assert seen['input']['links']['b'] == {'original_id': 'c', 'inferred': True, 'status': 'partial'}
+
+
+def test_sweep_with_a_moved_key_leaves_the_chunk_for_the_next_pass(env, tmp_path):
+    from webapp import card_classification_completion as completion
+    from webapp import card_completion_worker as worker_module
+    applied, held = [], []
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    worker = worker_module.CardCompletionWorker.__new__(worker_module.CardCompletionWorker)
+    worker.board = board
+    env[0].setattr(worker_module, 'candidates', lambda conn: [('t',)])
+    env[0].setattr(worker_module.CardCompletionWorker, '_sweep_once',
+                   lambda self: completion.complete_scope(flow, {'t'}))
+    build = core_writer._period_snapshot
+
+    def moving(path):
+        data = build(path)
+        key['value'] += 'x'  # a card arrives during every build
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', moving)
+    with pytest.raises(core_writer.PeriodsStale):
+        worker.sweep_once()
+    assert applied == [] and all(depth == 0 for depth in held)  # nothing written, nothing built under the lock
+    env[0].setattr(core_writer, '_period_snapshot', build)
+    worker.sweep_once()
+    assert len(applied) == 1 and applied[0][2] == 1  # applied once, inside the lock, with matching evidence
