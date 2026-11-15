@@ -293,11 +293,37 @@ def test_unusable_binary_output_and_missing_configuration_fail(monkeypatch, tmp_
         pr.refund_links(conn, ['syn-r2'])
 
 
-def test_an_in_memory_database_has_no_file_for_costcore_to_read(stand_in, monkeypatch):
+def test_an_in_memory_clone_is_served_from_its_own_rows_equal_to_python(stand_in, monkeypatch, tmp_path):
+    """The bulk-maintenance preview clones the board into :memory: and reads refund pairs there."""
+    path = _build(tmp_path, _scenarios()[2][1])
+    ids = ['syn-r1', 'syn-r2']
+    with closing(sqlite3.connect(path)) as src, closing(sqlite3.connect(':memory:')) as clone:
+        src.backup(clone)
+        monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
+        expected = pr.refund_links(clone, ids)
+        monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+        assert pr.refund_links(clone, ids) == expected
+        clone.execute("UPDATE transactions SET conflict_reason='x' WHERE transaction_id='syn-r1'")
+        monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
+        edited = pr.refund_links(clone, ids)
+        monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+        assert pr.refund_links(clone, ids) == edited  # a clone's own edit is read from its rows
+        assert edited != expected
+    assert stand_in.stdin_runs and stand_in.runs == []
+
+
+def test_the_bulk_maintenance_clone_reads_refund_pairs_under_rust(stand_in, monkeypatch, tmp_path):
+    from webapp import expense_bulk_maintenance as bulk
     monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
-    conn = sqlite3.connect(':memory:')
-    with pytest.raises(RuntimeError, match='CORE_LINKS_NEEDS_FILE_DATABASE'):
-        core_links.analyse(conn)
+    path = _build(tmp_path, _scenarios()[2][1])
+    with closing(sqlite3.connect(path)) as src:
+        board = type('Board', (), {'conn': src, '_lock': __import__('threading').RLock(), 'close': lambda self: None})()
+        clone = bulk.copy.copy(board)
+        clone.conn = sqlite3.connect(':memory:', isolation_level=None)
+        src.backup(clone.conn)
+        assert pr.refund_links(clone.conn, ['syn-r1', 'syn-r2']) is not None
+        clone.conn.close()
+    assert stand_in.stdin_runs
 
 
 def test_uncommitted_source_rows_are_refused_but_an_unchanged_open_transaction_is_served(
@@ -370,3 +396,69 @@ def test_an_original_the_core_did_not_link_is_an_error_not_a_guess(stand_in, mon
     path = _build(tmp_path, _scenarios()[2][1])
     with closing(sqlite3.connect(path)) as conn, pytest.raises(RuntimeError, match='CORE_LINKS_ORIGINAL_NOT_LINKED'):
         pr.partial_group_exclusion(conn, 'syn-r2')
+
+
+_RACE = "UPDATE transactions SET conflict_reason='x' WHERE transaction_id='syn-r1'"
+
+
+def _wal(path):
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute('PRAGMA journal_mode=WAL')
+    return path
+
+
+def _commit_elsewhere(path):
+    with closing(sqlite3.connect(path)) as other:
+        other.execute(_RACE)
+        other.commit()
+
+
+def test_a_read_snapshot_survives_another_connection_committing_a_pairing_input(stand_in, monkeypatch, tmp_path):
+    """A deferred BEGIN reader whose snapshot went stale is served from its own rows, not refused."""
+    monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+    path = _wal(_build(tmp_path, _scenarios()[2][1]))
+    for scoped in (False, True):
+        core_links.clear_cache()
+        with closing(sqlite3.connect(path)) as conn:
+            conn.execute('BEGIN')
+            conn.execute('SELECT COUNT(*) FROM transactions').fetchone()
+            _commit_elsewhere(path)
+            if scoped:  # a display scope (workers, board renders) opts in for its whole read
+                with pr.read_only_scope():
+                    assert pr.refund_links(conn, ['syn-r2']) is not None
+            else:
+                with pytest.raises(RuntimeError, match='CORE_LINKS_UNCOMMITTED_ROWS'):
+                    pr.refund_links(conn, ['syn-r2'])
+        with closing(sqlite3.connect(path)) as undo:
+            undo.execute("UPDATE transactions SET conflict_reason='' WHERE transaction_id='syn-r1'")
+            undo.commit()
+    assert stand_in.stdin_runs  # the snapshot's rows travelled on stdin
+
+
+def test_a_query_only_snapshot_is_served_from_its_own_rows(stand_in, monkeypatch, tmp_path):
+    monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+    path = _wal(_build(tmp_path, _scenarios()[2][1]))
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute('PRAGMA query_only=ON')
+        conn.execute('BEGIN')
+        conn.execute('SELECT COUNT(*) FROM transactions').fetchone()
+        _commit_elsewhere(path)
+        assert pr.refund_links(conn, ['syn-r2']) is not None
+    assert stand_in.stdin_runs
+
+
+def test_list_for_day_survives_a_commit_between_its_snapshot_and_the_refund_lookup(stand_in, monkeypatch, tmp_path):
+    from webapp import card_transactions
+    monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+    path = _wal(_build(tmp_path, _scenarios()[2][1]))
+    with closing(sqlite3.connect(path)) as probe:
+        day = probe.execute("SELECT substr(approval_date,1,10) FROM transactions WHERE approval_date!='' LIMIT 1").fetchone()[0]
+    real = card_transactions.enrich_status
+
+    def racing(conn, items):
+        _commit_elsewhere(path)  # lands after the snapshot began, before the refund lookup
+        return real(conn, items)
+
+    monkeypatch.setattr(card_transactions, 'enrich_status', racing)
+    result = card_transactions.list_for_day(str(path), day=day)
+    assert result['count'] >= 1 and stand_in.stdin_runs
