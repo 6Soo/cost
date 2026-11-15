@@ -59,6 +59,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "pytest-temp-session-cleanup",
+      "paths": ["conftest.py", "tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py"],
+      "tests": ["tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py", "webapp/tests/test_google_oidc.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_card_import.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_cards_all.py"]
+    },
+    {
       "name": "card-login-automation",
       "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"],
       "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"]
