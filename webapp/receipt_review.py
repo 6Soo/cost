@@ -1332,21 +1332,24 @@ const analysisSummary=groups=>{
  const empty=groups.filter(group=>group.empty).length;
  const fallback=groups.filter(group=>group.fallbackNotice).length;
  const withFallback=message=>fallback?message+' Windows OCR 참고값을 사용한 사진 '+fallback+'장입니다. 결과를 확인해 주세요.':message;
+ const isRescan=groups.length===1&&groups[0].kind==='rescan';
+ const candidateLabel=isRescan?'새 후보 ':'후보 ';
  const parts=[];
- if(candidateCount)parts.push('후보 '+candidateCount+'건');
+ if(candidateCount)parts.push(candidateLabel+candidateCount+'건');
  if(failed)parts.push('실패 '+failed+'장');
  if(unknown)parts.push('상태 확인 필요 '+unknown+'장');
  if(empty)parts.push('인식된 영수증 없음 '+empty+'장');
  if(!parts.length)return withFallback('분석 결과가 없습니다.');
- if(groups.length===1&&groups[0].kind==='rescan'){
+ if(isRescan){
   if(failed)return withFallback('영수증 다시 분석에 실패했습니다. 사진별 원인과 복구 방법을 확인하세요.');
   if(unknown)return withFallback('영수증 다시 분석 상태를 확인하지 못했습니다. 자동 재전송은 하지 않았습니다.');
   if(empty)return withFallback('다시 분석했지만 새 후보를 찾지 못했습니다. 원본은 보관되어 있습니다. 입력한 메모는 후보 등록 뒤에만 학습에 반영됩니다.');
+  if(candidateCount&&!failed&&!unknown&&!empty)return withFallback(parts.join(' · ')+'을 찾았습니다. 등록 전에 내용을 확인하세요.');
  }
  if(failed===groups.length&&failed)return withFallback('모든 사진 분석이 실패했습니다 ('+failed+'장). 사진별 원인과 복구 방법을 확인하세요.');
  if(unknown&&!candidateCount&&!failed&&!empty)return withFallback('분석 상태를 확인하지 못했습니다. 자동 재전송은 하지 않았습니다.');
- if(candidateCount&&!failed&&!unknown&&!empty)return withFallback(parts.join(' · ')+' · 등록 전에 내용을 확인하세요.');
- return withFallback('분석 결과: '+parts.join(' · ')+'. 원본 사진은 보관 중이며 후보 등록은 별도로 진행합니다.');
+ if(candidateCount&&!failed&&!unknown&&!empty)return withFallback('분석을 마쳤습니다. '+parts.join(' · ')+' · 등록 전에 내용을 확인하세요.');
+ return withFallback('분석을 마쳤습니다. '+parts.join(' · ')+'. 원본 사진은 보관 중이며 후보 등록은 별도로 진행합니다.');
 };
 const updateAnalysisSummary=(groups,focus=false)=>{
  const summary=document.getElementById('vision-summary');if(!summary)return;
