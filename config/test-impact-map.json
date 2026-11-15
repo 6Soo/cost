@@ -528,7 +528,12 @@
     {
       "name": "core-writer-switch",
       "paths": ["app/core_writer.py", "app/core_switch_config.py", "app/automatic_classification.py", "tests/test_core_writer.py", "tests/test_core_switch_config.py", "config/runtime-environment-catalog.json"],
-      "tests": ["tests/test_core_writer.py", "tests/test_core_switch_config.py", "tests/test_verify_runtime_environment.py"]
+      "tests": ["tests/test_core_writer.py", "tests/test_core_switch_config.py", "tests/test_verify_runtime_environment.py", "tests/test_core_rejudge.py"]
+    },
+    {
+      "name": "core-rejudge-entrypoint",
+      "paths": ["tools/core_rejudge.py", "tests/test_core_rejudge.py", "webapp/card_classification_completion.py"],
+      "tests": ["tests/test_core_rejudge.py", "tests/test_core_writer.py"]
     },
     {
       "name": "core-links-switch",
