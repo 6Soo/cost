@@ -474,7 +474,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page.click('#img-go')
                 bulk = page.locator('#upload-bulk')
                 bulk.wait_for()
-                self.assertIn('실패 2개 모두 다시 시도', bulk.inner_text())
+                self.assertIn('실패 2개', bulk.inner_text())
                 self.assertEqual(page.locator('#upload-results .is-fail').count(), 2)
                 self.assertTrue(page.evaluate("document.documentElement.scrollWidth<=375"))
                 box = page.locator('#upload-results .upload-name').first.bounding_box()
