@@ -216,8 +216,8 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
     for item in board.live_trips(include_archived=False):
         if item.get('deleted'):
             continue
-        # TRIP-010 마감(visual_closed)은 기본 목록에서 빼되 현재 보는 여행은 남긴다.
-        if item.get('visual_closed') and item.get('tab_id') != current:
+        # /trips 기본 목록과 같은 기준(마감 표시·이전 여행 제외), 현재 보는 여행은 예외.
+        if item.get('tab_id') != current and not board.is_default_listed_trip(item):
             continue
         label = str(item.get('display_title') or item.get('display_key') or '')
         entries.append(

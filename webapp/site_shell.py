@@ -151,8 +151,7 @@ def _active_trip_nav(tab_id, role='owner'):
         if role == 'viewer':
             allowed = ledger_board.viewer_visible_tabs(ledger_board.current_request_session())
             trips = [trip for trip in trips if trip.get('tab_id') in allowed]
-        previous = ledger_board.is_previous_trip
-        trips = [trip for trip in trips if not trip.get('deleted') and not trip.get('archived') and not previous(trip)]
+        trips = [trip for trip in trips if ledger_board.is_default_listed_trip(trip)]
     except Exception:
         trips = []
     trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))[:8]

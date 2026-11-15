@@ -76,3 +76,17 @@ def test_trip_switch_dialog_hides_closed_trips_but_keeps_current_one():
         current_closed = ledger_design._trip_switch_dialog(trips[2])
         assert "tab=closed-c" in current_closed and "tab=closed-d" not in current_closed
     assert trips[2]["visual_closed"] is True
+
+
+def test_dialog_and_sidebar_share_trips_default_list_criteria():
+    trips = [trip("open-a", "2026-11-01"),
+             trip("old-b", "2026-06-25"),
+             trip("closed-c", "2026-09-01", visual_closed=True)]
+    with patch.object(board, "live_trips", return_value=trips):
+        dialog = ledger_design._trip_switch_dialog(trips[0])
+        assert "tab=open-a" in dialog
+        assert "tab=old-b" not in dialog and "tab=closed-c" not in dialog
+        assert "tab=old-b" in ledger_design._trip_switch_dialog(trips[1])
+    side = render(trips)
+    assert "tab=open-a" in side and "tab=old-b" not in side and "tab=closed-c" not in side
+    assert [t["tab_id"] for t in trips if board.is_default_listed_trip(t)] == ["open-a"]
