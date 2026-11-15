@@ -62,3 +62,17 @@ def test_viewer_sees_only_allowed_active_trips_without_history_drawer():
     html = render(trips, query="allowed-old")
     assert '<details' not in html
     assert 'tab=secret-old' not in html
+
+
+def test_trip_switch_dialog_hides_closed_trips_but_keeps_current_one():
+    trips = [trip("open-a", "2026-11-01"), trip("future-b", "2027-01-01"),
+             trip("closed-c", "2026-07-01", visual_closed=True),
+             trip("closed-d", "2026-08-01", visual_closed=True)]
+    with patch.object(board, "live_trips", return_value=trips):
+        html = ledger_design._trip_switch_dialog(trips[0])
+        assert "tab=open-a" in html and "tab=future-b" in html
+        assert "tab=closed-c" not in html and "tab=closed-d" not in html
+        assert "href='/trips'" in html and "마감된 여행은 여행 목록에서" in html
+        current_closed = ledger_design._trip_switch_dialog(trips[2])
+        assert "tab=closed-c" in current_closed and "tab=closed-d" not in current_closed
+    assert trips[2]["visual_closed"] is True

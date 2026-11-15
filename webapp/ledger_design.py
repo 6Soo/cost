@@ -216,6 +216,9 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
     for item in board.live_trips(include_archived=False):
         if item.get('deleted'):
             continue
+        # TRIP-010 마감(visual_closed)은 기본 목록에서 빼되 현재 보는 여행은 남긴다.
+        if item.get('visual_closed') and item.get('tab_id') != current:
+            continue
         label = str(item.get('display_title') or item.get('display_key') or '')
         entries.append(
             f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
@@ -235,7 +238,7 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
         "<label for='trip-switch-search'>여행 검색</label>"
         "<input id='trip-switch-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
         f"<ul data-trip-switch-list>{''.join(entries) or '<li class=\"muted\">여행이 없습니다.</li>'}</ul>"
-        "<a class='btn ghost' href='/trips'>여행 전체 보기</a></dialog>")
+        "<a class='btn ghost' href='/trips'>마감된 여행은 여행 목록에서</a></dialog>")
 
 
 def _trip_kpi_html(tab_id: str) -> str:
