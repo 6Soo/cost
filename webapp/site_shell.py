@@ -153,7 +153,8 @@ def _active_trip_nav(tab_id, role='owner'):
         if role == 'viewer':
             allowed = ledger_board.viewer_visible_tabs(ledger_board.current_request_session())
             trips = [trip for trip in trips if trip.get('tab_id') in allowed]
-        trips = [trip for trip in trips if ledger_board.is_default_listed_trip(trip)]
+        # 현재 보는 여행은 마감 표시여도 남긴다(여행 전환 대화상자와 같은 예외).
+        trips = [trip for trip in trips if trip.get('tab_id') == tab_id or ledger_board.is_default_listed_trip(trip)]
     except Exception:
         trips = []
     trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))[:8]
