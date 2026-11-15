@@ -8,7 +8,7 @@ use serde_json::Value;
 fn known_cases(prefix: &str) -> Vec<String> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../known-diffs.txt");
     let text = std::fs::read_to_string(path).expect("known-diffs.txt");
-    let known = cost_core::shadow::parse_known_diffs(&text).expect("known-diffs.txt format");
+    let known = cost_core::known_diffs::parse_known_diffs(&text).expect("known-diffs.txt format");
     known
         .cases_with_prefix(prefix)
         .into_iter()

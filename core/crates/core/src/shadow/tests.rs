@@ -5,6 +5,7 @@ use rusqlite::Connection;
 
 use super::keys::{ITEM_VOCABULARY, SOURCE_VOCABULARY};
 use super::*;
+use crate::guard::{GuardError, ensure_private_path, write_private_lines};
 
 struct TempDir(PathBuf);
 
@@ -291,7 +292,7 @@ fn private_files_only_under_protected_backups() {
         assert!(
             matches!(
                 ensure_private_path(&path, &host),
-                Err(ShadowError::PrivatePathRejected)
+                Err(GuardError::PrivatePathRejected)
             ),
             "{}",
             path.display()

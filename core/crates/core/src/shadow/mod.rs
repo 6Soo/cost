@@ -3,7 +3,6 @@
 //! 회귀 판정은 B↔C, A↔C·A↔B는 참고다. Rust 엔진은 `PlanEngine` 하나 뒤에 두어 U9가 끼워 넣는다.
 
 mod engine;
-mod guard;
 mod keys;
 mod known;
 pub mod links;
@@ -25,11 +24,11 @@ use crate::store::projection::TxnRow;
 use crate::store::{StoreError, read_plan_input, read_projection};
 
 pub use crate::bridge::PythonBridge;
+pub use crate::known_diffs::KnownDiffs;
 pub use crate::pipeline::{PlanRequest, Target, Values, targets_json};
 pub use engine::RustEngine;
-pub use guard::{ensure_private_path, protected_root, write_private_lines};
 pub use keys::{attribution_kind, diff_keys, validate_key};
-pub use known::{KnownDiffs, Verdict, judge, parse_known_diffs};
+pub use known::{Verdict, judge, parse_known_diffs};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShadowError {
@@ -45,8 +44,6 @@ pub enum ShadowError {
     PlanFailed,
     #[error("DB_IS_LIVE")]
     DbIsLive,
-    #[error("PRIVATE_PATH_REJECTED")]
-    PrivatePathRejected,
     #[error("PUBLIC_VALUE_NOT_ALLOWED")]
     PublicValueNotAllowed,
     #[error("KNOWN_DIFFS_INVALID")]
@@ -61,6 +58,12 @@ pub enum ShadowError {
     Store(#[from] StoreError),
     #[error("입출력 오류: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl From<crate::known_diffs::KnownDiffsInvalid> for ShadowError {
+    fn from(_: crate::known_diffs::KnownDiffsInvalid) -> Self {
+        Self::KnownDiffsInvalid
+    }
 }
 
 impl From<BridgeError> for ShadowError {
