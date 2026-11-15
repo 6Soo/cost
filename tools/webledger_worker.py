@@ -207,6 +207,10 @@ def main(argv=None) -> int:
         log.note("worker", "refused", reason="ALREADY_RUNNING")
         return 75
     own_children()
+    try:
+        core_switch_config.record_applied('worker', args.config.resolve().parent, ROOT.name)
+    except OSError:
+        pass  # the deploy check then fails on the missing record
     log.note("worker", "ready", release=ROOT.name, jobs=[job["name"] for job in config["jobs"]])
     stop = threading.Event()
     threads = []

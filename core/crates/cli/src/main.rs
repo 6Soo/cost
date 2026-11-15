@@ -10,19 +10,17 @@ use std::process::ExitCode;
 
 use cost_core::apply::{ApplyError, ApplyRequest, apply, open_board_writable, utc_now};
 use cost_core::bridge::{BridgeError, PythonBridge};
+use cost_core::guard::{GuardError, ensure_private_path, write_private_lines};
 use cost_core::links::ota::Defaults;
-use cost_core::links::refund::PairingConfig;
-use cost_core::links::refund::Refunds;
+use cost_core::links::refund::{
+    PairingConfig, RefundInputInvalid, Refunds, refund_rows, refund_rows_from_json, refund_values,
+};
 use cost_core::period;
 use cost_core::pipeline::{
     PipelineError, PlanRequest, links_from, reject_live_db, run_plan, targets_json,
 };
-use cost_core::shadow::links::{
-    judge_links, refund_rows, refund_rows_from_json, refund_values, run_ota, run_refund,
-};
-use cost_core::shadow::{
-    PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow, write_private_lines,
-};
+use cost_core::shadow::links::{judge_links, run_ota, run_refund};
+use cost_core::shadow::{PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow};
 use cost_core::store::decisions::stored_digests_readonly;
 use cost_core::store::{StoreError, read_plan_input, read_projection};
 use serde_json::{Value, json};
@@ -39,6 +37,8 @@ enum CliError {
     Store,
     CoreSchemaMismatch,
     Shadow(ShadowError),
+    Guard(GuardError),
+    ConfigInvalid,
     Io,
 }
 
@@ -62,6 +62,8 @@ impl CliError {
             Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
             Self::Apply(_) => "APPLY_FAILED".to_owned(),
             Self::Shadow(error) => error.code(),
+            Self::Guard(error) => error.code().to_owned(),
+            Self::ConfigInvalid => "CONFIG_INVALID".to_owned(),
         }
     }
 }
@@ -93,6 +95,18 @@ impl From<StoreError> for CliError {
 impl From<ShadowError> for CliError {
     fn from(error: ShadowError) -> Self {
         Self::Shadow(error)
+    }
+}
+
+impl From<GuardError> for CliError {
+    fn from(error: GuardError) -> Self {
+        Self::Guard(error)
+    }
+}
+
+impl From<RefundInputInvalid> for CliError {
+    fn from(_: RefundInputInvalid) -> Self {
+        Self::PlanResponseInvalid
     }
 }
 
@@ -215,10 +229,7 @@ fn shadow(args: &[String]) -> Result<(u8, Value), CliError> {
     reject_live_db(&db, &host)?;
     // 비공개 파일 경로는 실행 전에 검사해, 거부될 실행이 시간을 쓰지 않게 한다.
     let private_out = match flags.get("--private-out") {
-        Some(path) => Some(cost_core::shadow::ensure_private_path(
-            &PathBuf::from(path),
-            &host,
-        )?),
+        Some(path) => Some(ensure_private_path(&PathBuf::from(path), &host)?),
         None => None,
     };
     let known = parse_known_diffs(&std::fs::read_to_string(&known_path)?)?;
@@ -259,10 +270,7 @@ fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
         reject_live_db(db, &host)?;
     }
     let private_out = match flags.get("--private-out") {
-        Some(path) => Some(cost_core::shadow::ensure_private_path(
-            &PathBuf::from(path),
-            &host,
-        )?),
+        Some(path) => Some(ensure_private_path(&PathBuf::from(path), &host)?),
         None => None,
     };
     let known = parse_known_diffs(&std::fs::read_to_string(&known_path)?)?;
@@ -271,7 +279,7 @@ fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
     let refund = match &db {
         Some(db) => {
             let config = PairingConfig::from_json(&config_json("refund-pairing.json")?)
-                .map_err(|_| ShadowError::ConfigInvalid)?;
+                .map_err(|_| CliError::ConfigInvalid)?;
             Some(run_refund(db, &python, &config)?)
         }
         None => None,
@@ -281,9 +289,8 @@ fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
             let input: Value = serde_json::from_str(&std::fs::read_to_string(path)?)
                 .map_err(|_| CliError::PlanResponseInvalid)?;
             let defaults: Value = serde_json::from_str(&config_json("ota-matching-defaults.json")?)
-                .map_err(|_| ShadowError::ConfigInvalid)?;
-            let defaults =
-                Defaults::from_value(&defaults).map_err(|_| ShadowError::ConfigInvalid)?;
+                .map_err(|_| CliError::ConfigInvalid)?;
+            let defaults = Defaults::from_value(&defaults).map_err(|_| CliError::ConfigInvalid)?;
             Some(run_ota(&input, &python, &defaults)?)
         }
         None => None,
@@ -313,7 +320,7 @@ fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
     let config = PairingConfig::from_json(&std::fs::read_to_string(
         repo.join("config").join("refund-pairing.json"),
     )?)
-    .map_err(|_| ShadowError::ConfigInvalid)?;
+    .map_err(|_| CliError::ConfigInvalid)?;
     let rows = if stdin_rows {
         // 호출자가 쓰기 트랜잭션 안의 아직 커밋 안 된 행까지 담아 보낸다(파일은 읽지 않는다).
         let mut body = String::new();
@@ -443,10 +450,7 @@ fn periods(args: &[String]) -> Result<(u8, Value), CliError> {
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     reject_live_db(&db, &host)?;
     let private_out = match flags.get("--private-out") {
-        Some(path) => Some(cost_core::shadow::ensure_private_path(
-            &PathBuf::from(path),
-            &host,
-        )?),
+        Some(path) => Some(ensure_private_path(&PathBuf::from(path), &host)?),
         None => None,
     };
     let facts = load_period_facts(&flags)?;
@@ -485,10 +489,7 @@ fn rejudge(args: &[String]) -> Result<(u8, Value), CliError> {
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     reject_live_db(&db, &host)?;
     let private_out = match flags.get("--private-out") {
-        Some(path) => Some(cost_core::shadow::ensure_private_path(
-            &PathBuf::from(path),
-            &host,
-        )?),
+        Some(path) => Some(ensure_private_path(&PathBuf::from(path), &host)?),
         None => None,
     };
     let facts = load_period_facts(&flags)?;

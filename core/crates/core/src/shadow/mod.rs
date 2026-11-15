@@ -3,7 +3,6 @@
 //! 회귀 판정은 B↔C, A↔C·A↔B는 참고다. Rust 엔진은 `PlanEngine` 하나 뒤에 두어 U9가 끼워 넣는다.
 
 mod engine;
-mod guard;
 mod keys;
 mod known;
 pub mod links;
@@ -17,7 +16,6 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::apply::ApplyError;
 use crate::bridge::BridgeError;
 use crate::domain::{ActorKind, Mapped, SourceInput, map_source};
 use crate::pipeline::PipelineError;
@@ -25,16 +23,14 @@ use crate::store::projection::TxnRow;
 use crate::store::{StoreError, read_plan_input, read_projection};
 
 pub use crate::bridge::PythonBridge;
+pub use crate::known_diffs::KnownDiffs;
 pub use crate::pipeline::{PlanRequest, Target, Values, targets_json};
 pub use engine::RustEngine;
-pub use guard::{ensure_private_path, protected_root, write_private_lines};
 pub use keys::{attribution_kind, diff_keys, validate_key};
-pub use known::{KnownDiffs, Verdict, judge, parse_known_diffs};
+pub use known::{Verdict, judge, parse_known_diffs};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShadowError {
-    #[error("ENGINE_NOT_AVAILABLE")]
-    EngineNotAvailable,
     #[error("PYTHON_BRIDGE_FAILED:{0}")]
     PythonBridgeFailed(String),
     #[error("PLAN_RESPONSE_INVALID")]
@@ -45,22 +41,20 @@ pub enum ShadowError {
     PlanFailed,
     #[error("DB_IS_LIVE")]
     DbIsLive,
-    #[error("PRIVATE_PATH_REJECTED")]
-    PrivatePathRejected,
     #[error("PUBLIC_VALUE_NOT_ALLOWED")]
     PublicValueNotAllowed,
     #[error("KNOWN_DIFFS_INVALID")]
     KnownDiffsInvalid,
-    #[error("CONFIG_INVALID")]
-    ConfigInvalid,
-    #[error("USAGE_INVALID")]
-    UsageInvalid,
-    #[error("투영 쓰기 오류: {0}")]
-    Apply(#[from] ApplyError),
     #[error("저장 계층 오류: {0}")]
     Store(#[from] StoreError),
     #[error("입출력 오류: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl From<crate::known_diffs::KnownDiffsInvalid> for ShadowError {
+    fn from(_: crate::known_diffs::KnownDiffsInvalid) -> Self {
+        Self::KnownDiffsInvalid
+    }
 }
 
 impl From<BridgeError> for ShadowError {
@@ -87,9 +81,6 @@ impl ShadowError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     pub fn code(&self) -> String {
         match self {
-            Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
-            Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
-            Self::Apply(_) => "APPLY_FAILED".to_owned(),
             Self::Store(_) => "STORE_ERROR".to_owned(),
             Self::Io(_) => "IO_ERROR".to_owned(),
             other => other.to_string(),
@@ -100,15 +91,6 @@ impl ShadowError {
 /// P1 `plan` 엔진 한 겹. Python 다리와 Rust 엔진이 같은 입력·출력 형식을 쓴다.
 pub trait PlanEngine {
     fn plan(&self, request: &PlanRequest) -> Result<Vec<Target>, ShadowError>;
-}
-
-/// U9 `plan`이 병합되기 전의 Rust 쪽 자리.
-pub struct UnavailableEngine;
-
-impl PlanEngine for UnavailableEngine {
-    fn plan(&self, _request: &PlanRequest) -> Result<Vec<Target>, ShadowError> {
-        Err(ShadowError::EngineNotAvailable)
-    }
 }
 
 /// Python 다리 `plan` 결과(`{targets:[{id, values:[7칸]}]}`)와 `costcore plan` 출력이 같은 모양이다.
@@ -272,11 +254,6 @@ impl ShadowReport {
 pub struct ShadowOutcome {
     pub report: ShadowReport,
     pub private: Vec<PrivateDiff>,
-}
-
-/// 운영 DB 자체는 거부한다(사본만 받는다).
-pub fn reject_live_db(db: &Path, host_root: &Path) -> Result<(), ShadowError> {
-    Ok(crate::pipeline::reject_live_db(db, host_root)?)
 }
 
 /// A·B·C 세 값을 같은 거래에서 비교한다. Rust 엔진을 먼저 불러 없으면 곧바로 끝난다.

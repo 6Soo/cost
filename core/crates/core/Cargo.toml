@@ -1,6 +1,6 @@
 [package]
 name = "cost-core"
-description = "COST 판정 코어: 판정 타입·불변식(domain), 날짜·완료 기간·열린 범위(dates). 후속 단위가 store·rules·trips·links·pipeline·bridge 모듈을 추가한다"
+description = "COST 판정 코어: 판정 타입·불변식(domain), 날짜·기간(dates·period), 저장(store), 규칙(rules)·여행(trips)·연결(links), 계획·적용(plan·pipeline·apply), 비교용 그림자(shadow)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,9 +15,9 @@ regex = "1"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", default-features = false, features = ["bundled"] }
 thiserror = "2"
 time = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { version = "1", default-features = false, features = ["std"] }

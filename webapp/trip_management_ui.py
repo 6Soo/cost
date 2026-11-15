@@ -43,9 +43,9 @@ def controls(board, trip):
     # every existing form field and POST target, but put the secondary actions in
     # one disclosure menu in the trip header.
     return ("<details class='trip-more' id='trip-settings'>"
-            "<summary class='icon-btn' data-no-action-icon aria-label='여행 작업' aria-haspopup='menu' aria-expanded='false'>⋯<span class='sr'>여행 작업</span></summary>"
-            "<div class='trip-more-menu' role='menu'>"
-            "<a class='btn' role='menuitem' href='/export?" + esc(urlencode({'tab': tid})) + "'>XLSX 내보내기</a>"
+            "<summary class='icon-btn' data-no-action-icon aria-label='여행 작업' aria-expanded='false'>⋯<span class='sr'>여행 작업</span></summary>"
+            "<div class='trip-more-menu'>"
+            "<a class='btn' href='/export?" + esc(urlencode({'tab': tid})) + "'>XLSX 내보내기</a>"
             + close_form.replace("<form ", "<form id='trip-close' ", 1)
             + "<h3 class='trip-more-heading'>여행 정보 수정</h3>" + edit + archive
             + "<p class='muted'>마감은 COST의 표시 상태이며 Google 장부 이동·환급과는 별개입니다.</p>"
@@ -62,6 +62,7 @@ def reservations(board, trip):
 
 
 STYLE = """
+.drawer .p-hd h2,.drawer #p-close{display:none}
 .trip-management-controls{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 .page-hd>.act{flex:1 1 340px;max-width:100%;justify-content:flex-end}.page-hd{flex-wrap:wrap}
 .trip-management-controls form{margin:0}.trip-management-controls button,.trip-settings>summary{min-height:44px}

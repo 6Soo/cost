@@ -59,6 +59,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "pytest-temp-session-cleanup",
+      "paths": ["conftest.py", "tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py"],
+      "tests": ["tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py", "webapp/tests/test_google_oidc.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_card_import.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_cards_all.py"]
+    },
+    {
       "name": "card-login-automation",
       "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"],
       "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"]
@@ -147,8 +152,8 @@
     },
     {
       "name": "airline-mail-collection",
-      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
-      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "app/mytrip_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
     },
     {
       "name": "export-source-equivalence",
@@ -159,6 +164,11 @@
       "name": "recorded-booking-period-correction",
       "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py"],
       "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
+    },
+    {
+      "name": "booking-period-rejudge",
+      "paths": ["tools/correct_booking_trips.py", "webapp/booking_period_rejudge.py", "app/manual_overrides.py", "webapp/card_completion_worker.py", "webapp/tests/test_booking_period_rejudge.py"],
+      "tests": ["webapp/tests/test_booking_period_rejudge.py", "webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_automatic_classification_completion.py"]
     },
     {
       "name": "fukutake-setouchi-assignment",
@@ -454,8 +464,8 @@
     },
     {
       "name": "receipt-review",
-      "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py", "app/local_receipt_ocr.py", "app/opencode_receipt_vision.py", "tools/windows_receipt_ocr.ps1", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_opencode_receipt_vision.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py"],
-      "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_opencode_receipt_vision.py"]
+      "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py", "app/local_receipt_ocr.py", "app/receipt_vision.py", "app/receipt_reading.schema.json", "docs/playbooks/receipt-reading.md", "app/receipt_trip_match.py", "app/receipt_image.py", "app/receipt_learning.py", "webapp/receipt_vision_jobs.py", "tools/windows_receipt_ocr.ps1", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_receipt_vision.py", "webapp/tests/test_receipt_trip_header.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py"],
+      "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_receipt_vision.py", "webapp/tests/test_receipt_trip_header.py", "webapp/tests/test_receipt_vision_jobs.py", "webapp/tests/test_receipt_mobile_photo.py"]
     },
     {
       "name": "core-business-acceptance",

@@ -28,9 +28,7 @@ mod stage;
 pub use amount::{AmountCompare, AmountStatus};
 pub use decimal::Dec;
 pub use defaults::{Defaults, DefaultsError, TripDelta};
-pub use link::{
-    FrozenChange, GroupShape, LinkKind, MatchedCounts, OtaLink, bind_legacy_portal_links,
-};
+pub use link::{FrozenChange, GroupShape, LinkKind, MatchedCounts, OtaLink};
 pub use relations::Relation;
 pub use search::{Candidate, DEFAULT_MAX_COMPARISONS, Rejected, Search, SearchResult};
 pub use stage::{HoldOutcome, Stage, UniqueMatch};

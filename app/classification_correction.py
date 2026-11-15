@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from .automatic_classification import FIELDS
 from .db import utc_now
+from .manual_overrides import exists_sql as manual_exists_sql
 from .provisional_assignment import canonical_trip_periods
 from .review import correction_protection_reason
 
@@ -86,7 +87,7 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False, completed_evid
                 or conn.execute('SELECT 1 FROM review_decisions d WHERE transaction_id=? AND '+active_decision_sql(), (tid,)).fetchone()
                 or conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone()
                 or conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND excluded=1', (tid,)).fetchone()
-                or conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-'+tid,)).fetchone()):
+                or conn.execute('SELECT ' + manual_exists_sql(conn, '?'), ('card-'+tid,)).fetchone()[0]):
             raise ValueError('CORRECTION_PROTECTED')
         if row['transaction_direction'] != 'purchase':
             raise ValueError('CORRECTION_REQUIRES_PURCHASE')

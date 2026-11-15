@@ -1,10 +1,11 @@
 """The receipt page as one owner works it: three photos, analysis, review, registration, re-reading, grouping, copy.
 
-Muse is replaced by a fixed answer per photo, so the flow is checked without a model call. Screenshots of each step
+The reading model is replaced by a fixed answer per photo, so the flow is checked without a model call. Screenshots of each step
 are written to WEBLEDGER_FLOW_SHOTS when that variable names a folder.
 """
-import os
 import hashlib
+import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -296,8 +297,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         with receipt_vision_jobs._LOCK:
             receipt_vision_jobs._JOBS.clear()
             receipt_vision_jobs._BY_IMAGE.clear()
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), \
-             patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), \
+             patch('webapp.receipt_review.receipt_vision.recognize_with_fallback',
                    side_effect=lambda path, **kw: answer if Path(path).stem == first_sha else {'receipts': []}), \
              sync_playwright() as api:
             browser = api.chromium.launch()
@@ -344,7 +345,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                              'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
                                            'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
         self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 contexts = [browser.new_context(), browser.new_context()]
@@ -369,7 +370,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 browser.close()
 
     def test_lost_analysis_response_recovers_unknown_without_automatic_resubmit(self):
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 first = browser.new_context()
@@ -406,7 +407,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                              'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
                                            'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
         self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
-        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 page = browser.new_page()
@@ -454,10 +455,34 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 self.assertEqual(len(pending), 1)
                 pending[0].continue_()
                 page.wait_for_function("document.querySelectorAll('#upload-results p')[1].textContent.includes('원본 저장됨')")
-                page.wait_for_function("[...document.querySelectorAll('#upload-results button')].filter(b=>b.textContent==='다시 시도'||b.textContent==='실패 파일 제거').every(b=>!b.disabled)")
+                page.wait_for_function("[...document.querySelectorAll('#upload-results button')].filter(b=>b.dataset.uploadRecovery).every(b=>!b.disabled)")
                 remove.click()
                 self.assertEqual(page.locator('#upload-results p').count(), 1)
                 self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+            finally:
+                browser.close()
+
+    def test_failed_uploads_are_compact_cards_with_bulk_actions_at_375px(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 375, 'height': 800})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', [
+                    {'name': '20261012_161558_a_very_long_receipt_file_name_from_phone.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xffbroken'},
+                    {'name': 'bad.png', 'mimeType': 'image/png', 'buffer': b'invalid'},
+                ])
+                page.click('#img-go')
+                bulk = page.locator('#upload-bulk')
+                bulk.wait_for()
+                self.assertIn('실패 2개', bulk.inner_text())
+                self.assertEqual(page.locator('#upload-results .is-fail').count(), 2)
+                self.assertTrue(page.evaluate("document.documentElement.scrollWidth<=375"))
+                box = page.locator('#upload-results .upload-name').first.bounding_box()
+                self.assertLess(box['height'], 30)
+                page.get_by_role('button', name='모두 제거').click()
+                self.assertEqual(page.locator('#upload-results .is-fail').count(), 0)
+                self.assertTrue(bulk.is_hidden())
             finally:
                 browser.close()
 
@@ -508,10 +533,94 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                      receipt('FERRY', '2026-10-10', 820, payment=None, box=[0.6, 0.1, 0.9, 0.4])]
             if kwargs.get('guidance') and 'Owner feedback' in kwargs['guidance']:
                 found.append(receipt('NEW STOP', '2026-10-12', 700, payment='cash'))
-            return {'receipts': found, 'label': 'Muse', 'lesson': None}
+            return {'receipts': found, 'label': 'Claude opus', 'lesson': None}
         if name == self.photos[1]:
-            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
-        return {'receipts': [], 'label': 'Muse', 'lesson': None}
+            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Claude opus', 'lesson': None}
+        return {'receipts': [], 'label': 'Claude opus', 'lesson': None}
+
+    def test_rescan_retry_uses_rescan_for_failed_group_and_keeps_original_candidate(self):
+        analysis_calls = []
+        rescan_payloads = []
+        original = receipt('ORIGINAL SHOP', '2026-10-11', 12000)
+        retried = receipt('RESCAN SHOP', '2026-10-12', 900)
+
+        def analysis_route(route):
+            if route.request.method != 'POST':
+                route.continue_()
+                return
+            analysis_calls.append(route.request.method)
+            route.fulfill(status=202, content_type='application/json', body=json.dumps({
+                'job_id': 'a' * 32, 'status': 'done', 'result': {'receipts': [original]},
+            }))
+
+        def rescan_route(route):
+            rescan_payloads.append(json.loads(route.request.post_data or '{}'))
+            if len(rescan_payloads) == 1:
+                state = {'job_id': 'b' * 32, 'status': 'failed',
+                         'code': 'VISION_ALL_MODELS_UNAVAILABLE'}
+            else:
+                state = {'job_id': 'c' * 32, 'status': 'done',
+                         'result': {'engine': 'windows_ocr'}}
+            route.fulfill(status=202, content_type='application/json', body=json.dumps(state))
+
+        def new_route(route):
+            route.fulfill(status=200, content_type='application/json',
+                          body=json.dumps({'new': [retried]}))
+
+        with patch('webapp.receipt_review.receipt_vision.enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.route('**/api/receipts/vision', analysis_route)
+                page.route('**/api/receipts/vision/rescan', rescan_route)
+                page.route('**/api/receipts/vision/new', new_route)
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', {
+                    'name': 'synthetic-rescan.png', 'mimeType': 'image/png', 'buffer': review.PNG,
+                })
+                page.click('#img-go')
+                page.locator('[data-image-sha]').first.wait_for()
+                page.click('#vision-go')
+                page.wait_for_function(
+                    "document.getElementById('vision-summary').textContent.includes('후보 1건')"
+                )
+
+                page.locator('[data-image-sha]').first.click()
+                page.locator('details.rescan > summary').click()
+                page.fill('#feedback', '누락 영수증 한 장을 더 찾아')
+                page.click('#rescan-go')
+                page.wait_for_function(
+                    "document.getElementById('vision-summary').textContent.includes('영수증 다시 분석에 실패했습니다.')"
+                )
+                self.assertNotIn('새 후보 0건', page.locator('#vision-results').inner_text())
+                page.locator('#vision-results').get_by_role(
+                    'button', name='이 사진 다시 분석'
+                ).click()
+                page.locator('#vision-results .result-group h4').filter(
+                    has_text='새 후보 1건'
+                ).wait_for(timeout=15000)
+
+                self.assertEqual(len(analysis_calls), 1)
+                self.assertEqual(len(rescan_payloads), 2)
+                self.assertEqual([payload['feedback'] for payload in rescan_payloads],
+                                 ['누락 영수증 한 장을 더 찾아'] * 2)
+                self.assertIn('Windows OCR 참고값을 사용한 사진 1장입니다.',
+                              page.locator('#vision-summary').inner_text())
+                merchants = [
+                    page.locator('.receipt-card').nth(index)
+                    .get_by_role('textbox', name='상호', exact=True).input_value()
+                    for index in range(page.locator('.receipt-card').count())
+                ]
+                self.assertEqual(merchants, ['ORIGINAL SHOP', 'RESCAN SHOP'])
+
+                page.reload()
+                page.get_by_text(
+                    'Claude 판독을 완료하지 못해 Windows OCR 참고값을 사용했습니다. 내용을 확인해 주세요.',
+                    exact=True,
+                ).wait_for()
+                self.assertEqual(page.locator('.receipt-card').count(), 2)
+            finally:
+                browser.close()
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
         from webapp import receipt_vision_jobs
@@ -520,13 +629,13 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             receipt_vision_jobs._BY_IMAGE.clear()
         shots = os.environ.get('WEBLEDGER_FLOW_SHOTS')
         self.photos = []
-        env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'opencode-muse-free',
+        env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'claude-opus',
                                       'WEBLEDGER_RECEIPT_LEARNING': str(Path(self._dir.name) / 'learning.jsonl')})
         env.start()
-        recognizer = patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
+        recognizer = patch('webapp.receipt_review.receipt_vision.recognize_with_fallback',
                            side_effect=lambda path, **kw: self._answers(path, **kw))
         recognizer.start()
-        engine = patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True)
+        engine = patch('webapp.receipt_review.receipt_vision.enabled', return_value=True)
         engine.start()
         try:
             with sync_playwright() as api:

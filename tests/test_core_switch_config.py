@@ -179,3 +179,84 @@ def test_check_validates_without_touching_the_environment(host, capsys):
     _host(tmp, _rust(binary, core) | {'costcore_bin': str(tmp / 'gone')})
     assert switches.main(['--host-root', str(tmp), '--check']) == 2
     assert 'CORE_SWITCH_BIN' in capsys.readouterr().out
+
+
+def _record(config, role, **over):
+    switches.record_applied(role, config, over.pop('release', 'r' * 40), over.pop('environ', {}))
+    path = config / f'core-switch-applied-{role}.json'
+    state = json.loads(path.read_text(encoding='utf-8')) | over
+    path.write_text(json.dumps(state), encoding='utf-8')
+
+
+def test_launcher_and_worker_leave_the_writers_they_applied(host, monkeypatch):
+    tmp, data, config, binary, core = host
+    (config / 'card-flow.json').write_text(json.dumps(_rust(binary, core)), encoding='utf-8')
+    with patch.dict(os.environ), patch.object(sys, 'path', list(sys.path)):
+        launcher.main(['--checkout', str(ROOT), '--data-root', str(data), '--port', '9',
+                       '--oauth-file', str(tmp / 'no-oauth.json'), '--session-secret-file', str(tmp / 'no-secret.txt')])
+    board = json.loads((config / 'core-switch-applied-board.json').read_text(encoding='utf-8'))
+    assert board['classification_writer'] == 'rust' and board['links_producer'] == 'python'
+    assert board['release'] == ROOT.name and board['pid'] == os.getpid()
+    worker_config = config / 'worker.json'
+    worker_config.write_text(json.dumps({'log': str(tmp / 'w.log'), 'jobs': []}), encoding='utf-8')
+    monkeypatch.setattr(worker, 'single_instance', lambda name=None: True)
+    monkeypatch.setattr(worker, 'own_children', lambda: None)
+    with patch.dict(os.environ), patch('os.chdir'):
+        assert worker.main(['--config', str(worker_config)]) == 0
+    assert json.loads((config / 'core-switch-applied-worker.json').read_text(encoding='utf-8'))['classification_writer'] == 'rust'
+
+
+def test_a_refused_second_worker_does_not_overwrite_the_running_workers_record(host, monkeypatch):
+    tmp, _, config, *_ = host
+    _record(config, 'worker', classification_writer='rust')
+    worker_config = config / 'worker.json'
+    worker_config.write_text(json.dumps({'log': str(tmp / 'w.log'), 'jobs': []}), encoding='utf-8')
+    monkeypatch.setattr(worker, 'single_instance', lambda name=None: False)
+    with patch.dict(os.environ), patch('os.chdir'):
+        assert worker.main(['--config', str(worker_config)]) == 75
+    assert json.loads((config / 'core-switch-applied-worker.json').read_text(encoding='utf-8'))['classification_writer'] == 'rust'
+
+
+@pytest.mark.parametrize('board,worker,code', [
+    ({}, {}, None),
+    ({'classification_writer': 'python'}, {}, 'CORE_APPLIED_MISMATCH_BOARD'),
+    ({}, {'classification_writer': 'python'}, 'CORE_APPLIED_MISMATCH_WORKER'),
+    ({'release': 'old'}, {}, 'CORE_APPLIED_RELEASE_BOARD'),
+])
+def test_verify_applied_compares_board_and_worker_with_card_flow(host, board, worker, code):
+    tmp, _, config, binary, core = host
+    (config / 'card-flow.json').write_text(json.dumps(_rust(binary, core)), encoding='utf-8')
+    env = {'WEBLEDGER_CLASSIFICATION_WRITER': 'rust'}
+    _record(config, 'board', **({'environ': env, 'release': 'new'} | board))
+    _record(config, 'worker', environ=env, **worker)
+    check = lambda: switches.verify_applied(tmp, 'new', True, alive=lambda pid: True)
+    if code is None:
+        check()
+    else:
+        with pytest.raises(switches.CoreSwitchRefused) as refused:
+            check()
+        assert refused.value.code == code
+
+
+def test_verify_applied_fails_on_missing_or_dead_records_and_skips_an_absent_optional_worker(host):
+    tmp, _, config, *_ = host
+    with pytest.raises(switches.CoreSwitchRefused) as refused:
+        switches.verify_applied(tmp, 'new', False, alive=lambda pid: True)
+    assert refused.value.code == 'CORE_APPLIED_MISSING_BOARD'
+    _record(config, 'board', release='new')
+    switches.verify_applied(tmp, 'new', False, alive=lambda pid: True)
+    with pytest.raises(switches.CoreSwitchRefused) as refused:
+        switches.verify_applied(tmp, 'new', True, alive=lambda pid: True)
+    assert refused.value.code == 'CORE_APPLIED_MISSING_WORKER'
+    with pytest.raises(switches.CoreSwitchRefused) as refused:
+        switches.verify_applied(tmp, 'new', False, alive=lambda pid: False)
+    assert refused.value.code == 'CORE_APPLIED_STALE_BOARD'
+
+
+def test_verify_applied_cli_exit_codes(host, capsys):
+    tmp, _, config, *_ = host
+    _record(config, 'board', release='new')
+    base = ['--host-root', str(tmp), '--verify-applied', '--release', 'new']
+    assert switches.main(base) == 0
+    assert switches.main(base[:-1] + ['other']) == 2
+    assert 'CORE_APPLIED_RELEASE_BOARD' in capsys.readouterr().out

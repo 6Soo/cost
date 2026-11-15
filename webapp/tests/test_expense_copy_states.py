@@ -1,4 +1,5 @@
 """User-visible duplicate protection in the existing trip expense list."""
+from webapp.static_assets import inline_document
 from copy import deepcopy
 
 import pytest
@@ -96,7 +97,7 @@ def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
                                     match_annotations=annotations)
               + design._trip_copy_html('trip-synthetic', rows, preview))
     assert '<img src=x' not in markup and '&lt;img' in markup
-    document = design.render("<main id='main'>" + markup + '</main>')
+    document = inline_document(design.render("<main id='main'>" + markup + '</main>'))
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
@@ -139,7 +140,7 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
     preview.update(source_available=False, source_info={'reason': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
     markup = ("<div class='income-sync'><span data-google-sync-status>수입 안내</span></div>"
               "<input name='csrf' value='stale-token'>" + design._trip_copy_html('trip-synthetic', rows, preview))
-    document = design.render("<main id='main'>" + markup + '</main>')
+    document = inline_document(design.render("<main id='main'>" + markup + '</main>'))
     calls = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()

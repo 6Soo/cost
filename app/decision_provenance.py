@@ -9,6 +9,7 @@ import hashlib
 import json
 
 from .db import utc_now
+from .manual_overrides import exists_sql as manual_exists_sql
 
 RELEASE = 'card.dist141_provenance_corrected'
 RESTORE = 'card.dist141_provenance_restored'
@@ -85,7 +86,7 @@ def preview(conn, trips, *, nets=None, evidence=None):
                 or row['decided_at'] not in (None,response.get('decided_at'))
                 or row['classification_source'] == 'user_decision'
                 and any(row[k] != response.get(k) for k in ('item','description'))
-                or conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-'+tid,)).fetchone()):
+                or conn.execute('SELECT ' + manual_exists_sql(conn, '?'), ('card-'+tid,)).fetchone()[0]):
             continue
         opened = _open_p2_tab(trips, row['display_tab_id'] or row['trip_id'])
         targets.append(dict(transaction_id=tid, original_request=request,

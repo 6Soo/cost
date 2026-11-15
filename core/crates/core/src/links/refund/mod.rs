@@ -4,12 +4,14 @@
 //! `RefundGroup`은 이 모듈의 `issue_group`만 만든다(초과 환불·추론 연결·누락·완료 기간·깨끗하지 않은 구성원은 거부).
 //! 입력 행의 순서는 Python의 SQL 행 순서와 같다고 본다(연결 처리 순서가 거기서 나온다).
 
+mod adapter;
 mod group;
 mod pairing;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
+pub use adapter::{RefundInputInvalid, refund_rows, refund_rows_from_json, refund_values};
 #[cfg_attr(not(test), allow(unused_imports))] // 게시 단위(U14)가 쓴다
 pub(crate) use group::issue_group;
 pub use group::{

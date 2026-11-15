@@ -8,6 +8,7 @@ from datetime import date
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from . import site_theme, ui_icons
+from . import static_assets
 from .site_assets import SHELL_STYLE as STYLE, SHELL_SCRIPT as SCRIPT
 
 EXPLANATION_PREFIXES = (
@@ -153,7 +154,8 @@ def _active_trip_nav(tab_id, role='owner'):
         if role == 'viewer':
             allowed = ledger_board.viewer_visible_tabs(ledger_board.current_request_session())
             trips = [trip for trip in trips if trip.get('tab_id') in allowed]
-        trips = [trip for trip in trips if ledger_board.is_default_listed_trip(trip)]
+        # 현재 보는 여행은 마감 표시여도 남긴다(여행 전환 대화상자와 같은 예외).
+        trips = [trip for trip in trips if trip.get('tab_id') == tab_id or ledger_board.is_default_listed_trip(trip)]
     except Exception:
         trips = []
     trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))[:8]
@@ -343,6 +345,6 @@ def wrap_document(document, path, *, status=200):
         document = re.sub(r'<html\b([^>]*)>', add_lang, document, count=1, flags=re.I)
     body_match = re.search(r'<body\b[^>]*>', document, re.I)
     end = list(re.finditer(r'</body\s*>', document, re.I))[-1].start()
-    return (document[:body_match.start()] + '<style id="site-shell-style">' + STYLE + site_theme.STYLE + '</style>'
+    return (document[:body_match.start()] + static_assets.link('site_shell', 'site-shell-style')
             + '<script>' + site_theme.BOOTSTRAP + '</script><body class="site-shell-body">' + shell +
-            '<script>' + SCRIPT + '</script>' + document[end:])
+            static_assets.script('site_shell') + document[end:])

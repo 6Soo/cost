@@ -140,7 +140,6 @@ a.back { color: var(--accent); text-decoration: none; }
      an owner checks this linking against the real source. -->
 <nav class="backbar" aria-label="돌아가기">
   <a class="back" id="back-board" href="/board">__ICON_CHEVRON_LEFT__여행별 비용으로 돌아가기</a>
-  <a class="back" id="back-review" href="/review">__ICON_SEARCH__실제 자료 검토</a>
 </nav>
 <p id="state" role="status" aria-live="polite">불러오는 중입니다.</p>
 <div id="summary"></div>
@@ -419,7 +418,7 @@ function renderUnconfigured(payload) {
   // The configuration-required state, said plainly. Nothing is searched for and no
   // collection is started from this page.
   add(el("rows"), "p", "warntext",
-      "예약 명단이 아직 연결되지 않았습니다. 예약 명단 파일을 관리자가 설정하면 여행을 선택할 수 있습니다. 지금은 장부로 돌아가 다른 업무를 진행할 수 있습니다.");
+      "예약 명단이 아직 연결되지 않았습니다. 연결되기 전에는 여행을 선택할 수 없으니 장부로 돌아가 다른 업무를 진행해 주세요.");
   setState("예약 명단 연결 대기", "warntext");
   el("state").dataset.code = payload.code || "RESERVE_LINK_CONFIG_REQUIRED";
 }

@@ -81,7 +81,7 @@ def render(status: int, title: str, message: str,
         ".error-page{max-width:720px;margin:clamp(24px,8vh,72px) auto;"
         "padding:clamp(20px,4vw,40px);background:var(--shell-paper);"
         "border:1px solid var(--shell-line);border-radius:var(--r-lg)}"
-        ".error-page h1{margin:0 0 12px;line-height:1.3}"
+        ".error-page h1{margin:0 0 12px;font-size:var(--t-h1,1.5rem);line-height:1.3}"
         ".error-page .error-message{margin:0;line-height:1.6}"
         ".error-page .error-actions{display:flex;flex-wrap:wrap;gap:10px;"
         "margin-top:24px}"
