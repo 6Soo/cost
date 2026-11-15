@@ -247,7 +247,8 @@ def _remember(core, digest, response, seconds) -> None:
         pass
 
 
-def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
+def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None,
+          backfill=False):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
 
     `periods` is `periods_for(conn)`; without it the Rust period evidence is empty and stored periods are unknown.
@@ -265,7 +266,8 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     started = time.monotonic()
     done = subprocess.run(
         [binary, 'apply', '--db', _main_database(conn), '--core', core, '--digest', expected['digest'],
-         '--allow-live', '--python', sys.executable, '--repo-root', str(ROOT)],
+         '--allow-live', '--python', sys.executable, '--repo-root', str(ROOT),
+         *(['--backfill-decisions'] if backfill else [])],
         input=json.dumps(request, ensure_ascii=False), capture_output=True, text=True, encoding='utf-8', timeout=600)
     try:
         response = json.loads(done.stdout.splitlines()[0])
