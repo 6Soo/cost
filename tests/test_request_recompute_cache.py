@@ -160,11 +160,11 @@ def test_a_new_connection_never_reuses_a_closed_connections_stamp(monkeypatch, t
     seed = sqlite3.connect(path, isolation_level=None)
     build()[0].store.conn.backup(seed)
     seed.close()
+    other = sqlite3.connect(path, isolation_level=None)
     first = sqlite3.connect(path, isolation_level=None)
     key = review.input_key_for(backend_for(first, []))
     first.close()
-    other = sqlite3.connect(path, isolation_level=None)
+    del first
     other.execute("UPDATE transactions SET amount_krw=amount_krw+1 WHERE rowid=1")
-    other.close()
     second = sqlite3.connect(path, isolation_level=None)
     assert review.input_key_for(backend_for(second, [])) != key
