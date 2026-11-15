@@ -89,27 +89,13 @@ def _p2_ids(conn) -> list:
         "AND item IN ('숙박비','항공료','렌터카') ORDER BY transaction_id")]
 
 
-def _p2_inputs(board_path) -> str:
-    """Fingerprint of what the P2 period index reads. `apply` excludes the classification columns from the OTA key,
-    so a P2 write (basis, source, revision) or its audit entry would otherwise leave the saved evidence stale."""
-    try:
-        with _board_reader(board_path) as conn:
-            ids = _p2_ids(conn)
-            rows = [conn.execute('SELECT revision,source_hash,item,classification_basis FROM transactions '
-                                 'WHERE transaction_id=?', (tid,)).fetchone() for tid in ids]
-            audit = conn.execute("SELECT count(*),max(entry_id) FROM change_log "
-                                 "WHERE kind='card.classification_corrected'").fetchone()
-            reviews = conn.execute('SELECT count(*) FROM review_decisions').fetchone()
-    except sqlite3.Error:
-        return ''
-    return hashlib.sha256(json.dumps([ids, rows, audit, reviews], ensure_ascii=False).encode('utf-8')).hexdigest()
-
-
 def _evidence_key(board_path, manual) -> str:
+    # P2 inputs are not in the key: ai_inference rows are kept by the planner, so a P2 period is not stored yet.
+    # When the P2 write path moves to Rust, add a fingerprint narrowed to that row's own inputs here.
     from tools.core_bridge import periods as bridge
     return hashlib.sha256(json.dumps(
         [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
-         bridge.CARD_KEYS, _p2_inputs(board_path)], ensure_ascii=False).encode('utf-8')).hexdigest()
+         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
 
 
 def _p2_periods(board_path) -> dict:

@@ -500,29 +500,15 @@ def test_cleanup_group_loop_lets_a_stale_key_rebuild_the_evidence(env, tmp_path)
     assert len(calls) == 2  # rebuilt once after the key moved
 
 
-def test_p2_inputs_change_the_evidence_key_when_a_p2_period_or_its_audit_changes(tmp_path):
-    board = tmp_path / 'board.sqlite'
-    with sqlite3.connect(board) as c:
-        c.execute('CREATE TABLE transactions(transaction_id, revision, source_hash, item, classification_source, '
-                  'classification_basis)')
-        c.execute("INSERT INTO transactions VALUES ('t1', 1, 'h', '숙박비', 'ai_inference', 'basis')")
-        c.execute("INSERT INTO transactions VALUES ('t2', 1, 'h', '식비', 'ai_inference', 'basis')")
-        c.execute('CREATE TABLE change_log(entry_id INTEGER PRIMARY KEY, kind TEXT, subject TEXT, detail_json TEXT)')
-        c.execute('CREATE TABLE review_decisions(transaction_id TEXT)')
-    c.close()
-    first = core_writer._p2_inputs(board)
-    assert first and core_writer._p2_inputs(board) == first
-    with sqlite3.connect(board) as c:
-        c.execute("UPDATE transactions SET classification_basis='other' WHERE transaction_id='t2'")
-    c.close()
-    assert core_writer._p2_inputs(board) == first  # a non-service item is not read by the P2 index
-    with sqlite3.connect(board) as c:
-        c.execute("UPDATE transactions SET revision=2 WHERE transaction_id='t1'")
-    c.close()
-    second = core_writer._p2_inputs(board)
-    assert second != first
-    with sqlite3.connect(board) as c:
-        c.execute("INSERT INTO change_log(kind, subject) VALUES ('card.classification_corrected', 't1')")
-    c.close()
-    assert core_writer._p2_inputs(board) != second
-    assert core_writer._p2_inputs(tmp_path / 'missing.sqlite') == ''
+def test_audit_entries_and_reviews_do_not_invalidate_the_period_evidence(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    conn.execute('CREATE TABLE change_log(entry_id INTEGER PRIMARY KEY, kind TEXT, subject TEXT)')
+    conn.execute('CREATE TABLE review_decisions(transaction_id TEXT)')
+    conn.commit()
+    core_writer.periods_for(conn)
+    conn.execute("INSERT INTO change_log(kind, subject) VALUES ('card.classification_corrected', 't1')")
+    conn.execute("INSERT INTO review_decisions VALUES ('t1')")
+    conn.commit()
+    core_writer.periods_for(conn)
+    assert len(calls) == 1
