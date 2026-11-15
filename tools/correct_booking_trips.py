@@ -67,7 +67,7 @@ def snapshot(host: Path, cache: Path | None):
             saved = pickle.loads(cache.read_bytes())
             if saved.get('key') == key:
                 return saved['current'], key
-        result = ota_payment_review.reconcile_in_child(store)
+        result = ota_payment_review.reconcile(store)  # read-only backend; no child deadline, no files written
     finally:
         store.close()
     current = {'data': result['data'], 'generation': 'tool-' + key[:16]}
