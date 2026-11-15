@@ -25,7 +25,7 @@ _DOCUMENT = """<!doctype html>
 @import url('/static/css/tokens.css');
 :root { --bg:var(--c-bg); --surface:var(--c-surface); --text:var(--c-text); --muted:var(--c-text-secondary); --border:var(--c-border-control); --soft:var(--c-surface-sunken); --accent:var(--c-accent-solid); --accent-soft:var(--c-accent-subtle); --focus:var(--c-focus,Highlight); }
 
-body { font-family: system-ui, sans-serif; margin: 1.5rem; background:var(--bg); color:var(--text); }
+body { margin: 1.5rem; background:var(--bg); color:var(--text); }
 h1 { font-size: var(--t-h1); }
 table { border-collapse: collapse; margin: 0.5rem 0; background:var(--surface); }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }

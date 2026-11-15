@@ -23,6 +23,7 @@ from app.partial_refund import read_only_scope as refund_read_only_scope
 
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
+_SNAPSHOT_REPORT_MEMO = {'entry': None}
 _GOOGLE_PERIOD_CACHE = {}
 # 시트에 종료일이 적히지 않은 탭. 다음 여행 직전일로 정한 종료일(사용자 확정 규칙, reconciliation.open_trip_end)은
 # 여행 기간으로 검증에 그대로 쓴다. 다만 옮긴 시트의 해시 확인된 원본 제목에 종료일이 적혀 있으면 그쪽이 앞선다.
@@ -1407,7 +1408,7 @@ class CardFlow:
                 else 'legacy_fallback_feature_disabled')
         return report
 
-    def _canonical_snapshot_report(self, current):
+    def _project_snapshot_report(self, current):
         """Project only a fresh central snapshot; never merge stale legacy decisions into it."""
         from app.ota_core_projection import extend_report
         data = current.get('data') or {}
@@ -1430,6 +1431,17 @@ class CardFlow:
         report = dict(extend_report(canonical, data))
         report['_reconciliation_authority'] = 'canonical_snapshot'
         return report
+
+    def _canonical_snapshot_report(self, current):
+        """Memoize per snapshot data object; a new snapshot generation carries a new object, so it recomputes."""
+        data = current.get('data') or {}
+        memo = _SNAPSHOT_REPORT_MEMO.get('entry')
+        if memo is not None and memo[0] is data and data:
+            return dict(memo[1])
+        report = self._project_snapshot_report(current)
+        if data:
+            _SNAPSHOT_REPORT_MEMO['entry'] = (data, report)
+        return dict(report)
 
     def _compute_ota_report(self):
         """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""

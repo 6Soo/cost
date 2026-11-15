@@ -1383,7 +1383,7 @@ if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 PAGE_CSS = site_assets.TOKENS_STYLE + r"""*{box-sizing:border-box}
 :root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-bg);--focus:var(--c-focus);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--grn-dk:var(--c-accent-solid-hover);--grn-lt:var(--c-accent-subtle);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
 
-body{font-family:"Pretendard Variable",system-ui,sans-serif;letter-spacing:normal;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
+body{letter-spacing:normal;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
 h1{font-size:var(--t-h1);margin:6px 0 10px}h2{font-size:var(--t-body);margin:0 0 8px}h3{font-size:var(--t-body-sm);margin:6px 0}
 section,details{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;margin:12px 0;min-width:0}
 details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
