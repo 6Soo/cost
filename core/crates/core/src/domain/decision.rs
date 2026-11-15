@@ -108,10 +108,49 @@ pub enum UnknownPeriodReason {
     NotApplicable,
 }
 
+/// 추론 이용기간의 근거 종류. 검증된 결제·예약 연결이 아니라 예약 사실이나 P2 실행에서 추정한 기간이다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InferredBasis {
+    /// P2 실행이 근거 메타와 함께 저장한 기간.
+    P2Run,
+    /// DATE-080: 예약만 있는 근거(예약 확인서·예약 사실)에서 읽은 기간.
+    ReservationOnly,
+    /// DATE-101: 승인된 예약 후보들의 기간이 같아서 표시하는 기간(토요코인 등).
+    CandidateAgreement,
+}
+
+impl InferredBasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::P2Run => "p2_run",
+            Self::ReservationOnly => "reservation_only",
+            Self::CandidateAgreement => "candidate_agreement",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        [Self::P2Run, Self::ReservationOnly, Self::CandidateAgreement]
+            .into_iter()
+            .find(|b| b.as_str() == text)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServicePeriod {
-    Known { starts_on: Date, ends_on: Date },
-    Unknown { reason: UnknownPeriodReason },
+    /// 저장 값·검증된 연결·항공 구간처럼 검증된 기간.
+    Known {
+        starts_on: Date,
+        ends_on: Date,
+    },
+    /// 검증되지 않은 추론 기간. 근거 종류를 함께 가진다.
+    Inferred {
+        starts_on: Date,
+        ends_on: Date,
+        basis: InferredBasis,
+    },
+    Unknown {
+        reason: UnknownPeriodReason,
+    },
 }
 
 impl ServicePeriod {
@@ -120,6 +159,21 @@ impl ServicePeriod {
             return Err(DomainError::PeriodReversed);
         }
         Ok(Self::Known { starts_on, ends_on })
+    }
+
+    pub fn inferred(
+        starts_on: Date,
+        ends_on: Date,
+        basis: InferredBasis,
+    ) -> Result<Self, DomainError> {
+        if ends_on < starts_on {
+            return Err(DomainError::PeriodReversed);
+        }
+        Ok(Self::Inferred {
+            starts_on,
+            ends_on,
+            basis,
+        })
     }
 
     pub fn unknown(reason: UnknownPeriodReason) -> Self {

@@ -13,10 +13,13 @@ use time::Date;
 
 use crate::dates::parse_iso;
 use crate::digest::{python_json, sha256_hex};
-use crate::domain::{ServicePeriod, UnknownPeriodReason};
+use crate::domain::{InferredBasis, ServicePeriod, UnknownPeriodReason};
 
 /// 판정 함수 버전. 규칙을 고치면 올린다. digest에 들어가므로 모든 거래가 한 번 재판정된다.
-pub const PERIOD_FN_VERSION: u32 = 1;
+pub const PERIOD_FN_VERSION: u32 = 2;
+
+/// 근거 맵에서 거래 ID가 아닌 예약번호 단위 근거(항공 구간·수동 교정 거래)를 담는 예약 키.
+pub const FLIGHTS_KEY: &str = "@flights";
 
 const SERVICE_ITEMS: [&str; 3] = ["숙박비", "항공료", "렌터카"];
 const REFUND_STATES: [&str; 4] = [
@@ -106,6 +109,9 @@ pub struct PeriodRow {
     pub source_event_id: String,
     pub service_period: String,
     pub reservation_no: String,
+    /// 화면 행의 항목·원천 사실 digest. 없으면 비어 있고, P2 기간의 원천 대조에서 건너뛴다.
+    pub item: String,
+    pub source_fact_digest: String,
 }
 
 impl PeriodRow {
@@ -115,6 +121,8 @@ impl PeriodRow {
             source_event_id: py_str(field(row, "source_event_id")),
             service_period: py_str(field(row, "service_period")),
             reservation_no: py_str(field(row, "reservation_no")),
+            item: py_str(field(row, "item")),
+            source_fact_digest: py_str(field(row, "source_fact_digest")),
         }
     }
 
@@ -128,6 +136,8 @@ impl PeriodRow {
             source_event_id: String::new(),
             service_period: py_str(field(&payload, "service_period")),
             reservation_no: py_str(field(&payload, "reservation_no")),
+            item: py_str(field(&payload, "item")),
+            source_fact_digest: py_str(field(&payload, "source_fact_digest")),
         }
     }
 
@@ -291,30 +301,144 @@ fn admitted(candidate: &Value, tid: &str) -> Option<Metadata> {
     .filter(|m| !m.period.is_empty())
 }
 
-/// `verified_period_for`: 저장 값이 있으면 그 값, 없으면 검증된 연결의 이용기간, 그 밖(추론·근거 없음)은 빈 문자열.
-/// `candidates`는 이 거래의 후보 목록(`periods` 다리 출력의 거래별 배열). 없으면 `Null`.
-pub fn verified_period_for(row: &PeriodRow, candidates: &Value) -> String {
+/// 거래 근거(`facts[tid]`)의 두 모양: 후보 배열(예전 모양) 또는 `{"candidates": [...], "inferred": {...}}`.
+fn candidates_of(evidence: &Value) -> &Value {
+    match evidence {
+        Value::Object(_) => field(evidence, "candidates"),
+        other => other,
+    }
+}
+
+fn inferred_of(evidence: &Value) -> &Value {
+    match evidence {
+        Value::Object(_) => field(evidence, "inferred"),
+        _ => &Value::Null,
+    }
+}
+
+/// 이용기간을 어떤 근거로 얻었는가.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Found {
+    /// 저장 값도 연결도 추론도 없다(또는 다른 예약·원천이라 막혔다).
+    None,
+    /// 저장 값, 검증된 연결의 기간, 항공 구간.
+    Verified(String),
+    /// 검증되지 않은 추론(DATE-080·DATE-101·P2).
+    Inferred {
+        period: String,
+        basis: InferredBasis,
+    },
+}
+
+/// 같은 예약인가. 행에 저장된 예약번호가 있으면 근거의 예약번호(들)와 같아야 한다.
+fn same_reservation(row: &PeriodRow, booking_ref: &str, others: &[&str]) -> bool {
+    let reservation = row.reservation_no.trim();
+    reservation.is_empty() || reservation == booking_ref || others.contains(&reservation)
+}
+
+/// 항공 구간 근거: 같은 예약번호의 출발일 목록이 있고 수동 교정이 없을 때만 첫날~마지막날.
+/// 원본은 `webapp/ledger_design._flight_date_labels`다(화면은 출발일 목록을 그대로 보이고, 저장에는 양 끝만 둔다).
+fn flight_period(row: &PeriodRow, tid: &str, flights: &Value) -> Option<String> {
+    if row.item != "항공료" || row.reservation_no.trim().is_empty() {
+        return None;
+    }
+    let manual = field(flights, "manual")
+        .as_array()
+        .is_some_and(|a| a.iter().any(|t| t.as_str() == Some(tid)));
+    if manual {
+        return None;
+    }
+    let days: Vec<&str> = field(field(flights, "days"), row.reservation_no.trim())
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let first = days.iter().min()?;
+    let last = days.iter().max()?;
+    Some(format!("{first}~{last}"))
+}
+
+/// `period_for`: 저장 값이 먼저, 그다음 검증된 연결, 항공 구간, 마지막으로 추론(DATE-080·DATE-101·P2).
+/// 카드 보증금(사전승인)·다른 예약·다른 원천의 P2 기간은 `None`이다. `flights`는 [`FLIGHTS_KEY`] 값(없으면 `Null`).
+pub fn period_for(row: &PeriodRow, evidence: &Value, flights: &Value) -> Found {
     let stored = row.service_period.trim();
     if !stored.is_empty() {
-        return stored.to_owned();
+        return Found::Verified(stored.to_owned());
     }
     let Some(tid) = row.transaction_id() else {
-        return String::new();
+        return Found::None;
     };
-    let found = candidates
+    let admitted = candidates_of(evidence)
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|c| admitted(c, &tid))
         .next_back();
-    let Some(found) = found else {
-        return String::new();
-    };
-    let reservation = row.reservation_no.trim();
-    if !reservation.is_empty() && reservation != found.booking_ref {
-        return String::new();
+    // 검증된 연결이 있어도 행의 예약번호가 다르면 그 기간은 쓰지 않는다. 같은 거래의 추론 근거는 따로 없다.
+    if let Some(found) = admitted
+        && same_reservation(row, &found.booking_ref, &[])
+    {
+        return Found::Verified(found.period);
     }
-    found.period
+    if let Some(period) = flight_period(row, &tid, flights) {
+        return Found::Verified(period);
+    }
+    let inferred = inferred_of(evidence);
+    let Some(basis) = field(inferred, "basis")
+        .as_str()
+        .and_then(InferredBasis::parse)
+    else {
+        return Found::None;
+    };
+    let period = py_str(field(inferred, "period"));
+    if period.is_empty() {
+        return Found::None;
+    }
+    if basis == InferredBasis::P2Run {
+        let p2 = field(inferred, "p2");
+        let digest_differs = !row.source_fact_digest.is_empty()
+            && row.source_fact_digest != py_str(field(p2, "source_hash"));
+        let item_differs = !row.item.is_empty() && row.item != py_str(field(p2, "item"));
+        if digest_differs || item_differs {
+            return Found::None;
+        }
+    }
+    let others: Vec<&str> = field(inferred, "booking_refs")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let booking_ref = field(inferred, "booking_ref").as_str().unwrap_or("");
+    if !same_reservation(row, booking_ref, &others) {
+        return Found::None;
+    }
+    Found::Inferred { period, basis }
+}
+
+/// `verified_period_for`: 저장 값이 있으면 그 값, 없으면 검증된 연결의 이용기간, 그 밖(추론·근거 없음)은 빈 문자열.
+/// `evidence`는 이 거래의 근거(`periods` 다리 출력의 거래별 값). 없으면 `Null`. 항공 구간은 [`period_for`]만 다룬다.
+pub fn verified_period_for(row: &PeriodRow, evidence: &Value) -> String {
+    match period_for(row, evidence, &Value::Null) {
+        Found::Verified(period) => period,
+        _ => String::new(),
+    }
+}
+
+/// 판정에 저장할 이용기간. 추론은 `Inferred`, 근거가 없으면 사유 있는 `Unknown`.
+pub fn decided_period(found: &Found, item: &str) -> ServicePeriod {
+    match found {
+        Found::None => service_period("", item),
+        Found::Verified(text) => service_period(text, item),
+        Found::Inferred { period, basis } => match service_period(period, item) {
+            ServicePeriod::Known { starts_on, ends_on } => ServicePeriod::Inferred {
+                starts_on,
+                ends_on,
+                basis: *basis,
+            },
+            other => other,
+        },
+    }
 }
 
 /// `YYYY-MM-DD~YYYY-MM-DD` 문자열을 이용기간으로. 비면 근거 없음(서비스 항목이 아니면 해당 없음).
@@ -345,9 +469,38 @@ fn pick(v: &Value, keys: &[&str]) -> Value {
     Value::Object(out)
 }
 
-/// 근거 digest: 판정 함수 버전과 규칙이 읽는 칸(저장 값·예약번호·후보의 사실)의 sha256. 같으면 재판정하지 않는다.
-pub fn evidence_digest(row: &PeriodRow, candidates: &Value) -> String {
-    let projected: Vec<Value> = candidates
+/// `inferred` 근거에서 규칙이 읽는 칸만(P2 메타는 실행·원천 식별자만, 근거 원문은 없다).
+fn project_inferred(inferred: &Value) -> Value {
+    let mut out = pick(
+        inferred,
+        &["period", "booking_ref", "booking_refs", "basis"],
+    );
+    out["p2"] = pick(
+        field(inferred, "p2"),
+        &[
+            "run_id",
+            "model",
+            "source_hash",
+            "item",
+            "decision_revision",
+        ],
+    );
+    out
+}
+
+/// 근거 digest: 판정 함수 버전과 규칙이 읽는 칸(저장 값·예약번호·후보의 사실·추론 근거)의 sha256. 같으면 재판정하지 않는다.
+pub fn evidence_digest(row: &PeriodRow, evidence: &Value) -> String {
+    evidence_digest_with(row, evidence, &Value::Null, "")
+}
+
+/// [`evidence_digest`]에 항공 구간·수동 교정 근거를 더한다. `tid`는 수동 교정 여부 확인용.
+pub fn evidence_digest_with(
+    row: &PeriodRow,
+    evidence: &Value,
+    flights: &Value,
+    tid: &str,
+) -> String {
+    let projected: Vec<Value> = candidates_of(evidence)
         .as_array()
         .into_iter()
         .flatten()
@@ -368,6 +521,15 @@ pub fn evidence_digest(row: &PeriodRow, candidates: &Value) -> String {
             })
         })
         .collect();
+    let reservation = row.reservation_no.trim();
+    let flight_days = if reservation.is_empty() {
+        Value::Null
+    } else {
+        field(field(flights, "days"), reservation).clone()
+    };
+    let manual = field(flights, "manual")
+        .as_array()
+        .is_some_and(|a| a.iter().any(|t| t.as_str() == Some(tid)));
     let payload = json!([
         PERIOD_FN_VERSION,
         row.row_id,
@@ -375,6 +537,7 @@ pub fn evidence_digest(row: &PeriodRow, candidates: &Value) -> String {
         row.service_period.trim(),
         row.reservation_no.trim(),
         projected,
+        [project_inferred(inferred_of(evidence)), flight_days, manual],
     ]);
     sha256_hex(&python_json(&payload))
 }
@@ -392,6 +555,11 @@ impl PeriodEvidence {
     pub fn facts_of(&self, transaction_id: &str) -> &Value {
         self.facts.get(transaction_id).unwrap_or(&Value::Null)
     }
+
+    /// 예약번호 단위 근거(항공 구간·수동 교정 거래). 없으면 `Null`.
+    pub fn flights(&self) -> &Value {
+        self.facts.get(FLIGHTS_KEY).unwrap_or(&Value::Null)
+    }
 }
 
 /// 거래별 현재 근거 digest. `cards`는 `(거래 ID, 화면 행 payload_json)`, `facts`는 거래 ID → 후보 목록.
@@ -403,7 +571,12 @@ pub fn current_digests<'a>(
         .into_iter()
         .map(|(tid, payload)| {
             let row = PeriodRow::for_card(tid, payload);
-            let digest = evidence_digest(&row, facts.get(tid).unwrap_or(&Value::Null));
+            let digest = evidence_digest_with(
+                &row,
+                facts.get(tid).unwrap_or(&Value::Null),
+                facts.get(FLIGHTS_KEY).unwrap_or(&Value::Null),
+                tid,
+            );
             (tid.to_owned(), digest)
         })
         .collect()

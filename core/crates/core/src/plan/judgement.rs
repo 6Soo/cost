@@ -123,7 +123,7 @@ impl Judger {
         tid: &str,
         has_history: bool,
         original: Option<&str>,
-        (fact, verified_period): (Option<&Value>, &str),
+        (fact, found): (Option<&Value>, &period::Found),
     ) -> Judgement {
         let amount = row
             .get("amount_krw")
@@ -231,10 +231,10 @@ impl Judger {
                 };
                 ServicePeriod::known(get("starts_on")?, get("ends_on")?).ok()
             });
-        // 저장 값·검증된 연결의 기간이 먼저, 분류 근거의 예약 기간이 그다음, 없으면 사유가 있는 미상.
-        let period = match period::service_period(verified_period, item.as_str()) {
+        // 저장 값·검증된 연결·항공 구간의 기간이 먼저, 분류 근거의 예약 기간이 그다음, 추론 기간, 없으면 사유가 있는 미상.
+        let period = match period::decided_period(found, item.as_str()) {
             known @ ServicePeriod::Known { .. } => known,
-            unknown => from_evidence.unwrap_or(unknown),
+            other => from_evidence.unwrap_or(other),
         };
         let draft = DecisionDraft {
             subject,

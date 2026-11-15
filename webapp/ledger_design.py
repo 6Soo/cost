@@ -895,18 +895,9 @@ def _flight_date_labels(row):
             return unknown
         # A number mentioned in prose is not a saved reservation relationship.
         ref = str(row.get('reservation_no') or '').strip()
-        found = index.get(ref) if ref else None
-        if (not found or found.get('conflict') or not found.get('source_digests')
-                or found.get('cancellation_status') != 'NONE'
-                or any(found.get(flag) for flag in
-                       ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
-            return unknown
-        legs = found.get('legs') or []
-        if not legs or any(not leg.get('departure_on') for leg in legs):
-            return unknown
-        try:
-            days = sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
-        except (ValueError, TypeError):
+        from .ledger_stay_evidence import flight_departure_days
+        days = flight_departure_days(index.get(ref) if ref else None)
+        if days is None:
             return unknown
         separator = ' · '
     crosses_year = len({day.year for day in days}) > 1

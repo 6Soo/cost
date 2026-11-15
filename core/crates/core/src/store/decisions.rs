@@ -23,11 +23,20 @@ pub fn actor_kind_name(kind: ActorKind) -> &'static str {
 }
 
 /// 이용기간의 저장 모양(화면·붙여넣기·장부 복사·시트 대사와 Python `stored_service_period`가 읽는 표기).
-/// 알면 `{"kind":"known","starts_on","ends_on"}`, 모르면 `{"kind":"unknown","reason"}`.
+/// 검증된 기간은 `{"kind":"known","starts_on","ends_on"}`(기존 표기 그대로), 추론은 `{"kind":"inferred","starts_on","ends_on","basis"}`,
+/// 모르면 `{"kind":"unknown","reason"}`. 읽는 쪽은 `known`을 검증으로 해석한다.
 pub fn period_json(period: &ServicePeriod) -> Value {
     match period {
         ServicePeriod::Known { starts_on, ends_on } => {
             json!({"kind": "known", "starts_on": starts_on.to_string(), "ends_on": ends_on.to_string()})
+        }
+        ServicePeriod::Inferred {
+            starts_on,
+            ends_on,
+            basis,
+        } => {
+            json!({"kind": "inferred", "starts_on": starts_on.to_string(), "ends_on": ends_on.to_string(),
+                    "basis": basis.as_str()})
         }
         ServicePeriod::Unknown { reason } => {
             let reason = match reason {

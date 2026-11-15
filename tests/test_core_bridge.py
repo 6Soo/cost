@@ -170,7 +170,7 @@ def test_guard_accepts_the_unchanged_case_and_every_bridge_input_key_is_listed()
     for area in golden.AREAS:
         for case in _cases(area):
             walk(case['input'])
-    ids = set(k for k in keys if k.startswith('syn-') or re.fullmatch(r'T-[A-Z0-9]+', k))
+    ids = set(k for k in keys if k.startswith('syn-') or re.fullmatch(r'T-[A-Z0-9]+|SYN-BOOK-\d', k))
     assert keys - ids <= set(golden_guard.KEYS) | golden_guard.CONTAINERS
 
 
