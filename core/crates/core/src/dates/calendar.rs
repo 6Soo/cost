@@ -1,6 +1,6 @@
 //! 날짜·분기·장부 날짜 규칙. 원본: `app/quarter_costs.py`, `app/reconciliation.py:27-104`.
 //!
-//! 날짜 문자열은 Python `date.fromisoformat`(3.14)과 같은 형태(`YYYY-MM-DD`, `YYYYMMDD`, ISO 주 날짜)만 받는다.
+//! `parse_iso`는 정확히 `YYYY-MM-DD`만 받는다. `YYYYMMDD`·ISO 주 날짜 같은 `date.fromisoformat`(3.14)의 다른 형태는 받지 않는다.
 //! 파싱 실패는 Python의 `ValueError`에 해당하는 `DateError`다. 문자열 비교(`>=` 등)는 Python처럼 바이트 사전순이다.
 
 use std::collections::BTreeSet;

@@ -619,7 +619,8 @@ class BoardApiTests(unittest.TestCase):
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{self.port}{path}", timeout=10) as resp:
                 self.assertEqual(resp.status, 200)
-                return resp.read().decode("utf-8")
+                from webapp.static_assets import inline_document
+                return inline_document(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             self.fail(f"GET {path} -> {exc.code}: {exc.read()[:200]!r}")
 

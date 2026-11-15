@@ -1177,7 +1177,7 @@ def _render_html_legacy(data, query, *, csrf=''):
 <script>(()=>{let wait=1500;async function check(){try{const r=await fetch('/api/ota-refresh-state',{cache:'no-store'});if(!r.ok)throw Error();const j=await r.json();if(j.state==='ready'){location.reload();return}if(j.state==='failed'){document.getElementById('ota-catalog-refresh').textContent='자료 갱신에 실패했습니다. 이전 자료를 표시합니다.';return}}catch{}wait=Math.min(10000,wait*1.5);setTimeout(check,wait)}setTimeout(check,wait)})();</script>"""
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         '<title>OTA 내역</title><style>' + CATALOG_STYLE + OTA_STYLE +
-        '.card-catalog details>summary{list-style:none}.card-catalog details>summary::-webkit-details-marker{display:none}.card-catalog details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-catalog details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-catalog details>summary::after{transition:none}}</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
+        '.card-catalog details>summary{list-style:none}.card-catalog details>summary::-webkit-details-marker{display:none}.card-catalog details>summary::after{content:"";display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-catalog details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-catalog details>summary::after{transition:none}}</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if not value('state') else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
@@ -1193,7 +1193,7 @@ def _render_html_legacy(data, query, *, csrf=''):
         + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
         + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td class='catalog-message' colspan='7'><span class='catalog-message-text'>OTA 자료 갱신에 실패했습니다.</span></td></tr>" if state == 'failed' and loading else "<tr><td class='catalog-message' colspan='7'><span class='catalog-message-text'>OTA 자료를 불러오는 중입니다.</span></td></tr>" if loading else f"<tr><td class='catalog-message' colspan=\"7\">{ui_icons.icon('search', 16)}<span class='catalog-message-text'>조건에 맞는 OTA 예약이 없습니다.</span></td></tr>"
-            if data['all_count'] else f"<tr><td class='catalog-message' colspan=\"7\">{ui_icons.icon('search', 16)}<span class='catalog-message-text'>조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</span></td></tr>"))
+            if data['all_count'] else f"<tr><td class='catalog-message' colspan=\"7\">{ui_icons.icon('search', 16)}<span class='catalog-message-text'>조회된 OTA 예약이 없습니다.</span></td></tr>"))
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
@@ -1261,12 +1261,6 @@ def render_html(data, query, *, csrf=''):
     if table_end >= 0:
         table_end += len('</table>')
         document = document[:table_end] + mobile_html + document[table_end:]
-    if not data.get('rows') and data.get('refresh_state', 'ready') == 'ready':
-        action = "<a class='btn ghost' href='/ota'>조회 조건 초기화</a>"
-        empty = ui_components.empty_state(
-            '조회된 OTA 예약이 없습니다.' if data.get('all_count') else 'OTA 예약 자료가 없습니다.',
-            '검색어를 지우거나 조회 조건을 초기화해 주세요.', action)
-        document = document.replace("</table>" + mobile_html, "</table>" + mobile_html + empty, 1)
     return document
 
 
