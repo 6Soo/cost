@@ -27,7 +27,7 @@ def _serve_static(context):
     def handle(route):
         from urllib.parse import urlsplit
         path = urlsplit(route.request.url).path
-        for kind, name in (("css", "site_shell"), ("js", "site_shell")):
+        for kind, name in static_assets._BODIES:
             if path == static_assets.url(kind, name):
                 body = static_assets._BODIES[(kind, name)]
                 route.fulfill(status=200, content_type=static_assets._TYPES[kind], body=body)

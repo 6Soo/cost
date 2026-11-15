@@ -79,3 +79,15 @@ def dispatch(handler, path: str) -> bool:
             return True
     _respond(handler, 404, b"Not found", "text/plain; charset=utf-8", "no-store")
     return True
+
+
+def inline_document(html: str) -> str:
+    """Replace the hashed link/script tags with their bytes, for tests that load a page without a server."""
+    for (kind, name), body in _BODIES.items():
+        text = body.decode("utf-8")
+        if kind == "css":
+            html = re.sub(r'<link( id="[^"]*")? rel="stylesheet" href="' + re.escape(url(kind, name)) + '">',
+                          lambda m: f'<style{m.group(1) or ""}>' + text + '</style>', html)
+        else:
+            html = html.replace(script(name), "<script>" + text + "</script>")
+    return html
