@@ -1,3 +1,4 @@
+import hashlib
 import http.client
 import json
 import os
@@ -34,6 +35,16 @@ def make_png(rgb=b'\xff\x00\x00'):
 
 
 PNG = make_png()
+
+
+def make_phone_jpeg(trailer=b""):
+    """A structurally real JPEG (SOI, SOF0, SOS, scan data with a stuffed FF and a restart marker, EOI) plus an optional trailer."""
+    sof = b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, 1, 1, 1) + b"\x01\x11\x00"
+    sos = b"\xff\xda" + struct.pack(">HB", 8, 1) + b"\x01\x00\x00\x3f\x00"
+    return b"\xff\xd8" + sof + sos + b"\x12\xff\x00\x34\xff\xd0\x56" + b"\xff\xd9" + trailer
+
+
+SAMSUNG_TRAILER = b"\x00\x00MotionPhoto\x00" * 40 + b"SEFHsynthetic" + b"\x00" * 12 + b"SEFT"
 JPEG = b"\xff\xd8\xff" + b"synthetic jpeg bytes" * 20 + b"\xff\xd9"
 
 
@@ -584,7 +595,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.locator('#img-go').evaluate('(button)=>{button.click();button.click()}')
                 self.assertEqual(len(pending), 1)
                 pending.pop().fulfill(status=400, json={'code': 'IMAGE_SIZE_INVALID'})
-                page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=False).wait_for()
+                page.get_by_text('비어 있는 파일입니다.', exact=False).wait_for()
                 self.assertTrue(page.get_by_role('button', name='다시 시도').is_enabled())
                 self.assertFalse(self.store.exists())
                 page.unroute('**/api/receipts/image')
@@ -690,10 +701,30 @@ class ReceiptReviewTests(unittest.TestCase):
                          'IMAGE_CORRUPT')
         jpeg_no_end = b'\xff\xd8\xff' + b'pixel data without an end marker'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=jpeg_no_end)[1]['code'],
-                         'IMAGE_TYPE_UNSUPPORTED')
+                         'IMAGE_CORRUPT')
         html_with_png_signature = b'\x89PNG\r\n\x1a\n<script>alert(1)</script>'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=html_with_png_signature)[1]['code'],
                          'IMAGE_CORRUPT')
+
+    def test_phone_jpeg_with_trailing_metadata_is_stored_unchanged_and_served_as_jpeg(self):
+        import urllib.request as ur
+        phone = make_phone_jpeg(SAMSUNG_TRAILER)
+        status, body = self.request('/api/receipts/image', token=self.csrf(), raw=phone)
+        self.assertEqual((status, body['media_type'], body['bytes']), (200, 'image/jpeg', len(phone)))
+        self.assertEqual(body['sha256'], hashlib.sha256(phone).hexdigest())
+        with ur.urlopen(self.base + '/api/receipts/image/' + body['sha256']) as response:
+            self.assertEqual(response.headers.get_content_type(), 'image/jpeg')
+            self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
+            self.assertEqual(response.read(), phone)
+
+    def test_jpeg_without_an_end_marker_or_with_a_forged_head_is_still_refused(self):
+        whole = make_phone_jpeg()
+        for body, code in ((whole[:-2] + SAMSUNG_TRAILER, 'IMAGE_CORRUPT'),
+                           (whole[:20], 'IMAGE_CORRUPT'),
+                           (b'<html><script>alert(1)</script>' + whole, 'IMAGE_TYPE_UNSUPPORTED'),
+                           (b'\x00\x00\x00\x18ftypheic' + b'\x00' * 40, 'IMAGE_HEIC')):
+            status, answer = self.request('/api/receipts/image', token=self.csrf(), raw=body)
+            self.assertEqual((status, answer['code']), (400, code))
 
     def test_served_media_type_comes_from_the_bytes(self):
         import urllib.request as ur
@@ -718,7 +749,7 @@ class ReceiptReviewTests(unittest.TestCase):
             pass
         with self.assertRaises(ValueError) as raised:
             receipt_review.store_image(self.store, too_big)
-        self.assertEqual(str(raised.exception), 'IMAGE_SIZE_INVALID')
+        self.assertEqual(str(raised.exception), 'IMAGE_TOO_LARGE')
 
     def _confirmed_cash_receipt(self, merchant='라멘집', total=1234):
         region = dict(REGIONS['regions'][0], merchant=merchant, total=total, box=[1, 2, 30, 40])
