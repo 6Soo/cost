@@ -161,6 +161,11 @@
       "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
     },
     {
+      "name": "booking-period-rejudge",
+      "paths": ["tools/correct_booking_trips.py", "webapp/booking_period_rejudge.py", "app/manual_overrides.py", "webapp/card_completion_worker.py", "webapp/tests/test_booking_period_rejudge.py"],
+      "tests": ["webapp/tests/test_booking_period_rejudge.py", "webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_automatic_classification_completion.py"]
+    },
+    {
       "name": "fukutake-setouchi-assignment",
       "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py"],
       "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
