@@ -76,6 +76,46 @@ def test_rust_writer_passes_digest_and_context_and_returns_the_summary(env, tmp_
                              'reconsider': True, 'transaction_ids': ['t1', 't2']}
 
 
+def _counts_response(written):
+    return json.dumps({'ok': True, 'result': {'to_classify': 1}, 'written': written, 'skipped_unjudged': 2,
+                       'skipped_mismatch': 0, 'backfilled': 3, 'transaction_id': 'SECRET-TID'}) + '\n'
+
+
+def test_apply_counts_are_kept_in_last_run_and_an_atomic_json_without_ids(env, tmp_path):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    _fake_run(monkeypatch, _counts_response(5))
+    assert core_writer.apply(conn, {'digest': 'abc'}, []) == {'to_classify': 1}
+    run = core_writer.LAST_RUN.get()
+    assert (run['written'], run['skipped_mismatch'], run['skipped_unjudged'], run['backfilled']) == (5, 0, 2, 3)
+    folder = tmp_path / core_writer.RUNS_DIR
+    saved = json.loads((folder / 'latest.json').read_text(encoding='utf-8'))
+    assert saved['latest'] == run and saved['recent'] == [run] and run['digest'] == 'abc'
+    assert 'SECRET-TID' not in (folder / 'latest.json').read_text(encoding='utf-8')
+    assert [p.name for p in folder.iterdir()] == ['latest.json']
+    _fake_run(monkeypatch, _counts_response(7))
+    core_writer.apply(conn, {'digest': 'def'}, [])
+    saved = json.loads((folder / 'latest.json').read_text(encoding='utf-8'))
+    assert [r['written'] for r in saved['recent']] == [5, 7] and saved['latest']['digest'] == 'def'
+
+
+def test_recent_runs_are_capped_and_an_unwritable_folder_does_not_fail_the_apply(env, tmp_path):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    _fake_run(monkeypatch, _counts_response(1))
+    for _ in range(core_writer.RUNS_KEPT + 3):
+        core_writer.apply(conn, {'digest': 'd'}, [])
+    saved = json.loads((tmp_path / core_writer.RUNS_DIR / 'latest.json').read_text(encoding='utf-8'))
+    assert len(saved['recent']) == core_writer.RUNS_KEPT
+    (tmp_path / 'sub').write_text('file, not a folder', encoding='utf-8')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'sub' / 'core.sqlite'))
+    assert core_writer.apply(conn, {'digest': 'd'}, []) == {'to_classify': 1}
+
+
 def test_stale_preview_keeps_the_python_error_and_other_codes_are_runtime_errors(env, tmp_path):
     monkeypatch, _ = env
     monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
