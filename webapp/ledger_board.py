@@ -878,11 +878,16 @@ def is_previous_trip(trip) -> bool:
         return False
 
 
+def is_default_listed_trip(trip) -> bool:
+    """/trips 기본 목록 기준: 보관·삭제·이전 여행·마감 표시(소유자가 /trips에서 누르는 되돌릴 수 있는 표시) 제외."""
+    return not (trip.get("archived") or trip.get("deleted")
+                or trip.get("visual_closed") or is_previous_trip(trip))
+
+
 def default_board_tab() -> str:
     """Select the first open trip in the sidebar, or the existing empty view."""
     for trip in live_trips(include_archived=True):
-        if (not trip.get("archived") and not trip.get("deleted")
-                and not trip.get("visual_closed") and not is_previous_trip(trip)):
+        if is_default_listed_trip(trip):
             return trip["tab_id"]
     return "unclassified"
 
@@ -1522,7 +1527,7 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
                                  "owner_alias": "", "owner_id": ""})
         all_trips = quarter_rows
     elif state == "active":
-        all_trips = [t for t in all_trips if not t.get("archived") and not t.get("visual_closed") and not is_previous_trip(t)]
+        all_trips = [t for t in all_trips if is_default_listed_trip(t)]
     elif state == "closed":
         all_trips = [t for t in all_trips if t.get("visual_closed") and not t.get("archived") and not is_previous_trip(t)]
     elif state == "previous":
