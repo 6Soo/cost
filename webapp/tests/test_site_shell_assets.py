@@ -64,7 +64,10 @@ def test_css_cascade_order_and_tokens_preserved():
     with patch("webapp.ledger_design._nav_html", return_value="<aside id='nav'></aside>"):
         wrapped = site_shell.wrap_document(doc, "/cards")
 
-    style_block = wrapped.split('<style id="site-shell-style">', 1)[1].split('</style>', 1)[0]
+    # Requirement change: the shell CSS is a content-hashed linked asset, not inline.
+    assert '<style id="site-shell-style">' not in wrapped
+    assert 'id="site-shell-style" rel="stylesheet" href="/static/css/site_shell.' in wrapped
+    style_block = site_assets.SHELL_STYLE + site_assets.THEME_STYLE
     # Tokens/components/shell precede the theme behavior stylesheet.
     assert style_block.index(site_assets.TOKENS_STYLE) == 0
     assert style_block.index(site_assets.COMPONENTS_STYLE) > 0

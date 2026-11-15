@@ -96,6 +96,7 @@ def static_asset(name: str):
 
 
 from .ledger_design_assets import STYLE, SCRIPT
+from . import static_assets
 
 
 # ----------------------------------------------------------------- fragments
@@ -2279,5 +2280,5 @@ def render(page_html: str, title: str = "숲길여행 회계", live_config: str 
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{board.esc(title)}</title><style>{STYLE}</style></head>"
-        f"<body>{page_html}<script>{SCRIPT}</script>{live}</body></html>")
+        f"<title>{board.esc(title)}</title>{static_assets.link('ledger_design')}</head>"
+        f"<body>{page_html}{static_assets.script('ledger_design')}{live}</body></html>")

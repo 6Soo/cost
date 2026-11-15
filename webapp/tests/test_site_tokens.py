@@ -19,7 +19,27 @@ import pytest
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
-from webapp import site_assets, site_shell, site_theme, ledger_board, ledger_design
+from webapp import site_assets, site_shell, site_theme, ledger_board, ledger_design, static_assets
+
+
+def _serve_static(context):
+    """Requirement change: shell CSS/JS are hashed linked assets, so the fake host must serve them."""
+    def handle(route):
+        from urllib.parse import urlsplit
+        path = urlsplit(route.request.url).path
+        for kind, name in (("css", "site_shell"), ("js", "site_shell")):
+            if path == static_assets.url(kind, name):
+                body = static_assets._BODIES[(kind, name)]
+                route.fulfill(status=200, content_type=static_assets._TYPES[kind], body=body)
+                return
+        route.fulfill(status=404, body=b"")
+    context.route("http://test.local/static/**", handle)
+
+
+def _inline_shell_css(html, css):
+    link = static_assets.link("site_shell", "site-shell-style")
+    assert link in html
+    return html.replace(link, '<style id="site-shell-style">' + css + '</style>')
 
 
 # Independent geometry reference: 40px menu control, 232px navigation, and
@@ -114,6 +134,7 @@ def test_dynamic_override_propagation():
         browser = p.chromium.launch(headless=True)
         try:
             context = browser.new_context()
+            _serve_static(context)
             context.route(
                 "http://test.local/cards",
                 lambda route: route.fulfill(
@@ -170,11 +191,9 @@ def test_chromium_true_baseline_differential_matrix():
         "<div class='app'><nav id='nav'>Nav</nav><main id='main' class='main'>Main</main></div>"
     )
 
-    with patch.object(site_shell, "STYLE", base_shell_css), \
-         patch.object(site_theme, "STYLE", base_theme_css), \
-         patch.object(ledger_board, "current_role", return_value="owner"):
-        base_std = site_shell.wrap_document(standalone_raw, "/cards")
-        base_nat = site_shell.wrap_document(native_raw, "/trip/demo")
+    with patch.object(ledger_board, "current_role", return_value="owner"):
+        base_std = _inline_shell_css(site_shell.wrap_document(standalone_raw, "/cards"), base_shell_css + base_theme_css)
+        base_nat = _inline_shell_css(site_shell.wrap_document(native_raw, "/trip/demo"), base_shell_css + base_theme_css)
 
     with patch.object(ledger_board, "current_role", return_value="owner"):
         curr_std = site_shell.wrap_document(standalone_raw, "/cards")
@@ -187,6 +206,7 @@ def test_chromium_true_baseline_differential_matrix():
         browser = p.chromium.launch(headless=True)
         try:
             context = browser.new_context()
+            _serve_static(context)
 
             # Route synthetic URLs for both pages
             context.route("http://test.local/base_std", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=base_std.encode("utf-8")))
