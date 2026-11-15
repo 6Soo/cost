@@ -11,8 +11,10 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from contextlib import closing, contextmanager, nullcontext
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -227,6 +229,38 @@ def run_with_periods(board, work):
                 return work(facts)
     raise PeriodsStale()
 
+RUNS_DIR = 'core-apply-runs'
+RUNS_KEPT = 50
+RUN_COUNTS = ('written', 'skipped_mismatch', 'skipped_unjudged', 'backfilled')
+LAST_RUN: ContextVar = ContextVar('core_writer_last_run', default=None)
+
+
+def _remember(core, digest, response, seconds) -> None:
+    """Keep the apply counts: `LAST_RUN` for the caller, `<data root>/core-apply-runs/latest.json` for operators.
+
+    Counts and a digest only (no transaction ids, no customer text). A failed file write never fails the apply,
+    which is already committed.
+    """
+    entry = {'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S+00:00'), 'digest': digest,
+             **{name: int(response.get(name) or 0) for name in RUN_COUNTS}, 'seconds': round(seconds, 2)}
+    LAST_RUN.set(entry)
+    folder = Path(core).parent / RUNS_DIR
+    latest = folder / 'latest.json'
+    try:
+        folder.mkdir(exist_ok=True)
+        try:
+            recent = json.loads(latest.read_text(encoding='utf-8')).get('recent', [])
+        except (OSError, ValueError, AttributeError):
+            recent = []
+        recent = [*(recent if isinstance(recent, list) else []), entry][-RUNS_KEPT:]
+        scratch = latest.with_name(latest.name + '.tmp')
+        scratch.write_text(json.dumps({'latest': entry, 'recent': recent}, ensure_ascii=False, indent=1),
+                           encoding='utf-8')
+        os.replace(scratch, latest)
+    except OSError:
+        pass
+
+
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
 
@@ -242,6 +276,7 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
         request['periods'] = periods
     if transaction_ids is not None:
         request['transaction_ids'] = sorted(transaction_ids)
+    started = time.monotonic()
     done = subprocess.run(
         [binary, 'apply', '--db', _main_database(conn), '--core', core, '--digest', expected['digest'],
          '--allow-live', '--python', sys.executable, '--repo-root', str(ROOT)],
@@ -251,6 +286,7 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     except (IndexError, ValueError):
         raise RuntimeError('CORE_WRITER_NO_RESPONSE') from None
     if response.get('ok'):
+        _remember(core, expected['digest'], response, time.monotonic() - started)
         return response['result']
     code = (response.get('error') or {}).get('code', 'CORE_WRITER_FAILED')
     if code == 'CLASSIFICATION_PREVIEW_STALE':
