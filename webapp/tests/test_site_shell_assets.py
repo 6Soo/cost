@@ -67,7 +67,10 @@ def test_css_cascade_order_and_tokens_preserved():
     # Requirement change: the shell CSS is a content-hashed linked asset, not inline.
     assert '<style id="site-shell-style">' not in wrapped
     assert 'id="site-shell-style" rel="stylesheet" href="/static/css/site_shell.' in wrapped
-    style_block = site_assets.SHELL_STYLE + site_assets.THEME_STYLE
+    from webapp import static_assets
+    # The bytes actually served at the linked URL, not the source constants.
+    style_block = static_assets._BODIES[("css", "site_shell")].decode("utf-8")
+    assert wrapped.count(static_assets.url("css", "site_shell")) == 1
     # Tokens/components/shell precede the theme behavior stylesheet.
     assert style_block.index(site_assets.TOKENS_STYLE) == 0
     assert style_block.index(site_assets.COMPONENTS_STYLE) > 0

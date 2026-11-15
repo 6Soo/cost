@@ -2257,7 +2257,8 @@ class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         # Authentication responses own their cookies, including logout clearing.
         path = self.path.split("?", 1)[0]
-        if not path.startswith("/auth/") and path != "/access/logout":
+        # /static/ runs outside store_lock and is cached publicly: no session read, no Set-Cookie.
+        if not path.startswith(("/auth/", "/static/")) and path != "/access/logout":
             adapter = access_control_session_adapter()
             renew = getattr(adapter, "renewal_cookie_header", None)
             if renew is not None:

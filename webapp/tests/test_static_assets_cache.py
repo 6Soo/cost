@@ -68,7 +68,8 @@ def test_pages_link_assets_instead_of_inlining_them():
     html = ledger_design.render(ledger_design.page("trip-demo-a"))
     assert static_assets.link("ledger_design") in html
     assert static_assets.script("ledger_design") in html
-    assert "<style>" not in html.split("</head>")[0] or ledger_design.STYLE not in html
+    assert ledger_design.STYLE not in html
+    assert "<style>" not in html.split("</head>")[0]
     assert ledger_design.SCRIPT not in html
 
 

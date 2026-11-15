@@ -94,3 +94,54 @@ class LivenessProbeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaticOutsideSessionTests(LivenessProbeTests):
+    """/static/ runs outside store_lock and is cached publicly: no session read, no Set-Cookie."""
+
+    def _fetch(self, path):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        conn.request("GET", path, headers={"Cookie": "cost_session=synthetic-cookie"})
+        response = conn.getresponse()
+        response.read()
+        result = (response.status, response.getheader("Set-Cookie"))
+        conn.close()
+        return result
+
+    def test_static_response_never_touches_session_or_sets_cookie_under_concurrency(self):
+        from unittest.mock import patch
+        from webapp import static_assets
+        calls = []
+
+        class Adapter:
+            def renewal_cookie_header(self, headers):
+                calls.append(1)
+                return "cost_session=renewed; Path=/"
+
+        url = static_assets.url("css", "site_shell")
+        results, errors = [], []
+
+        def reader():
+            try:
+                for _ in range(10):
+                    results.append(self._fetch(url))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def writer():
+            for _ in range(20):
+                with self.server.store_lock:
+                    self.store.conn.execute("SELECT 1").fetchall()
+
+        with patch.object(board_mod, "access_control_session_adapter", return_value=Adapter()):
+            threads = [threading.Thread(target=reader) for _ in range(6)] + [threading.Thread(target=writer)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 60)
+            self.assertTrue(all(code == 200 and cookie is None for code, cookie in results))
+            self.assertEqual(calls, [])
+            # Sanity: a non-static path still renews, so the guard is what skipped it.
+            self.assertEqual(self._fetch("/healthz")[1], "cost_session=renewed; Path=/")
