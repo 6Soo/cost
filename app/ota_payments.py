@@ -977,15 +977,21 @@ def _merge_proven_duplicate_payments(events):
             return True
         return False
 
+    # 같은 (공급자, 예약번호, 종류) 안에서만 짝이 될 수 있으므로 그 묶음 안의 쌍만 본다(전체 N² 대신).
+    buckets = defaultdict(list)
+    for index, event in enumerate(events):
+        buckets[(event.get("provider"), event.get("booking_ref"), event.get("event_type"))].append(index)
     paired = []
-    for i in range(len(events)):
-        for j in range(i + 1, len(events)):
-            if compatible(events[i], events[j]):
-                paired.append((i, j))
+    for members in buckets.values():
+        for position, i in enumerate(members):
+            for j in members[position + 1:]:
+                if compatible(events[i], events[j]):
+                    paired.append((i, j))
+    paired.sort()
+    degree = Counter(index for pair in paired for index in pair)
     # 모호한 동액 결제 후보는 병합하지 않고 각각 보존한다.
     for i, j in paired:
-        if sum(1 for a, b in paired if a == i or b == i) == 1 and \
-                sum(1 for a, b in paired if a == j or b == j) == 1:
+        if degree[i] == 1 and degree[j] == 1:
             parent[root(j)] = root(i)
     groups = defaultdict(list)
     for index, event in enumerate(events):

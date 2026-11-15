@@ -15,6 +15,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import weakref
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -1984,7 +1985,9 @@ def reconcile(board) -> dict:
         backend.close()
 
 
-CHILD_TIMEOUT_SECONDS = 900
+CHILD_TIMEOUT_ENV = "WEBLEDGER_OTA_RECONCILE_TIMEOUT_SECONDS"
+# Live runs (7,931 events, 7,336 cards) took 510-910 s on 2026-11-14/15; the former 900 s cut off busy-host runs.
+CHILD_TIMEOUT_SECONDS = 1800
 CHILD_BOOTSTRAP = ("import sys; sys.path.insert(0, sys.argv[1]); "
                    "from webapp import ota_reconcile_child as child; child.run(*sys.argv[1:])")
 
@@ -2000,12 +2003,84 @@ class OtaReconcileChildError(RuntimeError):
     """The child process ended with an error; the message names the original exception."""
 
 
+class OtaReconcileCancelled(OtaReconcileChildError):
+    """The caller's cancel event stopped the reconciliation."""
+
+
+def child_timeout_seconds() -> float:
+    """`WEBLEDGER_OTA_RECONCILE_TIMEOUT_SECONDS` when it is a positive number, else `CHILD_TIMEOUT_SECONDS`."""
+    try:
+        value = float(os.environ.get(CHILD_TIMEOUT_ENV, "").strip() or CHILD_TIMEOUT_SECONDS)
+    except ValueError:
+        return CHILD_TIMEOUT_SECONDS
+    return value if value > 0 else CHILD_TIMEOUT_SECONDS
+
+
+_SHARED_LOCK = threading.Lock()
+_SHARED = {}  # board path -> the latest run: input key, done event, result or error
+_HOSTS = {}  # board path -> weak reference to the server's board (the one with the snapshot worker)
+
+
+def host_board(board_path):
+    """The board this process's snapshot worker reconciles for `board_path`, or None."""
+    reference = _HOSTS.get(_path_key(str(board_path)))
+    return reference() if reference is not None else None
+
+
+def _shared_identity(board):
+    try:
+        return _path_key(str(board.path)), current_input_key(board)
+    except Exception:
+        return None
+
+
 def reconcile_in_child(board, *, cancel_event=None) -> dict:
     """reconcile(board) in a separate process, with the same result.
 
     The child reads the same board database and gets the reservation authority this
     process already read, so its answer does not depend on which process computed it.
+    Callers in one process with the same board and input key (which includes that authority)
+    share one run: a second caller waits for the running child or takes its finished result
+    instead of starting another ten-minute child that competes for the CPU.
     """
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise OtaReconcileCancelled("the reconciliation was cancelled")
+        identity = _shared_identity(board)
+        if identity is None:
+            return _reconcile_in_child(board, cancel_event=cancel_event)
+        with _SHARED_LOCK:
+            entry = _SHARED.get(identity[0])
+            owner = (entry is None or entry["key"] != identity[1]
+                     or (entry["done"].is_set() and entry["result"] is None))
+            if owner:
+                entry = {"key": identity[1], "done": threading.Event(), "result": None, "error": None}
+                _SHARED[identity[0]] = entry
+        if owner:
+            try:
+                entry["result"] = _reconcile_in_child(board, cancel_event=cancel_event)
+            except BaseException as exc:
+                entry["error"] = exc
+                raise
+            finally:
+                entry["done"].set()
+            if _shared_identity(board) != identity:
+                # The inputs moved during the run: current waiters take it, later callers recompute.
+                with _SHARED_LOCK:
+                    if _SHARED.get(identity[0]) is entry:
+                        del _SHARED[identity[0]]
+            return entry["result"]
+        while not entry["done"].wait(.1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise OtaReconcileCancelled("the reconciliation was cancelled")
+        if entry["result"] is not None:
+            return entry["result"]
+        if not isinstance(entry["error"], OtaReconcileCancelled):
+            raise OtaReconcileChildError(str(entry["error"])) from entry["error"]
+        # The running caller was cancelled, not failed: run it here.
+
+
+def _reconcile_in_child(board, *, cancel_event=None) -> dict:
     import pickle
     import subprocess
     import uuid
@@ -2024,12 +2099,13 @@ def reconcile_in_child(board, *, cancel_event=None) -> dict:
     interpreter, extra_env = python_command()
     try:
         if cancel_event is not None and cancel_event.is_set():
-            raise OtaReconcileChildError("the reconciliation was cancelled")
+            raise OtaReconcileCancelled("the reconciliation was cancelled")
         process = subprocess.Popen(
             [*interpreter, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
              str(request_path), str(result_path)],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=child_environment(extra_env))
-        deadline = time.monotonic() + CHILD_TIMEOUT_SECONDS
+        limit = child_timeout_seconds()
+        deadline = time.monotonic() + limit
         while True:
             cancelled = cancel_event is not None and cancel_event.is_set()
             remaining = deadline - time.monotonic()
@@ -2038,15 +2114,16 @@ def reconcile_in_child(board, *, cancel_event=None) -> dict:
                 if process.poll() is None:
                     process.kill()
                 process.communicate()
-                raise OtaReconcileChildError("the reconciliation was cancelled" if cancelled
-                                             else "the reconciliation process timed out")
+                if cancelled:
+                    raise OtaReconcileCancelled("the reconciliation was cancelled")
+                raise OtaReconcileChildError(f"the reconciliation process timed out after {limit:g} s")
             try:
                 _, stderr = process.communicate(timeout=min(remaining, .1) if cancel_event is not None else remaining)
                 break
             except subprocess.TimeoutExpired:
                 continue
         if cancel_event is not None and cancel_event.is_set():
-            raise OtaReconcileChildError("the reconciliation was cancelled")
+            raise OtaReconcileCancelled("the reconciliation was cancelled")
         if process.returncode != 0 or not result_path.exists():
             tail = (stderr or b"").decode("utf-8", "replace").strip().splitlines()
             reason = tail[-1][:200] if tail else f"exit {process.returncode}"
@@ -2131,6 +2208,10 @@ def snapshot_service(board):
             on_published=lambda current: _write_passenger_index(
                 Path(review_db_path()).parent / PASSENGER_FILE, current))
         board._ota_snapshot_service = service
+        try:
+            _HOSTS[_path_key(str(board.path))] = weakref.ref(board)
+        except TypeError:
+            pass
         atexit.register(_stop_quietly, service)
     return service
 
