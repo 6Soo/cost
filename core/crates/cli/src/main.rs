@@ -1,6 +1,7 @@
 //! costcore 실행 파일. `shadow`(U10)와 `plan` 외부 호출. 하위 명령은 후속 단위가 더한다.
 //! 출력은 JSON 한 줄이며 고객 원문·거래 ID는 담지 않는다(비공개 상세는 보호 경로 파일에만).
 
+mod extract;
 mod links_ota;
 mod p2_cli;
 mod remote;
@@ -46,6 +47,7 @@ enum CliError {
     Shadow(ShadowError),
     Guard(GuardError),
     ConfigInvalid,
+    Extract(cost_core::extract::ExtractError),
     Io,
 }
 
@@ -78,6 +80,7 @@ impl CliError {
             Self::Shadow(error) => error.code(),
             Self::Guard(error) => error.code().to_owned(),
             Self::ConfigInvalid => "CONFIG_INVALID".to_owned(),
+            Self::Extract(error) => error.code().to_owned(),
         }
     }
 }
@@ -85,6 +88,12 @@ impl CliError {
 impl From<PipelineError> for CliError {
     fn from(error: PipelineError) -> Self {
         Self::Pipeline(error)
+    }
+}
+
+impl From<cost_core::extract::ExtractError> for CliError {
+    fn from(error: cost_core::extract::ExtractError) -> Self {
+        Self::Extract(error)
     }
 }
 
@@ -176,9 +185,10 @@ fn main() -> ExitCode {
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
         Some("periods") => finish(periods(&args[1..]), "ok"),
         Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
+        Some("extract") => finish(extract::run(&args[1..]), "ok"),
         Some(_) => {
             eprintln!(
-                "usage: costcore <shadow|shadow-links|links|plan|apply|audit-decisions|rejudge|periods|migrate|queue|p2|server|node> ..."
+                "usage: costcore <shadow|shadow-links|links|plan|apply|audit-decisions|rejudge|periods|migrate|extract|queue|p2|server|node> ..."
             );
             ExitCode::from(2)
         }

@@ -5,6 +5,7 @@ pub mod bridge;
 pub mod dates;
 pub mod digest;
 pub mod domain;
+pub mod extract;
 pub mod guard;
 pub mod jobs;
 pub mod known_diffs;
