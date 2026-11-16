@@ -1,10 +1,13 @@
-"""Every OTA snapshot worker a test starts is stopped and joined before the next test runs."""
+from pathlib import Path
+
 import pytest
 
-from webapp import ota_snapshot
 
-
-@pytest.fixture(autouse=True)
-def _ota_snapshot_workers_stop_with_their_test():
-    yield
-    ota_snapshot.stop_all()
+@pytest.fixture
+def dist(tmp_path: Path) -> Path:
+    """Minimal disposable UI build for tests importing the shared HTTP fixture."""
+    root = tmp_path / "dist"
+    (root / "assets").mkdir(parents=True)
+    (root / "index.html").write_text('<main id="root"></main>', encoding="utf-8")
+    (root / "assets" / "app.js").write_text("export {}", encoding="utf-8")
+    return root

@@ -2540,6 +2540,13 @@ class Handler(BaseHTTPRequestHandler):
         session = require_session(self.headers, self._cookies())
         path = parsed.path
 
+        # Plush authenticated JSON projections are read-only and must run after
+        # the same session resolution as every other phase-7 read.
+        from . import plush_api
+        if plush_api.owns_route(path):
+            if plush_api.dispatch(self, parsed, board=_active_store()):
+                return True
+
         from . import trip_flight_read
         if trip_flight_read.owns_route(path):
             store = _active_store()
