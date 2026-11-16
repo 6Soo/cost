@@ -101,7 +101,7 @@ const reconciliation = {
     },
   ],
   total: 4, page: 1, page_size: 50, pages: 1, preview_digest: "synthetic-preview-v1", source_digest: "synthetic-source-v1",
-  revision: 3, links_revision: 2,
+  revision: { generation: 3, source_digest: "synthetic-source-v1" }, links_revision: 2,
 };
 
 const pastedTsv = "2030-04-05\t합성 식당\t12345678901234567890\n";
@@ -196,6 +196,15 @@ describe("GooglePage", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("expense-reconciliation?trip=cost-trip-demo&page=1"))).toBe(true);
   });
 
+  it.each([[12000, "12,000원"], [-12000, "-12,000원"], [0, "0원"]])("renders active reconciliation integer amount %s exactly", async (amount, display) => {
+    installFetch((url) => url === "/api/plush/admin?view=google"
+      ? response(projection)
+      : response({ ...reconciliation, results: [{ ...reconciliation.results[0], amount_krw: amount }] }));
+    render(<GooglePage bootstrap={ownerBootstrap} path="/google-ledger" search={new URLSearchParams()} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "상세 비교 보기" }))[0]);
+    expect(await screen.findByText(display)).toBeTruthy();
+  });
+
   it("sends selected links with the current revision and preview digest, preserving the request id", async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const fetchMock = installFetch((url, init) => {
@@ -222,7 +231,7 @@ describe("GooglePage", () => {
     expect(requestBodies).toHaveLength(2);
     expect(requestBodies[0]).toEqual({
       trip_id: "cost-trip-demo", action: "links", scope: "all", transaction_ids: ["synthetic-manual-1"],
-      request_id: expect.stringMatching(/^links:[\da-f]{32}$/), expected_revision: 3,
+      request_id: expect.stringMatching(/^links:[\da-f]{32}$/), expected_revision: 2,
       preview_digest: "synthetic-preview-v1", query: "", kind: "",
     });
     expect(requestBodies[1].request_id).toBe(requestBodies[0].request_id);
@@ -240,7 +249,7 @@ describe("GooglePage", () => {
         expect(init?.method).toBe("POST");
         expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("synthetic-csrf-token");
         exportBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return response({ code: "OK", tsv: pastedTsv, row_count: 1, total_krw: "12345678901234567890", held: [], reconciliation });
+        return response({ code: "OK", tsv: pastedTsv, row_count: 1, total_krw: 12000, held: [], reconciliation });
       }
       throw new Error(`unexpected request ${url}`);
     });
@@ -251,9 +260,10 @@ describe("GooglePage", () => {
 
     expect(await screen.findByRole("status")).toBeTruthy();
     expect(clipboardWrite).toHaveBeenCalledWith(pastedTsv);
+    expect(screen.getByRole("status").textContent).toContain("12,000원");
     expect(exportBody).toEqual({
       trip_id: "cost-trip-demo", action: "export", scope: "all", transaction_ids: [],
-      request_id: expect.stringMatching(/^export:.+/), expected_revision: 3,
+      request_id: expect.stringMatching(/^export:.+/), expected_revision: 2,
       preview_digest: "synthetic-preview-v1", query: "", kind: "",
     });
     expect(fetchMock.mock.calls.some(([input]) => new URL(String(input), window.location.origin).pathname === "/api/google-ledger/source")).toBe(false);

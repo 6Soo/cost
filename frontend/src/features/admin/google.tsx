@@ -103,7 +103,6 @@ type ReconciliationPayload = {
   pages: number;
   preview_digest: string;
   source_digest: string;
-  revision: number | null;
   links_revision: number | null;
 };
 type ReconciliationState =
@@ -150,6 +149,7 @@ function asText(value: unknown): string | null {
 }
 
 function asMoney(value: unknown): MoneyValue {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
   return typeof value === "string" && value.trim() ? value : null;
 }
 
@@ -382,7 +382,6 @@ function normalizeReconciliation(value: unknown): ReconciliationPayload {
       review_href: asText(row.review_href),
     }];
   });
-  const revision = payload.revision;
   const linksRevision = payload.links_revision;
   return {
     code: asText(payload.code) ?? "UNKNOWN",
@@ -405,7 +404,6 @@ function normalizeReconciliation(value: unknown): ReconciliationPayload {
     pages: Math.max(1, nonNegativeInteger(payload.pages) || 1),
     preview_digest: asText(payload.preview_digest) ?? "",
     source_digest: asText(payload.source_digest) ?? "",
-    revision: typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0 ? revision : null,
     links_revision: typeof linksRevision === "number" && Number.isSafeInteger(linksRevision) && linksRevision >= 0 ? linksRevision : null,
   };
 }
@@ -855,7 +853,7 @@ function ReconciliationPanel({ row, bootstrap, onClose }: {
 
   async function linkSelected() {
     if (state.kind !== "ready" || !state.payload.source_available || !state.payload.preview_digest ||
-        state.payload.revision === null || !selectedIds.length || selectedIds.length > 50 || linkPending) return;
+        state.payload.links_revision === null || !selectedIds.length || selectedIds.length > 50 || linkPending) return;
     const requestId = linkRequestId.current ?? `links:${newRequestId()}`;
     linkRequestId.current = requestId;
     setLinkPending(true);
@@ -867,7 +865,7 @@ function ReconciliationPanel({ row, bootstrap, onClose }: {
         scope: "all",
         transaction_ids: selectedIds,
         request_id: requestId,
-        expected_revision: state.payload.revision,
+        expected_revision: state.payload.links_revision,
         preview_digest: state.payload.preview_digest,
         query: "",
         kind: "",
@@ -889,7 +887,7 @@ function ReconciliationPanel({ row, bootstrap, onClose }: {
 
   async function exportAndCopy() {
     if (state.kind !== "ready" || !state.payload.source_available || !state.payload.preview_digest ||
-        state.payload.revision === null || exportPending) return;
+        state.payload.links_revision === null || exportPending) return;
     const requestId = exportRequestId.current ?? `export:${newRequestId()}`;
     exportRequestId.current = requestId;
     setExportPending(true);
@@ -902,7 +900,7 @@ function ReconciliationPanel({ row, bootstrap, onClose }: {
         scope: "all",
         transaction_ids: [],
         request_id: requestId,
-        expected_revision: state.payload.revision,
+        expected_revision: state.payload.links_revision,
         preview_digest: state.payload.preview_digest,
         query: "",
         kind: "",
@@ -960,11 +958,11 @@ function ReconciliationPanel({ row, bootstrap, onClose }: {
         </dl>
         <div className="e-google-reconciliation-toolbar">
           <ActionButton onClick={linkSelected} pending={linkPending} pendingLabel="저장 중"
-            disabled={!payload.source_available || !selectedIds.length || payload.revision === null || !payload.preview_digest}>
+            disabled={!payload.source_available || !selectedIds.length || payload.links_revision === null || !payload.preview_digest}>
             선택 항목 연결{selectedIds.length ? ` (${selectedIds.length})` : ""}
           </ActionButton>
           <ActionButton variant="secondary" onClick={exportAndCopy} pending={exportPending} pendingLabel="TSV 준비 중"
-            disabled={!payload.source_available || payload.revision === null || !payload.preview_digest}>
+            disabled={!payload.source_available || payload.links_revision === null || !payload.preview_digest}>
             대조 결과 TSV 복사
           </ActionButton>
           <span className="e-google-muted">복사는 서버가 검증한 내용을 클립보드로 전달합니다. Google 시트에 자동 입력하지 않습니다.</span>
