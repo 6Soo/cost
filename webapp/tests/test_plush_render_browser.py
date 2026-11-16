@@ -121,13 +121,18 @@ def render_copy_browser(render_browser):
 # white-space:nowrap이면 overflow-wrap:anywhere가 있어도 실제로 줄바꿈하지 않고, overflow:hidden이면
 # 잘린다(검수 반례). 실제 줄바꿈 가능 여부·클리핑·스크롤 공개를 따져 판정한다. display:none 조상
 # (폭별 데스크톱 표↔모바일 목록 전환)은 rect가 0이라 자동으로 건너뛴다.
+# **스크롤 공개는 조상에 overflow-x:auto가 있다는 사실만으로 인정하지 않는다**(3차 검수 반례):
+# 셀 자신이나 중간 조상이 overflow:hidden이면 내용이 스크롤 컨테이너까지 도달하기 전에 잘리므로
+# 조상 스크롤로 복원할 수 없고, 컨테이너가 실제로 넘쳐야(스크롤 가능) 전체 값을 볼 수 있다.
+# **title도 존재만으로 인정하지 않는다**: 일부 값이 아니라 셀의 전체 값을 포함해야 전체값 접근 수단이다.
 _CELL_ACCESS_JS = """() => {
   const selector = '.cost-data-table td, .cost-ledger__row-open strong, .cost-ledger__row-open span, '
     + '.cost-ledger__mobile-row > strong, .cost-ledger__mobile-bottom > span, .cost-ledger__mobile-amount';
   const scrollReveals = (el) => {
-    for (let node = el; node; node = node.parentElement) {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
       const ox = getComputedStyle(node).overflowX;
-      if (ox === 'auto' || ox === 'scroll') return true;
+      if (ox === 'hidden') return false;
+      if (ox === 'auto' || ox === 'scroll') return node.scrollWidth > node.clientWidth;
     }
     return false;
   };
@@ -140,7 +145,12 @@ _CELL_ACCESS_JS = """() => {
     if (style.visibility === 'hidden') continue;
     checked += 1;
     if (cell.scrollWidth <= cell.clientWidth) continue;
-    const titled = cell.getAttribute('title') || cell.querySelector('[title]');
+    const fullText = (cell.textContent || '').trim();
+    const titleTexts = [];
+    const ownTitle = cell.getAttribute('title');
+    if (ownTitle) titleTexts.push(ownTitle);
+    for (const n of cell.querySelectorAll('[title]')) titleTexts.push(n.getAttribute('title') || '');
+    const titled = fullText.length > 0 && titleTexts.some((t) => t && t.includes(fullText));
     const expand = cell.querySelector('details, [aria-expanded]');
     const wsAllows = style.whiteSpace === 'normal' || style.whiteSpace === 'pre-wrap'
       || style.whiteSpace === 'pre-line' || style.whiteSpace === 'break-spaces';
@@ -150,7 +160,7 @@ _CELL_ACCESS_JS = """() => {
     const actuallyWraps = wsAllows && breaks && !clips;
     const scrollAccess = scrollReveals(cell);
     if (!titled && !expand && !actuallyWraps && !scrollAccess) {
-      violations.push({ text: (cell.textContent || '').trim().slice(0, 40), scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth, whiteSpace: style.whiteSpace, overflowX: style.overflowX });
+      violations.push({ text: fullText.slice(0, 40), scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth, whiteSpace: style.whiteSpace, overflowX: style.overflowX });
     }
   }
   return { checked, violations };
@@ -338,37 +348,87 @@ def test_trips_data_cells_offer_full_value_access(render_browser):
 
 
 def test_cell_access_check_rejects_clipped_nowrap_counterexample(render_browser):
-    # 검수 반례 회귀: white-space:nowrap + overflow:hidden이라 실제로 잘리는데 overflow-wrap:anywhere
-    # 속성만으로 전체값 접근을 인정하면 안 된다. 합성 잘림 셀을 주입해 검사가 위반으로 잡는지,
-    # title이 있는 잘림 셀은 전체값 접근 수단으로 인정하는지(변별력) 확인한다.
+    # 검수 반례 회귀(3차): 잘림 셀의 전체값 접근 판정이 실제 렌더 구조를 따르는지 변별한다.
+    #  1) nowrap+overflow:hidden 잘림 셀(title 없음) → 거부
+    #  2) 잘림 셀 + title=전체 값 → 인정
+    #  3) 잘림 셀 + title=일부 값 → 거부(존재만으로 인정하지 않음)
+    #  4) 잘림 셀 + overflow-x:auto 조상이지만 조상이 안 넘침(스크롤 불가) → 거부
+    #     (셀이 내용을 가둬 조상 스크롤로 복원 불가 — 실제 장부·여행 표 구조의 반례)
+    #  5) 잘리지 않는 내용(overflow:visible)이 실제 넘치는 스크롤 조상으로 흘러듦 → 인정
     port, trip, make_page, open_ledger = render_browser
     page = make_page(1440)
     open_ledger(page)
     page.wait_for_selector(".cost-ledger__summary")
     injected = page.evaluate("""() => {
-      const makeCell = (id) => {
+      const addTable = (cell) => {
         const table = document.createElement('table');
         table.className = 'cost-data-table';
         const tbody = document.createElement('tbody');
         const tr = document.createElement('tr');
+        tr.appendChild(cell); tbody.appendChild(tr); table.appendChild(tbody);
+        return table;
+      };
+      const mkCell = (id, text, css) => {
         const cell = document.createElement('td');
         cell.id = id;
-        cell.style.cssText = 'white-space:nowrap;overflow:hidden;overflow-wrap:anywhere;width:40px;max-width:40px;display:block;';
-        cell.textContent = '합성 잘림 반례 '.repeat(30);
-        tr.appendChild(cell); tbody.appendChild(tr); table.appendChild(tbody);
-        document.body.appendChild(table);
-        return { scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth };
+        cell.style.cssText = css;
+        cell.textContent = text;
+        return cell;
       };
-      const clipped = makeCell('cost-synthetic-clipped');
-      makeCell('cost-synthetic-titled');
-      document.getElementById('cost-synthetic-titled').setAttribute('title', '합성 잘림 반례 전체 값');
-      return { clipped };
+      const measure = (el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
+      const CLIP = 'white-space:nowrap;overflow:hidden;overflow-wrap:anywhere;width:40px;max-width:40px;display:block;';
+      const out = {};
+
+      const clipped = mkCell('cost-syn-clipped', '합성 잘림 반례 '.repeat(30), CLIP);
+      document.body.appendChild(addTable(clipped));
+      out.clipped = measure(clipped);
+
+      const fullTitleText = '합성 전체제목 반례 '.repeat(30);
+      const fullTitle = mkCell('cost-syn-fulltitle', fullTitleText, CLIP);
+      fullTitle.setAttribute('title', fullTitleText);
+      document.body.appendChild(addTable(fullTitle));
+      out.fullTitle = measure(fullTitle);
+
+      const partial = mkCell('cost-syn-partial', '합성 부분제목 반례 '.repeat(30), CLIP);
+      partial.setAttribute('title', '합성 부분제목');
+      document.body.appendChild(addTable(partial));
+      out.partial = measure(partial);
+
+      const scrollAncDiv = document.createElement('div');
+      scrollAncDiv.style.cssText = 'overflow-x:auto;width:200px;max-width:200px;';
+      const scrollAnc = mkCell('cost-syn-scrollanc', '합성 스크롤조상 반례 '.repeat(30), CLIP);
+      scrollAncDiv.appendChild(addTable(scrollAnc));
+      document.body.appendChild(scrollAncDiv);
+      out.scrollAnc = measure(scrollAnc);
+      out.scrollAncContainer = measure(scrollAncDiv);
+
+      const revealDiv = document.createElement('div');
+      revealDiv.style.cssText = 'overflow-x:auto;width:100px;max-width:100px;';
+      const reveal = mkCell('cost-syn-reveal', '합성 스크롤공개 반례 '.repeat(30),
+        'white-space:nowrap;overflow:visible;width:40px;max-width:40px;display:block;');
+      revealDiv.appendChild(addTable(reveal));
+      document.body.appendChild(revealDiv);
+      out.reveal = measure(reveal);
+      out.revealContainer = measure(revealDiv);
+
+      return out;
     }""")
-    assert injected["clipped"]["scrollWidth"] > injected["clipped"]["clientWidth"]
+    # 모든 합성 셀이 실제로 넘쳐 검사 대상인지 확인(넘치지 않으면 변별력 검증이 아님).
+    for key in ("clipped", "fullTitle", "partial", "scrollAnc", "reveal"):
+        assert injected[key]["scrollWidth"] > injected[key]["clientWidth"], f"{key}: 합성 셀이 넘치지 않음 {injected[key]}"
+    # 스크롤조상 반례: 잘림 셀이 내용을 가둬 조상은 스크롤조차 불가.
+    assert injected["scrollAncContainer"]["scrollWidth"] <= injected["scrollAncContainer"]["clientWidth"], injected["scrollAncContainer"]
+    # 스크롤공개 반례: 잘리지 않은 내용이 흘러들어 조상이 실제 스크롤 가능.
+    assert injected["revealContainer"]["scrollWidth"] > injected["revealContainer"]["clientWidth"], injected["revealContainer"]
     report = _cell_access(page)
-    flagged = [v for v in report["violations"] if "합성 잘림 반례" in v["text"]]
-    # title 없는 잘림 셀 하나만 위반이어야 한다(title 있는 잘림 셀은 접근 수단으로 인정).
-    assert len(flagged) == 1, f"잘림 반례 변별 실패(통과시키거나 title 셀까지 위반): {report}"
+    flagged = [v["text"] for v in report["violations"]]
+    def is_flagged(marker):
+        return any(marker in t for t in flagged)
+    assert is_flagged("합성 잘림 반례"), f"잘림 셀을 통과시킴: {report}"
+    assert not is_flagged("합성 전체제목 반례"), f"전체 title 셀을 위반으로 잡음: {report}"
+    assert is_flagged("합성 부분제목 반례"), f"일부 title 셀을 통과시킴: {report}"
+    assert is_flagged("합성 스크롤조상 반례"), f"스크롤 불가 조상의 잘림 셀을 통과시킴: {report}"
+    assert not is_flagged("합성 스크롤공개 반례"), f"실제 스크롤 공개 셀을 위반으로 잡음: {report}"
     page.close()
 
 
