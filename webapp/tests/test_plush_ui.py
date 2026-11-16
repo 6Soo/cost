@@ -114,18 +114,17 @@ def test_missing_build_is_unavailable_not_false_success(tmp_path):
 def http_ui(dist, monkeypatch, tmp_path):
     import threading
     from webapp import access_control, ledger_board
-    from webapp.ledger_store import LedgerStore
-
     monkeypatch.setenv("WEBLEDGER_DB", str(tmp_path / "synthetic.sqlite"))
     monkeypatch.setattr(plush_ui, "DIST", dist)
-    store = LedgerStore(tmp_path / "synthetic.sqlite")
+    previous_store, previous_access = ledger_board._STORE, ledger_board._ACCESS
+    previous_adapter = access_control.session_adapter()
+    server = ledger_board.serve(port=0, with_worker=False, seed_demo=False)
+    store = server.card_store
     access = access_control.attach_to_ledger_store(store)
     access.ensure_owner("synthetic-ui-owner")
     access.create_account(user_id="synthetic-ui-viewer", role="viewer")
-    ledger_board.bind_store(store)
     ledger_board.bind_access(access)
     access_control.bind_synthetic_sessions(True)
-    server = ledger_board.serve(port=0, with_worker=False)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -134,9 +133,9 @@ def http_ui(dist, monkeypatch, tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-        ledger_board.bind_access(None)
-        access_control.bind_sessions(access_control.UnboundSessionAdapter())
-        ledger_board.bind_store(None)
+        ledger_board.bind_access(previous_access)
+        access_control.bind_sessions(previous_adapter)
+        ledger_board.bind_store(previous_store)
         store.close()
 
 
