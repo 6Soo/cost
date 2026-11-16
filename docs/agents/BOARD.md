@@ -10,6 +10,7 @@
 | RUST-REFUND | RUNNING | ExaOne 2.5 high, `eabc5c03`: U12/U14 환불 묶음 판정·게시 경로 연결, 원본·수동 교정 보호 |
 | RUST-PREFLIGHT | RUNNING | ExaOne 2.5 high, `ed9455b5`: offline 전환 게이트·core_bridge 안전성, 오래된 절차 설명 정정 |
 | RUST-INTEGRATION | RUNNING | 감독 별도 worktree, 실제 diff·표적 검사·영향 검사·최종 SHA 독립 검수 대기. 운영 전환 없음 |
+| PLUSH UI-0~6 | COMPLETE (운영 배포) | eacc3bc7/8752 공식배포 exit0,1858파일 blob불일치0·보호14표불변·health/ready200. 독립 sol medium 정확SHA APPROVE. 운영4화면 오류/넘침0·자산3해시일치. 프런트72·최종영향45/skip0. 결과문서는 동일PR971 검수/통합. [검증 현황](artifacts/plush-ui-validation-20261116.md) |
 | RCP-A: Paseo runtime | COMPLETE (Terra high 운영 기본값·실제 합성 판독 검증) | 1f436426 배포. 운영 catalog Codex/Terra/high/selectable=true. 합성 사진 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 일반 Codex/기존 Claude 이력 보존 |
 | RCP-B: 영속 작업·장부 | COMPLETE (구현·검사·운영 배포) | 영속 결과·revision·원자적 반영·멱등·인증 API를11267cd0로 배포. 실제 고객 장부 apply는 미실행 |
 | RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 1f436426에서 선택 모델/추론과 과거 작업 실제값을 동적으로 표시. 기존 사진/결과 교정·복귀·선택 반영·PDF 원본 UI 유지. TaskSpace44 사용자 제어 보존, 신규 동작은 JS 실행 합성 검증 |

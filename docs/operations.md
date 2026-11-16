@@ -1,5 +1,15 @@
 # 운영 기록
 
+## 2026-11-16 22:01 — Plush UI 운영 배포 완료
+
+- **실제 SHA:** `eacc3bc73104425202cfeece0ec52e6b4e1b7aa8` (이전 `1f43642605e72794452b71e38337829a9983c202`), backend8752. 정확 SHA 독립 `gpt-6.1-sol medium APPROVE` 후 공식 `tools/deploy_verified_release.ps1 -Apply` exit0.
+- **배포 게이트:** tracked1858·Git blob불일치0·runtime SHA verified·listener1·보호14표 내용/스키마 불변·health/ready200·비인증 보호API401. 금융 apply NOT_RUN. 스키마/금융 원본 변경 없는 코드 배포이며 full-backup 옵션은 사용하지 않았다.
+- **근거:** `D:/WebLedgerHost/releases/deploy-evidence-eacc3bc73104425202cfeece0ec52e6b4e1b7aa8.json`, 같은 위치 `release-audit-eacc3bc73104425202cfeece0ec52e6b4e1b7aa8.json`; integration `.agents/deploy-eacc-v12/deploy.log`, `review.json`, `production-smoke.json`. JS/CSS/HTML3파일 운영 응답 SHA-256이 패키지와 일치했다.
+- **운영 읽기 전용 smoke:** 로그인 브라우저 `/ui/`·영수증·Google·계정 화면 main/heading/nav 정상·오류 알림0·가로 넘침0. bootstrap/ready/글꼴200. 비로그인 curl UI·bootstrap401; urllib 요청은 edge403이어서 인증 결과와 구분했다. 운영 고객 값·화면 캡처·고객 장부 apply·Google 쓰기는 미실행.
+- **검사/통합:** 프런트72/13파일·타입·빌드, 최종영향45/skip0/실패0 및 선행 범위별 검사 근거는 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md). CI 두 job 시작 전 결제 한도 차단은 정확 SHA annotation으로 확인했고 승인된 독립 검수 예외를 적용했다. 결과 문서는 같은 PR971에서 검수·통합하며 문서 때문에 재배포하지 않는다. 배포 소유권 해제·별도 Rust 감독에게 actual SHA 전달 완료.
+- **제한:** 자동화 paint 목표200ms 미달, 실기기·스크린리더 실청취 미검증. OTA/환불/참가자 일부 교정은 기존 인증 화면 링크 보존 범위다.
+
+
 ## 2026-11-16 21:05 창 — 영수증 Terra high `1f436426` 운영 배포
 
 - **전환:** PR [#973](https://github.com/6Soo/cost/pull/973), 검수 코드 `1f43642605e72794452b71e38337829a9983c202`, 병합 `dd1d005d`. 공식 `tools/deploy_verified_release.ps1` exit0, PreviousSha `11267cd012e074a0b89d28adb93a4dd736f64079`. Board8751·Worker 동일 릴리스, core writers VERIFIED, Gateway8790. 신규 분석 기본은 Codex 구독 Terra/high이며 UI는 선택 모델·추론 수준과 저장된 작업의 실제 실행값을 표시한다.
