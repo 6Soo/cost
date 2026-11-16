@@ -34,9 +34,9 @@ Booking 포함 2번째 영향 검사는 독립 검수가 실제 결함을 재현
 
 - worktree **23→5**: 존재 폴더17개 제거, 이미 없던 등록1개 prune. 보호 사본·tip·사용 여부를 확인한 뒤 Git worktree 절차를 사용했다.
 - Paseo workspace **12개 공식 archive**: 디렉터리 소유가 없는 등록은 archive 후 별도 Git 정리, 비공개 로컬 작업 폴더는 등록만 archive하고 자료를 삭제하지 않았다.
-- 사용하지 않는 로컬 브랜치72개·원격130개 정리. 이 세션이 만든 중간 브랜치2개도 별도 보존 후 제거. main과 현재 체크아웃된 사용자/사용 중 브랜치는 남긴다. #850·#966·#967의 GitHub MERGED를 확인했고 #850/#967 원격 브랜치와 자체 통합 브랜치도 제거했다. 원격은 main과 HEAD 별칭만, 로컬은 main과 사용자/사용 중 체크아웃 브랜치4개만 남겼다. 추가 삭제한 원격 tip도 시작 bundle·archive refs에 보존돼 있다.
+- 사용하지 않는 로컬 브랜치72개·원격130개 정리. 이 세션이 만든 중간 브랜치2개도 별도 보존 후 제거. main과 현재 체크아웃된 사용자/사용 중 브랜치는 남긴다. #850·#966·#967의 GitHub MERGED를 확인했고 #850/#967 원격 브랜치와 자체 통합 브랜치도 제거했다. 후속 문서 PR의 임시 브랜치를 제외하면 원격은 main과 HEAD 별칭만, 로컬은 main과 사용자/사용 중 체크아웃 브랜치4개만 남았다. 문서 PR 임시 브랜치도 병합 뒤 제거한다. 추가 삭제한 원격 tip도 시작 bundle·archive refs에 보존돼 있다.
 - `C:/AX/cost`의 사용자 변경15개 파일은 원래 상태로 보존한다. 이 원본 폴더에서 main 강제 checkout·reset·stash를 하지 않는다.
-- 남은 임시 폴더3개: `C:/AX/cost-wt-receipt-trip`(시작 시 확인 PID9456), `C:/AX/cost-wt-receipt-paseo`(agy·도구 프로세스), Paseo `receipt-uiux-integrated-20261116`(미리보기 PID11228·22404). 현재 `C:/AX/cost-wt-ota-perf`는 main의 clean 검증 checkout으로 이 세션이 사용한다. 그 폴더도 현재 세션을 archive할 때 정리할 수 있도록 인계·검사·복구 근거를 원본 비공개 폴더에 복사해 두었다.
+- 남은 임시 폴더3개: `C:/AX/cost-wt-receipt-trip`(시작 시 확인 PID9456), `C:/AX/cost-wt-receipt-paseo`(agy·도구 프로세스), Paseo `receipt-uiux-integrated-20261116`(미리보기 PID11228·22404). 현재 `C:/AX/cost-wt-ota-perf`는 이 세션의 clean 검증 checkout이다(후속 문서 PR 동안 임시 브랜치를 사용하고 병합 뒤 main으로 돌아간다). 그 폴더도 현재 세션을 archive할 때 정리할 수 있도록 인계·검사·복구 근거를 원본 비공개 폴더에 복사해 두었다.
 - 프로젝트 지침의 **내가 시작하지 않은 프로세스를 종료하지 않는다**에 따라 위3개 폴더를 강제 제거하지 않았다. 전체 임시 공간 정리가 완료됐다고 보고하지 않는다.
 
 ## 정확한 재개
