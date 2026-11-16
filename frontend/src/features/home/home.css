@@ -36,9 +36,11 @@
   background: var(--cost-surface);
   color: inherit;
   text-decoration: none;
-  transition: border-color 160ms ease, transform 160ms ease;
+  transition: background-color 150ms ease-out;
 }
-.cost-home__trip-card:hover { border-color: var(--cost-selection); transform: translateY(-1px); }
+@media (hover: hover) {
+  .cost-home__trip-card:hover { background: var(--cost-panel); }
+}
 .cost-home__trip-card:focus-visible,
 .cost-home a:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
 .cost-home__trip-status { color: var(--cost-text-secondary); font-size: .8125rem; }
@@ -59,7 +61,4 @@
   .cost-home__header { align-items: start; flex-direction: column; }
   .cost-home__trip-grid { grid-template-columns: 1fr; }
   .cost-home__job { align-items: start; flex-direction: column; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cost-home__trip-card { transition: none; }
 }

@@ -205,9 +205,11 @@
   cursor: pointer;
 }
 
-.cost-selection-row:hover,
-.cost-radio-option:hover {
-  background: var(--cost-panel);
+@media (hover: hover) {
+  .cost-selection-row:not(:has(:disabled)):hover,
+  .cost-radio-option:not(:has(:disabled)):hover {
+    background: var(--cost-panel);
+  }
 }
 
 .cost-selection-row:has(:disabled),
@@ -445,8 +447,10 @@
   border-bottom: 0;
 }
 
-.cost-data-table tbody tr:hover {
-  background: color-mix(in oklab, var(--cost-panel) 60%, var(--cost-surface));
+@media (hover: hover) {
+  .cost-data-table tbody tr:hover {
+    background: color-mix(in oklab, var(--cost-panel) 60%, var(--cost-surface));
+  }
 }
 
 .cost-table-empty-cell {
@@ -462,10 +466,12 @@
   max-height: 100dvh;
   margin: 0;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   background: var(--cost-surface);
   color: var(--cost-text);
   box-shadow: var(--cost-shadow-raised);
+  opacity: 0;
+  transition: opacity 150ms ease-out, display 150ms allow-discrete, overlay 150ms allow-discrete;
 }
 
 .cost-drawer::backdrop {
@@ -473,7 +479,24 @@
 }
 
 .cost-drawer[open] {
-  animation: cost-drawer-in 220ms cubic-bezier(.2, .7, .2, 1) both;
+  opacity: 1;
+  transition-duration: 300ms;
+}
+
+@starting-style {
+  .cost-drawer[open] { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cost-drawer {
+    translate: 100% 0;
+    transition: translate 150ms ease-out, opacity 150ms ease-out,
+      display 150ms allow-discrete, overlay 150ms allow-discrete;
+  }
+  .cost-drawer[open] { translate: 0 0; transition-duration: 300ms; }
+  @starting-style {
+    .cost-drawer[open] { translate: 100% 0; opacity: 0; }
+  }
 }
 
 .cost-drawer-content {
@@ -517,10 +540,6 @@
   padding-top: 20px;
 }
 
-@keyframes cost-drawer-in {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
 
 .cost-brand {
   display: flex;
@@ -579,10 +598,12 @@
   transition: background-color 160ms var(--plush-ease-fade), color 160ms var(--plush-ease-fade);
 }
 
-.cost-nav-link:hover,
-.cost-trip-link:hover {
-  background: var(--cost-fill-strong);
-  color: var(--cost-text);
+@media (hover: hover) {
+  .cost-nav-link:hover,
+  .cost-trip-link:hover {
+    background: var(--cost-fill-strong);
+    color: var(--cost-text);
+  }
 }
 
 .cost-nav-link[aria-current="page"],
@@ -726,7 +747,7 @@
   overflow: auto;
   padding: 12px;
   border: 1px solid var(--cost-line);
-  border-radius: 16px;
+  border-radius: 25px;
   background: var(--cost-surface);
   box-shadow: var(--cost-shadow-raised);
 }
@@ -869,7 +890,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cost-spinner { animation: none; }
-  .cost-drawer[open] { animation-duration: 0ms; }
+  .cost-drawer[open] { transition-duration: 150ms; }
   .cost-nav-link,
   .cost-trip-link,
   .cost-theme-toggle { transition-duration: 0ms; }
