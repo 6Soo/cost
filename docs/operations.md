@@ -1,10 +1,12 @@
 # 운영 기록
 
-## 2026-11-16 — 회계 대사 보강 코드 운영 반영 대기
+## 2026-11-17 00:14 — 회계 대사 보강 코드 운영 배포 완료
 
-- **상태:** 회계 대사·완료기간 예약 복구·메일 수집·Google 수입 검증 보강 커밋 `50823317`은 검증 브랜치에만 있으며 운영에는 아직 배포하지 않았다. 운영 SHA를 이 커밋으로 보고하지 않는다.
+- **상태/실제 SHA:** 회계 대사·완료기간 예약 복구·메일 수집·Google 수입 검증 보강을 `8888230deb1a5bd09d826da7e66034e2091ba0a1`로 공식 배포했다. PreviousSha는 직전 실제 `41d8e8efde542b9611a1f8a83eea3861bcfaaa4e`, backend8752·gateway8790. `tools/deploy_verified_release.ps1 -Apply` exit0, 기록 시각 `2026-11-16T15:13:59Z`.
 - **반영 원칙:** 구현사항은 표적/영향 검사와 독립 검수, 보호 데이터 게이트를 통과한 뒤 `tools/deploy_verified_release.ps1`로 운영 반영한다. 배포 전후 실제 SHA·보호 테이블·health/ready·비인가 경로를 확인한다. 금융 원본과 Google 최종 장부에는 별도 승인 없이 쓰지 않는다.
-- **다음 근거:** 독립 최종 검수와 공식 배포 증거가 생기면 이 절을 실제 SHA·PreviousSha·검사 결과·운영 smoke 결과로 갱신한다.
+- **게이트/운영 smoke:** 추적1876파일 blob불일치0, frontend3파일 복사 전후 SHA-256 일치, runtime SHA verified, listener1, 보호14표 내용/스키마 불변. health/ready200·보호API401. 추가 비인증 `/`·`/ui/`·bootstrap·영수증 모델API401; health0.056초·ready0.007초. 금융 apply NOT_RUN. 인증 브라우저 UI 재검수는 UI 변경 없는 배포이므로 미실행했다.
+- **검증/복구:** 정확 SHA 독립 gpt-6.1-sol medium APPROVE, 공식 영향 Python1015+2subtests/Rust191 통과·skip0/known0, fmt/clippy/build 통과, frontend78·타입·빌드 통과. 첫 영향 검사의 Rust fmt 실패를 수정 후 전체 재검사했다. 기존 refactor 비교2건은 현재 main과 동일 결과/digest의 실패로 별도 보존했다. CI는 결제 한도로 시작 전 차단, 실제 검사 실패를 우회하지 않았다. Rust 감독의 선행 scoped4DB 백업/복원 검증과 writer 보류 인계 후 배포했으며, 도구의 fresh_backup_restore=false는 code-only 배포의 full-backup 옵션 미사용을 뜻한다.
+- **근거/남은 일:** `D:/WebLedgerHost/releases/deploy-evidence-8888230deb1a5bd09d826da7e66034e2091ba0a1.json`, 같은 위치 release-audit 파일, 작업공간 `.local-archive/accounting-deploy-20261116/`의 최종 검사·검수·보호·config 해시·deploy.log. card-flow.json과 기존 costcore 경로 불변, Board/Worker rust writer/python links 정합성 확인. 새 Rust planner 바이너리 검증/활성화는 Rust 감독의 후속으로 남아 있으며 별도 실제 결과를 추적한다. [검증 기록](agents/artifacts/accounting-release-20261117.md), PR978에서 결과 문서 통합 후 재배포하지 않는다.
 
 ## 2026-11-16 22:01 — Plush UI 운영 배포 완료
 
