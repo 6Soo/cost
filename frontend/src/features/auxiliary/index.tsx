@@ -1,5 +1,7 @@
 import type { AuxiliaryResponse } from "../../api/types";
 import { StructuredFeaturePage, type PageProps } from "../transactions/feature-ui";
+import { ExportPage } from "./export";
+import { RulesPage } from "./rules";
 
 const AUXILIARY_NAV = [
   { id: "participants", label: "참가자·수입", path: "/participants" },
@@ -57,6 +59,9 @@ export function AuxiliaryPage(props: PageProps) {
     );
   }
   if (props.bootstrap.role !== "owner") return <OwnerOnly />;
+
+  if (view === "rules") return <RulesPage {...props} nav={AUXILIARY_NAV} />;
+  if (view === "export") return <ExportPage {...props} nav={AUXILIARY_NAV} />;
 
   const params = new URLSearchParams({ view });
   const trip = props.search.get("trip") || props.search.get("tab");

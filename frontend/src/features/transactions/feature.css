@@ -307,6 +307,96 @@
   justify-self: start;
 }
 
+.e-feature-action-result,
+.e-feature-result-section {
+  display: grid;
+  gap: .65rem;
+  min-inline-size: 0;
+}
+
+.e-feature-action-result h3,
+.e-feature-result-section h4,
+.e-rules-page h2,
+.e-rules-page h3,
+.e-export-page h2,
+.e-export-page h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.e-rules-page,
+.e-export-page {
+  min-inline-size: 0;
+}
+
+.e-rules-case-picker,
+.e-rules-dialog,
+.e-rules-status,
+.e-rules-draft,
+.e-rules-preview,
+.e-export-section {
+  display: grid;
+  gap: .8rem;
+  min-inline-size: 0;
+}
+
+.e-rules-case-picker {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.e-rules-note,
+.e-rules-question,
+.e-rules-turns,
+.e-rules-confirm,
+.e-rules-owner-draft,
+.e-rules-excluded,
+.e-export-job,
+.e-export-tsv {
+  border-block-start: 1px solid color-mix(in srgb, var(--cost-border-control, #858581) 35%, transparent);
+  display: grid;
+  gap: .65rem;
+  min-inline-size: 0;
+  padding-block-start: .8rem;
+}
+
+.e-rules-options,
+.e-export-select-all {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+}
+
+.e-export-section > p,
+.e-rules-confirm > p,
+.e-rules-owner-draft > p {
+  line-height: 1.5;
+}
+
+.e-rules-page textarea,
+.e-export-page textarea {
+  background: var(--cost-surface, #fff);
+  border: 1px solid var(--cost-border-control, #858581);
+  border-radius: .75rem;
+  color: inherit;
+  font: inherit;
+  inline-size: 100%;
+  min-block-size: 5rem;
+  padding: .65rem .75rem;
+  resize: vertical;
+}
+
+.e-export-page select {
+  background: var(--cost-surface, #fff);
+  border: 1px solid var(--cost-border-control, #858581);
+  border-radius: .75rem;
+  color: inherit;
+  font: inherit;
+  min-block-size: 2.75rem;
+  padding: .55rem .75rem;
+}
+
 .e-feature-hint {
   color: var(--e-muted);
   font-size: .8125rem;
@@ -323,6 +413,10 @@
 }
 
 @media (max-width: 47.99rem) {
+  .e-rules-case-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .e-feature-header {
     align-items: stretch;
     flex-direction: column;

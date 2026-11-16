@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { ApiError, executeAction, getJSON, type ActionResult, type ActionValue } from "../../api/client";
 import type { ActionDescriptor, Bootstrap, FieldDescriptor } from "../../api/types";
+import { StructuredActionResult } from "./action-results";
 import "./feature.css";
 
 export type PageProps = {
@@ -284,6 +285,7 @@ function ActionForm({
   onComplete: (message: string) => void;
 }) {
   const [state, setState] = useState<{ busy: boolean; error: string }>({ busy: false, error: "" });
+  const [result, setResult] = useState<ActionReply | null>(null);
   const [requestId, setRequestId] = useState(clientRequestId);
   const href = validActionPath(action.href);
   const fields = action.fields?.length ? action.fields : fallbackFields ?? [];
@@ -298,6 +300,7 @@ function ActionForm({
     if (disabled || !href) return;
     const form = event.currentTarget;
     const formData = new FormData(form);
+    setResult(null);
     setState({ busy: true, error: "" });
     try {
       const values: Record<string, ActionValue> = {};
@@ -358,6 +361,7 @@ function ActionForm({
         return;
       }
       const message = actionMessage(reply);
+      if (action.method === "GET" && action.response === "json") setResult(reply);
       setRequestId(clientRequestId());
       setState({ busy: false, error: "" });
       onComplete(message);
@@ -382,6 +386,7 @@ function ActionForm({
       {action.disabled && action.reason ? <p className="e-feature-hint">{action.reason}</p> : null}
       {!href ? <p className="e-feature-error">허용된 내부 주소가 아니어서 동작을 비활성화했습니다.</p> : null}
       {state.error ? <p className="e-feature-error" role="alert">{state.error}</p> : null}
+      {result ? <StructuredActionResult href={action.href} data={result} /> : null}
     </form>
   );
 }
