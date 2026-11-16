@@ -11,7 +11,9 @@ const installedLauncher=()=>path.join(process.env.LOCALAPPDATA || path.join(home
 export function providerDefinition() {
   return {extends:'codex',label:'COST receipt Codex',enabled:true,
     command:[process.execPath,installedLauncher()],
-    env:{CODEX_HOME:process.env.CODEX_HOME || path.join(homedir(),'.codex')},
+    // A custom provider inherits its base's runtime env. Clear the endpoint
+    // here too, before Paseo can turn it into a thread-level model provider.
+    env:{CODEX_HOME:process.env.CODEX_HOME || path.join(homedir(),'.codex'),OPENAI_API_KEY:'',OPENAI_BASE_URL:''},
     options:{approval_policy:'never',sandbox_mode:'read-only',web_search:'disabled'},
     disallowedTools:['*'],paseoTools:{enabled:false}};
 }
@@ -23,8 +25,8 @@ export async function configured(api) {
   const {config} = await api.config.get();
   const actual = config.providers?.[RECEIPT_CODEX_PROVIDER];
   const expected = providerDefinition();
-  return actual && Object.keys(actual.env || {}).length === 1 && path.isAbsolute(actual.env.CODEX_HOME || '')
-    && Object.entries(expected).every(([key,value])=>key === 'env' ? true : key === 'command' ? sameCommand(actual[key],value)
+  return actual && Object.keys(actual.env || {}).length === Object.keys(expected.env).length && path.isAbsolute(actual.env.CODEX_HOME || '')
+    && Object.entries(expected).every(([key,value])=>key === 'env' ? actual.env.OPENAI_API_KEY === '' && actual.env.OPENAI_BASE_URL === '' : key === 'command' ? sameCommand(actual[key],value)
       : JSON.stringify(canonical(actual[key]))===JSON.stringify(canonical(value)));
 }
 export async function configuredHome(api) {
