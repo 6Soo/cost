@@ -273,6 +273,40 @@ def test_committed_ledger_recovers_when_workflow_acknowledgement_is_lost(receipt
     assert _ledger_count(fixture) == 1
 
 
+def test_write_failure_during_second_selected_receipt_rolls_back_the_entire_request(receipt_http):
+    fixture, runtime = receipt_http
+    batch = _enqueue(fixture, _upload(fixture))
+    runtime.release.set()
+    _wait_until(lambda: _persisted_result(fixture))
+    reviewed = [_review(fixture, candidate)
+                for candidate in _candidates(fixture, batch["batch_id"])]
+    payload = {"request_id": "7" * 32, "selections": [
+        {"candidate_id": candidate["candidate_id"], "expected_revision": candidate["revision"]}
+        for candidate in reviewed]}
+    board = fixture.server.card_store
+    enqueue = board._enqueue_ledger
+    calls = 0
+
+    def fail_second(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("synthetic failure during second receipt write")
+        return enqueue(**kwargs)
+
+    with patch.object(board, "_enqueue_ledger", side_effect=fail_second):
+        status, body = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
+    assert status == 503, body
+    assert calls == 2
+    assert _ledger_count(fixture) == 0
+    assert board.conn.execute("SELECT COUNT(*) FROM receipt_apply_sources").fetchone()[0] == 0
+    assert board.conn.execute("SELECT COUNT(*) FROM receipt_apply_requests").fetchone()[0] == 0
+    assert all(not candidate["applied"] for candidate in _candidates(fixture, batch["batch_id"]))
+    status, body = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
+    assert status == 200, body
+    assert _ledger_count(fixture) == 2
+
+
 def test_mixed_photo_batch_preserves_success_failure_and_empty_result(receipt_http, monkeypatch):
     fixture, runtime = receipt_http
     images = []
