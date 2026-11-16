@@ -1,3 +1,12 @@
+# 2026-11-17 — M4 UI-0 완전 종료: 수락 검증·간극 종결·병합·운영 배포 완료
+
+- **요청/결과:** “m3닫고 m4도 진행해”의 M4를 닫았다. React 프런트는 이미 main에 있어 화면 재작성이 아니라 **수락 검증 보강·소수 간극 수정**이었고, 13결함 핵심 수락 기준을 시험(브라우저 렌더 포함)으로 검증·간극을 종결·병합·배포했다.
+- **병합/배포:** PR983 병합(main merge `aa9c45e1`), reviewed 후보 `fddbb8c6`(M4 본문 4d338374 + main df636b90 M3 clean re-merge). 공식 `deploy_verified_release.ps1 -Apply` exit0, **actual fddbb8c6/backend8751**·gateway8790(continuous code-only, Previous d5b77717). 추적1902 blob불일치0·dist 3파일 해시 일치·보호14표 불변·health/ready200·보호API401·worker 전환·core writers VERIFIED·금융/Google 쓰기0. Rust costcore-e4e5dd67.exe(1224058b…)·links/rust·config 보존. **다음 PreviousSha=fddbb8c6, 소유권 자유·보류 없음.**
+- **검수/간극 종결:** 독립 gpt-6.1-sol medium 최종 SHA PASS(findings0). #6 화면별 고유 `<title>`(AppShell document.title MutationObserver, 6화면)·#3 셀 수준 전체값 접근 간극을 **1·2·3차 독립검수 FAIL→genuine 강화로 종결**(시험 약화 아님): overflow-wrap 속성만 보고 인정하지 않고 실제 줄바꿈(white-space)·클리핑·스크롤 공개(셀·중간 조상 hidden 클리핑 부재+컨테이너 실제 overflow)·title 전체 값 포함 시만 인정, 잘림 반례 회귀 5변별. #3 잘림 수정(320px totals 1열). 표적 vitest 23파일141·타입0·build·브라우저16·백엔드26·M3 기준8 통과.
+- **검증 구분:** on-disk dist==빌드 해시 일치. 익명 자산 401(인증 활성) — 인증 화면 렌더는 로그인 필요로 미수행, 합성 미리보기 브라우저 수락(16종)과 구분. 고객 원문 Git/보고서 없음(완전 합성 fixture).
+- **근거/남은 일:** [운영 기록](operations.md) 맨 위·[계약 지도](design/m4-ui0-contract-map-20261117.md). worktree `.local-archive/m4-ui-deploy-20261117/`(review-evidence·protection-before/after·verify_deploy). **잔여(부가)**: 동적 제목 화면 전체 고유성·모바일 브랜드 중복·화면별 본문 크기·초점 가둠·빈 상태 문장 수·OTA 상세 링크 데이터·P-03 합계/복사/내보내기 서버 대조·P-04 영수증 서버·스크린리더/실기기. 문서 후속 때문에 재배포하지 않는다.
+- **교훈:** paseo run 검수 위임은 `--cwd`만으로 워크트리 고정 안 됨(호출자 워크스페이스서 실행 가능) — 셸 directory를 워크트리로 두고 프롬프트에 `cd /d` 명시해야 정확 SHA 검수. staging은 검증된 `stage_release.py` 재사용.
+
 # 2026-11-17 — 분기 밖 비용의 과거 자동 귀속 교정 구현·사본 검증, 운영 반영 준비
 
 - **사용자 승인:** “ㅇㅇ 찾은것 코드로 교정해”. PROC-073에 원문 재대조의 좁은 Q2 자동 귀속 예외를 반영했다. 기존 분기 검수의 미리보기/digest·백업·3투영 원자 교정·감사 원복 도구에 원본 카드 파일 재파싱·원문 해시·이전 귀속·자동 생성 이력을 검증하는 `--source-review` 경로를 추가했다. 일반 P1 조회/재시작에는 연결하지 않았다.
