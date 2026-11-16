@@ -36,7 +36,7 @@ const SOURCE_FILTER_KEYS: Record<string, string[]> = {
   cards: CARD_FILTER_KEYS,
   ota: ["q", "month", "provider", "state", "sort"],
   flights: ["q", "trip", "tab"],
-  refunds: ["q"],
+  refunds: ["q", "kind"],
 };
 const filterKeysFor = (view: string) => SOURCE_FILTER_KEYS[view] || ["q"];
 
