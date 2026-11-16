@@ -5,7 +5,7 @@
 ## 소유권
 
 - A runtime: `app/receipt_paseo.py`, `tools/receipt_paseo_bridge*`, 필요 시 `tools/receipt_paseo_plugin/`, `tests/card_pipeline/test_receipt_paseo_runtime.py` 및 해당 신규 helper/fixture만. 실제 설치 Paseo SDK/CLI를 조사해 사진 첨부·동적 목록·공식 결과 회수·도구 차단을 구현한다. 플러그인은 공식 문서·타입으로 기능을 확인하고 영수증 실행에만 범위를 제한한다. 다른 에이전트나 전역 제공자 설정을 변경하지 않는다.
-- B backend: `app/receipt_workflow_store.py`, `app/receipt_ledger.py`, `webapp/receipt_workflow.py`, `webapp/tests/test_receipt_workflow*.py`, `webapp/tests/test_receipt_ledger*.py`. 필요한 `ledger_store_schema.py`/`ledger_store*.py` 변경과 `ledger_board.py`의 서버 시작 worker hook도 B 소유. 영속화·재연결·검수·멱등/원자적 장부 반영·인증 API 담당.
+- B backend: `webapp/receipt_workflow_store.py`, `webapp/receipt_ledger.py`, `webapp/receipt_workflow.py`, `webapp/tests/test_receipt_workflow*.py`, `webapp/tests/test_receipt_ledger*.py`. 필요한 `ledger_store_schema.py`/`ledger_store*.py` 변경과 `ledger_board.py`의 서버 시작 worker hook도 B 소유. 영속화·재연결·검수·멱등/원자적 장부 반영·인증 API 담당. 기존 구현의 실제 모듈 위치를 유지한다.
 - C UI: `webapp/receipt_review.py`, `webapp/receipt_workflow_ui.py`, `webapp/static/js/receipt_workflow.js`, `webapp/static/css/receipt_workflow.css`, UI 전용 신규 검사. 기존 원본 업로드·수동 입력·후보 보호는 유지하고 신규 흐름을 기본 화면으로 연결한다.
 - 통합 감독: docs·test-impact-map·통합 검사·독립 검수·브랜치 통합/정리. 같은 파일에 동시 작성하지 않는다. 계약 변경은 먼저 감독과 관련 작업자에게 알린다.
 

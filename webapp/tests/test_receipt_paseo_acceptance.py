@@ -21,11 +21,15 @@ from webapp.tests import test_receipt_review as legacy
 
 
 class SyntheticRuntime:
-    def __init__(self, metadata):
+    def __init__(self, metadata, prompt):
         self.calls = []
         self.runs = {}
         self.release = threading.Event()
         self._metadata = dict(metadata)
+        self._prompt = prompt
+
+    def managed_prompt(self):
+        return self._prompt
 
     def prompt_metadata(self):
         return dict(self._metadata)
@@ -72,7 +76,7 @@ def receipt_http(monkeypatch, tmp_path):
     from app import receipt_paseo
     from webapp.receipt_workflow import ReceiptWorkflowWorker
 
-    runtime = SyntheticRuntime(receipt_paseo.prompt_metadata())
+    runtime = SyntheticRuntime(receipt_paseo.prompt_metadata(), receipt_paseo.managed_prompt())
     workflow_path = tmp_path / "acceptance-workflow.sqlite"
     monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_DB", str(workflow_path))
     monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_ENABLED", "1")
@@ -230,6 +234,84 @@ def test_missing_csrf_or_unknown_original_cannot_start_a_model(receipt_http):
     status, body = fixture.request("/api/receipts/workflow/batches", payload, token=fixture.csrf())
     assert status in (400, 404, 409), body
     assert runtime.calls == []
+
+
+def test_mixed_photo_batch_preserves_success_failure_and_empty_result(receipt_http, monkeypatch):
+    fixture, runtime = receipt_http
+    images = []
+    for rgb in (b"\xff\x00\x00", b"\x00\xff\x00", b"\x00\x00\xff"):
+        status, image = fixture.request("/api/receipts/image", raw=legacy.make_png(rgb),
+                                        token=fixture.csrf())
+        assert status == 200, image
+        images.append(image["sha256"])
+    original_inspect = runtime.inspect_run
+
+    def inspect(handle):
+        if not runtime.release.is_set():
+            return {"status": "running"}
+        if handle["source_sha256"] == images[1]:
+            return {"status": "failed", "code": "PASEO_RATE_LIMITED"}
+        if handle["source_sha256"] == images[2]:
+            return {"status": "done", "result": receipt_vision.validate_response(
+                {"receipts": []}, image_hash=images[2], model=handle["model"])}
+        return original_inspect(handle)
+
+    monkeypatch.setattr(runtime, "inspect_run", inspect)
+    status, body = fixture.request("/api/receipts/workflow/batches", {
+        "images": images, "provider": "claude", "model": "synthetic-opus",
+        "request_id": "e" * 32,
+    }, token=fixture.csrf())
+    assert status == 202, body
+    batch_id = body["batch"]["batch_id"]
+    runtime.release.set()
+
+    def finished():
+        status, result = fixture.request("/api/receipts/workflow")
+        assert status == 200, result
+        batch = next(item for item in result["batches"] if item["batch_id"] == batch_id)
+        return batch if all(job["status"] in ("done", "failed") for job in batch["jobs"]) else None
+
+    _wait_until(finished)
+    batch = finished()
+    by_image = {job["image"]: job for job in batch["jobs"]}
+    assert by_image[images[0]]["status"] == "done"
+    assert by_image[images[1]]["status"] == "failed"
+    assert by_image[images[1]]["code"] == "PASEO_RATE_LIMITED"
+    assert by_image[images[2]]["status"] == "done"
+    assert len(batch["candidates"]) == 2
+    assert {candidate["image"] for candidate in batch["candidates"]} == {images[0]}
+    assert len(runtime.calls) == 3
+    assert _ledger_count(fixture) == 0
+    for image in images:
+        assert fixture.request("/api/receipts/image/" + image)[0] == 200
+
+
+def test_result_for_another_original_is_preserved_as_failure_without_candidates(receipt_http, monkeypatch):
+    fixture, runtime = receipt_http
+    original_inspect = runtime.inspect_run
+
+    def inspect(handle):
+        state = original_inspect(handle)
+        if state["status"] == "done":
+            state["result"]["source_sha256"] = "f" * 64
+        return state
+
+    monkeypatch.setattr(runtime, "inspect_run", inspect)
+    batch = _enqueue(fixture, _upload(fixture))
+    runtime.release.set()
+
+    def failed():
+        status, body = fixture.request("/api/receipts/workflow")
+        assert status == 200, body
+        current = next(item for item in body["batches"] if item["batch_id"] == batch["batch_id"])
+        return current if current["jobs"][0]["status"] == "failed" else None
+
+    _wait_until(failed)
+    current = failed()
+    assert current["jobs"][0]["code"] == "RESULT_SOURCE_MISMATCH"
+    assert current["candidates"] == []
+    assert len(runtime.calls) == 1
+    assert _ledger_count(fixture) == 0
 
 
 @pytest.mark.parametrize("path", ["/api/receipts/paseo/models", "/api/receipts/workflow",
