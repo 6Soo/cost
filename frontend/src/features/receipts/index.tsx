@@ -26,6 +26,23 @@ type PendingReceiptRequests = {
 };
 
 const emptyLegacy: LegacyReceiptList = { candidates: [], images: [], pdfs: [], uploads: [] };
+
+function receiptSources(data: LegacyReceiptList): Source[] {
+  const pdfPages = new Set((data.pdfs || []).flatMap((pdf) => pdf.pages));
+  const sources: Source[] = data.images.filter((sha) => !pdfPages.has(sha))
+    .map((sha) => ({ sha, kind: 'image', label: '사진 원본' }));
+  const seenPages = new Set<string>();
+  for (const pdf of data.pdfs || []) {
+    pdf.pages.forEach((sha, index) => {
+      if (seenPages.has(sha)) return;
+      seenPages.add(sha);
+      sources.push({
+        sha, kind: 'pdf-page', label: `PDF ${pdf.sha256.slice(0, 8)} · ${index + 1}페이지`, pdfSha: pdf.sha256, page: index + 1,
+      });
+    });
+  }
+  return sources;
+}
 const pendingRequestsStorageKey = 'cost.receipts.pending-workflow.v1';
 const statusLabel: Record<string, string> = {
   queued: '대기 중', pending: '대기 중', running: '처리 중', started: '처리 중',
@@ -404,12 +421,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       const [legacyData] = await Promise.all(tasks);
       const sourceData = legacyData as LegacyReceiptList | undefined;
       if (sourceData) {
-        const nextSources: Source[] = sourceData.images.map((sha) => ({ sha, kind: 'image', label: '사진 원본' }));
-        for (const pdf of sourceData.pdfs || []) {
-          pdf.pages.forEach((sha, index) => nextSources.push({
-            sha, kind: 'pdf-page', label: `PDF ${pdf.sha256.slice(0, 8)} · ${index + 1}페이지`, pdfSha: pdf.sha256, page: index + 1,
-          }));
-        }
+        const nextSources = receiptSources(sourceData);
         setSources(nextSources);
         if (!activeSha && nextSources.length) setActiveSha(nextSources.at(-1)!.sha);
         setSelectedShas((current) => new Set([...current].filter((sha) => nextSources.some((source) => source.sha === sha))));
@@ -436,6 +448,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
     [activeSha, allCandidates],
   );
   const activeSource = sources.find((source) => source.sha === activeSha);
+  const activePdfs = (legacy.pdfs || []).filter((pdf) => pdf.pages.includes(activeSha));
   const currentModels = (catalog?.models || []).filter((model) => !provider || model.provider === provider);
   const selectedCandidates = allCandidates.filter((candidate) => {
     const draft = reviewDrafts[candidate.candidate_id];
@@ -472,12 +485,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
 
   const updateSources = useCallback(async () => {
     const data = await loadLegacy();
-    const nextSources: Source[] = data.images.map((sha) => ({ sha, kind: 'image', label: '사진 원본' }));
-    for (const pdf of data.pdfs || []) {
-      pdf.pages.forEach((sha, index) => nextSources.push({
-        sha, kind: 'pdf-page', label: `PDF ${pdf.sha256.slice(0, 8)} · ${index + 1}페이지`, pdfSha: pdf.sha256, page: index + 1,
-      }));
-    }
+    const nextSources = receiptSources(data);
     setSources(nextSources);
     return data;
   }, [loadLegacy]);
@@ -966,7 +974,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
               {activeSource?.kind === 'pdf-page' && <p className="receipt-help">PDF {activeSource.pdfSha?.slice(0, 8)}의 {activeSource.page}페이지 미리보기입니다. PDF 원본 파일은 서버에서 보존됩니다.</p>}
               <div className="receipt-original__actions"><button type="button" className="receipt-button receipt-button--quiet" onClick={() => startManualFor(activeSha)}>이 사진에 직접 입력</button>
                 <a className="receipt-button receipt-button--quiet" href={imageUrl(activeSha)} target="_blank" rel="noreferrer">{activeSource?.kind === 'pdf-page' ? '페이지 이미지 열기' : '원본 사진 열기'}</a>
-                {activeSource?.pdfSha && <a className="receipt-button receipt-button--quiet" href={`/api/receipts/pdf/${encodeURIComponent(activeSource.pdfSha)}`} target="_blank" rel="noreferrer">PDF 원본 열기</a>}</div>
+                {activePdfs.map((pdf) => <a key={pdf.sha256} className="receipt-button receipt-button--quiet" href={`/api/receipts/pdf/${encodeURIComponent(pdf.sha256)}`} target="_blank" rel="noreferrer">PDF 원본 열기{activePdfs.length > 1 ? ` (${pdf.sha256.slice(0, 8)})` : ''}</a>)}</div>
             </> : <div className="receipt-empty"><strong>사진을 선택하세요.</strong><span>저장된 원본은 확대해 확인할 수 있습니다.</span></div>}
           </div>
           <div className="receipt-job-list">
