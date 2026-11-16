@@ -220,3 +220,41 @@ fn invalid_hash_revision_and_id_are_protected_with_their_own_reason() {
         ));
     }
 }
+
+#[test]
+fn original_manual_google_row_outranks_calendar_only_during_explicit_review() {
+    let mut input = PlanInput {
+        rows: vec![row(
+            "syn-google",
+            json!({"approval_date":"2026-06-12", "posting_date":"2026-06-14",
+            "classification_source":"inference", "classification_state":"classified", "item":"숙박비",
+            "display_tab_id":"T-A", "trip_id":"T-A"}),
+        )],
+        trips: vec![
+            json!({"trip_id":"T-A", "starts_on":"2026-06-12", "ends_on":"2026-06-15", "destination":"SYN OLD"}),
+            json!({"trip_id":"T-B", "starts_on":"2026-06-10", "ends_on":"2026-06-11", "destination":"SYN NEW"}),
+        ],
+        ..PlanInput::default()
+    };
+    input.evidence.insert(
+        "syn-google".into(),
+        json!({"kind":"google_manual_expense", "source_hash":HASH,
+        "trip_id":"T-B", "basis":"GOOGLE_MANUAL_ROW · SYNTHETIC!6 · original verified"}),
+    );
+    input.ledger.insert(
+        "syn-google".into(),
+        json!({"display_tab_id":"T-A", "trip_id":"T-A", "item":"숙박비"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let links = BTreeMap::<String, RefundLink>::new();
+    assert!(plan(&input, &links).unwrap().targets.is_empty());
+    input.reconsider = true;
+    let result = plan(&input, &links).unwrap();
+    assert_eq!(result.targets.len(), 1);
+    assert_eq!(result.targets[0].values[5], "T-B");
+    assert!(result.targets[0].booking_trip_correction);
+    input.overrides.insert("card-syn-google".into());
+    assert!(plan(&input, &links).unwrap().targets.is_empty());
+}

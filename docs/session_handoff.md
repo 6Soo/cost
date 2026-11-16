@@ -176,3 +176,8 @@
 - D worktree의 미커밋 산출물 `webapp/plush_api.py`, `webapp/plush_projection.py`, `webapp/tests/test_plush_api.py`를 확인해 통합했다. `ledger_board._phase7_get`에서 인증 세션 확인 뒤 Plush GET projection dispatcher를 호출하도록 연결했다.
 - 커밋 `670cc2ad`; API 단위 검사 `pytest -q webapp/tests/test_plush_api.py`는 6건 통과했다.
 - 통합 HTTP 검사는 4건 중 2건 통과, 2건 실패했다. viewer 합성 fixture가 active connection을 만들지 않아 `visible_tabs`가 빈 집합을 반환하는 테스트 설정 문제이며, 권한 보호를 약화시키지 않고 보류한다. 운영 배포는 하지 않았다.
+# 2026-11-17 — 수기 장부 행 원문 대조·공통 귀속 경로 수정 진행
+
+- **현재 요청:** “행 원본 자료 대조해서 직접 확인하고 코드수정”. 직전 읽기 전용 조사의 제한을 대체한다. 카드 업로드 원본 4개를 재파싱해 81행의 날짜·금액·지급처·발급사·카드·거래방향이 모두 일치함을 확인했고, Google 불일치 77행도 XLSX 실제 셀과 다시 대조했다. 원문은 보호 경로 `D:/WebLedgerHost/data/backups/q12-auto-additions-20261116T181539Z/source-recheck/`에 보존했다.
+- **구현:** 구형 I열·표준 H열·유럽 G열의 지출 원문을 원래 열에서 읽는다. 비표준 양식의 행을 읽더라도 수입·합계 검증 완료로 표시하지 않는다. 검수한 보관 원본의 해시·전체 시트 범위·실제 여행 연결을 고정하고 날짜·금액·지급처·발급사의 양방향 유일 대조로 수기 귀속을 공통 Python/Rust 판정에 공급한다(GGL-045). 자동 기록의 명시적 재판정에서만 거래·장부·보드를 함께 교정하고 기존 귀속 불일치·실제 수동·P2·완료 1분기·환불 보호를 지킨다. 예약기간·금융 연결은 만들어내지 않는다.
+- **검증/남은 일:** 신규 합성 15건, 기존 Google/booking/core_writer 관련 검사 132건과 Rust plan_judgement 6건 통과를 확인했다. 실제 77행의 공통 plan이 모두 교정 대상으로 좁혀졌다. 실제 사본의 Python/Rust 교정·멱등 검증, 최종 SHA 독립 검수·공식 영향 검사·공식 배포가 진행 중이다. 현재 이 절 시점에서 운영 금융 변경·Google 쓰기는 없다. graphify update는 CLI 미설치로 실행하지 못했다. 앞선 조사 완료는 코드·운영 반영 완료를 뜻하지 않는다.

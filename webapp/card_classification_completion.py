@@ -67,7 +67,10 @@ def open_period_evidence(board, trips=None, flow=None):
 
 def classification_evidence(board, trips=None, flow=None):
     """Closed-period exceptions plus open-period booking evidence; the two key sets are disjoint."""
-    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow)}
+    from app.manual_google_evidence import load
+    from pathlib import Path
+    manual = load(board.conn, board.list_trips(), Path(board.path).parent / 'reviewed-manual-ledger')
+    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow), **manual}
 
 
 def complete(flow, batch_id, transaction_ids=None):
