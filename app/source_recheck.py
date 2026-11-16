@@ -36,7 +36,7 @@ def load(conn, trips, directory):
                 'merchant', 'approval_number')
         if any(review['card'].get(k) != row.get(k) for k in keys):
             raise ValueError('SOURCE_RECHECK_SOURCE_CHANGED')
-        originals, roles, hashes = review.get('originals'), set(), []
+        originals, roles, hashes, mail_facts = review.get('originals'), set(), [], {}
         if not isinstance(originals, list) or not 1 <= len(originals) <= 30:
             raise ValueError('SOURCE_RECHECK_INVALID')
         for original in originals:
@@ -54,6 +54,16 @@ def load(conn, trips, directory):
                     'cancellation_confirmation', 'counter_evidence', 'manual_ledger'):
                 raise ValueError('SOURCE_RECHECK_INVALID')
             roles.add(original['role']);hashes.append(digest)
+            if review.get('kind') == 'cancelled_booking_payment' and original['role'] in (
+                    'payment_confirmation', 'cancellation_confirmation'):
+                from .ota_mail import extract_mail
+                try:
+                    fact = extract_mail(json.loads(original_bytes))
+                except (ValueError, TypeError, KeyError):
+                    raise ValueError('SOURCE_RECHECK_CANCELLATION_INVALID') from None
+                if fact is None:
+                    raise ValueError('SOURCE_RECHECK_CANCELLATION_INVALID')
+                mail_facts.setdefault(original['role'], []).append(fact)
             if original.get('role') == 'card_original':
                 batch = conn.execute('SELECT b.content_sha256,b.filename,t.row_index FROM transactions t '
                     'JOIN import_batches b ON b.batch_id=t.batch_id WHERE t.transaction_id=?', (tid,)).fetchone()
@@ -75,6 +85,16 @@ def load(conn, trips, directory):
                     or review.get('reservation_status') != 'cancelled'
                     or not review.get('booking_ref')
                     or review.get('cancelled_booking_ref') != review.get('booking_ref')):
+                raise ValueError('SOURCE_RECHECK_CANCELLATION_INVALID')
+            paid = mail_facts.get('payment_confirmation', [])
+            cancelled = mail_facts.get('cancellation_confirmation', [])
+            if (len(paid) != 1 or len(cancelled) != 1
+                    or paid[0].get('booking_ref') != review['booking_ref']
+                    or cancelled[0].get('booking_ref') != review['booking_ref']
+                    or paid[0].get('reservation_status') not in ('confirmed', 'completed')
+                    or cancelled[0].get('reservation_status') != 'cancelled'
+                    or paid[0].get('paid_amount_krw') != row['amount_krw']
+                    or paid[0].get('paid_on') != row['approval_date']):
                 raise ValueError('SOURCE_RECHECK_CANCELLATION_INVALID')
             target, trip_basis = '', 'TRIP-097 · 취소 완료 예약은 실제 이용기간 근거에서 제외'
         elif kind == 'payment_outside_trip':

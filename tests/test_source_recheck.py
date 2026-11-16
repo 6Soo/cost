@@ -7,6 +7,7 @@ from app import ai_review_repair as repair, source_recheck
 from tests.test_ai_review_repair import add_projection, correction_for, make_manifest, prepare
 from webapp.tests.test_automatic_classification_completion import setup
 from tests.card_pipeline.fixtures import make_csv, domestic_row
+from tests.card_pipeline.test_booking_mail import message, hotel
 
 TRIPS = [dict(trip_id='A', starts_on='2026-06-01', ends_on='2026-06-05'),
          dict(trip_id='B', starts_on='2026-09-25', ends_on='2026-10-05')]
@@ -35,11 +36,17 @@ def reviewed(setup, tmp_path, *, kind='payment_outside_trip', day='2026-10-03'):
     (directory/'card.csv').write_bytes(content)
     originals = [dict(path='card.csv', role='card_original', sha256=hashlib.sha256(content).hexdigest())]
     for name, role in [('paid.txt', 'payment_confirmation'), ('cancelled.txt', 'cancellation_confirmation')]:
-        data=('synthetic '+name).encode();(directory/name).write_bytes(data)
+        body=hotel(ref='1234567890').replace('123,000원',str(row['amount_krw'])+'원')
+        subject='[예약 확정 안내] 합성 숙소 예약이 확정되었습니다'
+        if role=='cancellation_confirmation':
+            body='예약번호 1234567890 예약이 취소되었습니다'
+            subject='합성 예약이 취소되었습니다'
+        data=json.dumps(message(body,subject=subject,identity=name,sent=day)).encode()
+        (directory/name).write_bytes(data)
         originals.append(dict(path=name, role=role, sha256=hashlib.sha256(data).hexdigest()))
     review = dict(transaction_id=tid, before_tab='A', kind=kind, basis='PROC-073 · synthetic source review',
         card={k:row[k] for k in ('source_hash','approval_date','amount_krw','issuer','card_tail','merchant','approval_number')},
-        originals=originals, reservation_status='cancelled', booking_ref='synthetic-booking', cancelled_booking_ref='synthetic-booking')
+        originals=originals, reservation_status='cancelled', booking_ref='1234567890', cancelled_booking_ref='1234567890')
     document=dict(version=1, review_id='synthetic-source-review', reviews=[review])
     (directory/'manifest.json').write_text(json.dumps(document),encoding='utf-8')
     facts=source_recheck.load(c,TRIPS,directory)
@@ -120,3 +127,41 @@ def test_cancelled_booking_identity_must_match(setup,tmp_path):
     doc['reviews'][0]['cancelled_booking_ref']='another-booking'
     (directory/'manifest.json').write_text(json.dumps(doc),encoding='utf-8')
     with pytest.raises(ValueError,match='CANCELLATION_INVALID'):source_recheck.load(c,TRIPS,directory)
+
+
+@pytest.mark.parametrize('wrong',['opaque_bytes','policy_only','different_booking','different_amount','different_date'])
+def test_role_and_hash_alone_cannot_assert_cancellation(setup,tmp_path,wrong):
+    c,_,directory,doc,_,_=reviewed(setup,tmp_path,kind='cancelled_booking_payment')
+    review=doc['reviews'][0]
+    role='payment_confirmation' if wrong in ('different_amount','different_date') else 'cancellation_confirmation'
+    original=next(o for o in review['originals'] if o['role']==role)
+    data=(directory/original['path']).read_bytes()
+    if wrong=='opaque_bytes':data=b'no reservation or cancellation facts'
+    else:
+        mail=json.loads(data)
+        if wrong=='policy_only':mail['payload']['headers'][1]['value']='예약 취소 정책 안내'
+        if wrong=='different_booking':mail['payload']['body']['content']=mail['payload']['body']['content'].replace('1234567890','9999999999')
+        if wrong=='different_amount':mail['payload']['body']['content']=hotel(ref='1234567890')
+        if wrong=='different_date':mail=message(mail['payload']['body']['content'],sent='2026-01-01')
+        data=json.dumps(mail).encode()
+    (directory/original['path']).write_bytes(data);original['sha256']=hashlib.sha256(data).hexdigest()
+    (directory/'manifest.json').write_text(json.dumps(doc),encoding='utf-8')
+    with pytest.raises(ValueError,match='CANCELLATION_INVALID'):source_recheck.load(c,TRIPS,directory)
+
+
+def test_offline_cli_checks_the_explicit_backend_while_gateway_is_paused(setup,tmp_path,monkeypatch):
+    import sqlite3
+    from tools import apply_ai_quarter_review as cli
+    c,_,_,_,_,manifest=reviewed(setup,tmp_path)
+    host=tmp_path/'host';(host/'data').mkdir(parents=True);(host/'config').mkdir()
+    with sqlite3.connect(host/'data/board.sqlite') as copy:c.backup(copy)
+    (host/'config/ledger-route.json').write_text(json.dumps(dict(port=8752,paused=True,generation='synthetic')),encoding='utf-8')
+    path=tmp_path/'corrections.json';path.write_text(json.dumps(manifest),encoding='utf-8')
+    observed={}
+    def writer_gate(*args,**kwargs):
+        observed.update(kwargs)
+        raise ValueError('EXPECTED_WRITER_GATE')
+    monkeypatch.setattr(cli,'require_offline_backup',writer_gate)
+    assert cli.main(['--host-root',str(host),'--manifest',str(path),'--request-id','synthetic',
+        '--apply','--expected-digest','synthetic','--backup-evidence',str(tmp_path/'backup.json')])==1
+    assert observed['board_port']==8752 and observed['isolated_copy'] is False

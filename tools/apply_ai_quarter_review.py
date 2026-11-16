@@ -56,7 +56,16 @@ def main(argv=None):
         if args.apply:
             if not args.expected_digest or not args.backup_evidence:
                 raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
-            require_offline_backup(host, args.backup_evidence, db, isolated_copy=args.isolated_copy)
+            # A drained gateway may remain paused throughout offline maintenance.
+            # Its explicit backend is still the port the writer-offline gate must
+            # check; never fall back to a hard-coded port when a route exists.
+            route_path = host / 'config/ledger-route.json'
+            board_port = None
+            if not args.isolated_copy and route_path.exists():
+                from tools.ledger_gateway import read_route
+                board_port = read_route(route_path)['port']
+            require_offline_backup(host, args.backup_evidence, db,
+                                   isolated_copy=args.isolated_copy, board_port=board_port)
         trips = None
         with closing(sqlite3.connect(db.as_uri() + '?mode=' + ('rw' if args.apply else 'ro'), uri=True, isolation_level=None)) as conn:
             if args.restore:
