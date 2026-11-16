@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-17 04:42 — 원행 대조 공통 코드 배포·77건 교정·4건 신규 기장 완료
+
+- **코드 배포:** PR982/merge `a88776e6`, 검수 코드·실제 운영 `e4e5dd67c72ee3b9aa3201167b797010cbb97997`, Previous `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`. 공식 도구 exit0, backend8751/gateway8790, Board·Worker 같은 릴리스. 추적1888 blob불일치0·보호14표 불변·health/ready200·보호API401. 프런트 소스는 이전 actual과 동일해 검증된 dist를 보존했다.
+- **Rust/설정:** 별도 `costcore-e4e5dd67.exe` SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c`. 의미상 설정 변경은 costcore_bin 하나다. Rust/rust·나머지 설정·기존888 바이너리 SHA256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4` 보존.
+- **검증/금융 반영:** 원본 카드4개81행 및 수기 원장77행 대조, 공식 영향974/skip0/known0·Rust 검사 PASS·정확SHA 독립 sol medium APPROVE. CI 결제 차단 annotation 확인. 신선4DB 복원 검증 후 배포했고, 배포후 board/core 복원 검증도 통과했다. 첫 postdeploy 백업 실패는 성공으로 세지 않고 진단 재시도 PASS 근거를 별도 보존했다. 독립 승인 스크립트로77건7813974원 귀속을 Rust writer로 교정해3투영 일치·원본/대상밖 불변·재계획0건 확인. 원문 이용기간4건2518357원도 표준 worker가 실제 기장 완료(recorded4/failures0/pending0), ledger/board 각각 정확1회·귀속/기간 일치다. 최종 읽기 전용 검증19:42:36Z PASS, 원본/대상밖 보호 해시 `7119b9d9c3bd07eefb9225ea845280d99c70cb4adc1e0b805eaeec9569c5463f` 불변·검증DB변경0·직접 금융 SQL/Google 쓰기0.
+- **근거/다음:** `releases/deploy-evidence-e4e5dd67c72ee3b9aa3201167b797010cbb97997.json`과 보호 `data/backups/q12-auto-additions-20261116T181539Z/source-recheck/`의 backup/deploy/apply-journal/rehearsal, `final-validation.json`, `FINAL-EVIDENCE.md`, 실제81행 증거 엑셀. 운영 쓰기 작업 종료, 이후 PreviousSha는 다른 배포가 없으면 e4e5dd67이다. 문서 후속은 재배포하지 않는다.
+
 ## 2026-11-17 03:05 — Plush UI 전수 감사 수정 운영 배포 완료
 
 - **배포:** 공식 도구 exit0, actual `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`, Previous `9af204148b1b6450f7bb9c6ec1185c5f2f3aa852`, continuous 모드 backend 8751→8752·gateway8790. 추적1885파일 blob불일치0·dist 3파일 복사 전후 SHA-256 일치·runtime SHA verified·listener1·보호14표 전환 후 불변·health/ready200·비인증 보호API401. 금융 apply NOT_RUN·마이그레이션·Google 자동 쓰기 없음. code-only라 full-backup 옵션 미사용(이전 릴리스 자산 보존).
