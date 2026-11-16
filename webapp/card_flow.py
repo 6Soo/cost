@@ -1255,6 +1255,11 @@ class CardFlow:
 
         def metadata(entry):
             nonlocal report, loaded
+            from .card_classification_completion import reviewed_booking_facts
+            from app.reviewed_booking_evidence import metadata as reviewed_metadata
+            reviewed = reviewed_booking_facts(self.board)
+            if entry['transaction_id'] in reviewed:
+                return reviewed_metadata(reviewed[entry['transaction_id']], entry)
             if not _is_ota_row(entry):
                 return {}
             if not loaded:
@@ -1306,6 +1311,7 @@ class CardFlow:
                       event_kind=source[6], classification_state=entry['classification_state'],
                       confirmed_by=('automatic' if entry.get('automatic_record') else 'owner'), memo='')
         if entry.get('ota_evidence'):
+            record['ota_evidence'] = entry['ota_evidence']
             record['classification_basis'] = 'OTA 예약 메타데이터 근거 · ' + json.dumps(
                 entry['ota_evidence'], ensure_ascii=False, sort_keys=True)
         if entry.get('automatic_record'):

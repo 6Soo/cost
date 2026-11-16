@@ -252,9 +252,13 @@ class CardCompletionWorker:
                 missing_assignment = {row[0] for row in selected if row[0] not in unfinished
                     and row[4]!='guide_airfare_evidence' and row[5]!='분기 기타비용'
                     and row[6] in (None,'','unclassified') and row[7] in (None,'','unclassified')}
+                from .card_classification_completion import reviewed_booking_facts
+                reviewed = reviewed_booking_facts(self.board)
+                reviewed_assignment = {row[0] for row in selected if row[0] in reviewed
+                    and (row[6] != reviewed[row[0]]['trip_id'] or row[7] != reviewed[row[0]]['trip_id'])}
                 # The two sets are disjoint and fixed before any write: one classification (one evidence build).
-                if unfinished or missing_assignment:
-                    flow._classify(batch, transaction_ids=unfinished | missing_assignment, snapshot_only=True)
+                if unfinished or missing_assignment or reviewed_assignment:
+                    flow._classify(batch, transaction_ids=unfinished | missing_assignment | reviewed_assignment, snapshot_only=True)
                 result = flow._auto_record_locked(batch, include_state=False, transaction_ids=ids)
             except Exception as exc:
                 self.status.update(state='retry', error=type(exc).__name__)
