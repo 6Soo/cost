@@ -2,7 +2,7 @@
 
 ## 실행 범위와 상태
 
-사용자 “반영해” 승인에 따라 `50823317` 구현을 최신 main과 통합해 운영 배포했다. 코드 배포·독립 검수·운영 smoke는 COMPLETE, 금융 재처리·Google 쓰기는 미실행이다. Rust writer가 이미 활성인 환경이므로 기존 바이너리 경로를 보존했으며 새 planner 바이너리 활성화는 별도 Rust 감독의 검증/전환 결과를 기다린다. 이 후속을 코드 배포 성공만으로 완료 처리하지 않는다.
+사용자 “반영해” 승인에 따라 `50823317` 구현을 최신 main과 통합해 운영 배포했다. 코드 배포·독립 검수·운영 smoke와 새 Rust planner 활성화는 COMPLETE, 금융 재처리·Google 쓰기는 미실행이다. 코드 배포 중 기존 Rust 바이너리 경로를 보존한 뒤 소유권을 받은 별도 Rust 감독이 같은 SHA 바이너리를 활성화했다. 해당 판정의 전환 후 대조도 PASS로 확인했다. 별도 Rust 연결 기능의 첫 창 대조는 감독의 별도 범위로 계속 추적한다.
 
 | 대상 | 실제 근거 |
 | --- | --- |
@@ -30,5 +30,7 @@ GitHub의 정확 배포 SHA 두 job annotation은 결제/사용 한도로 작업
 운영 감사는 SQLite mode=ro/query_only/BEGIN으로 실행, database_changes=0. 고객 원문·금액·ID·수동 이력·Google 장부를 수정하지 않았다. 감사 결과의 누락·귀속 차이 집계는 자동 교정 완료 건수가 아니다.
 
 배포 전 Rust 감독이 scoped4DB 백업/복원 검증(live_state_unchanged/restored_review_binding_equal/out_of_scope_unchanged=true) 완료와 배포 소유권을 인계했다. 배포 도구는 code-only로 실행해 full-backup 옵션은 사용하지 않았다. 배포 후 기존 rust writer/python links를 Board·Worker에 보존한 verify-applied가 통과했다. 실제 SHA·포트·보호 결과를 Rust 감독과 UI 세션에 통지하고 배포 소유권을 넘겼다.
+
+후속 전환에서 감독은 `costcore-8888230d.exe`(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`)와 rust links를 적용했다. 독립 읽기 전용 확인에서 Board/Worker 모두 같은 배포 SHA·rust writer/rust links, 바이너리 해시 일치·health/ready200이었다. 전환 후 신선 사본의 planner 대조는 원문7336건·Python/Rust대상4/4·unlisted0·PASS다. `switch-evidence.json`, `first-window/shadow.out.json`의 집계와 로컬 `final-runtime.json`, `rust-planner-verification.json`으로 확인했다. 첫 관리재시작은 CIM null 조회 오류로 원설정 복귀 후 대기 보완·재시도 PASS였으며 이를 첫 시도 성공으로 보고하지 않는다. 새 연결 기능의 첫 창 대조는 별도 감독이 마무리 중이다.
 
 로컬 근거: `.local-archive/accounting-deploy-20261116/`의 `quality-final-summary.json`, `quality-final.log`, `independent-review.md`, `review-evidence.json`, `protection-before.json`, `protection-after.json`, `core-config-before.json`, `core-config-after.json`, `deploy.log`, `deploy-evidence.json`. 운영 근거는 `D:/WebLedgerHost/releases/deploy-evidence-8888230deb1a5bd09d826da7e66034e2091ba0a1.json`과 `release-audit-8888230deb1a5bd09d826da7e66034e2091ba0a1.json`이다.
