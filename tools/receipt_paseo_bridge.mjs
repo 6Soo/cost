@@ -175,7 +175,10 @@ export async function createBridge(api, root) {
       const record = await readRecord(request.run_key);
       if (!record) return null;
       const found = await remote(record);
-      return found ? publicHandle(record) : null;
+      // The durable record predates dispatch. An unobserved remote agent may
+      // still be created by a delayed request; absence is not a replay permit.
+      if (!found) fail('PASEO_START_UNCERTAIN');
+      return publicHandle(record);
     }
     if (!['inspect','archive'].includes(request.operation)) fail('PASEO_OPERATION_INVALID');
     const record = await owned(request.handle);

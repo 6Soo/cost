@@ -208,3 +208,51 @@ def test_bad_image_and_run_key_do_not_call_daemon(tmp_path, monkeypatch):
     with pytest.raises(receipt_paseo.PaseoError) as error:
         receipt_paseo.find_run("../bad")
     assert error.value.code == "PASEO_RUN_KEY_INVALID"
+
+
+def test_bridge_preserves_uncertainty_until_recorded_remote_run_appears(tmp_path):
+    import subprocess
+    from pathlib import Path
+    bridge = Path(receipt_paseo.BRIDGE).as_uri()
+    harness = r'''
+import {createHash} from 'node:crypto';
+const {createBridge}=await import(process.argv[1]);
+const hash=x=>createHash('sha256').update(x).digest('hex');
+let created=0,visible=false,createdAgent;
+const api={
+ providers:{snapshot:async()=>({entries:[{provider:'claude',status:'ready'}]}),
+ diagnostic:async()=>({diagnostic:'Auth: '+JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',subscriptionType:'max'})}),
+ listModels:async()=>({models:[{id:'claude-fable-5-2'}]})},
+ workspaces:{create:async()=>({agents:{create:async request=>{
+  created++;
+  createdAgent={id:request.agentId,workspaceId:null,cwd:null,provider:'claude',model:'claude-fable-5-2',labels:request.labels};
+  throw new Error('synthetic lost acknowledgement');
+ }}})},
+ agents:{ref:()=>({refresh:async()=>visible?{agent:createdAgent}:null})}
+};
+// Preserve the workspace identity returned by the actual create request.
+const create=api.workspaces.create;
+api.workspaces.create=async request=>{
+ const w=await create(request);
+ const start=w.agents.create;
+ w.agents.create=async r=>{try{return await start(r)}finally{createdAgent.workspaceId=request.workspaceId;createdAgent.cwd=request.source.path}};
+ return w;
+};
+const dispatch=await createBridge(api,process.argv[2]);
+const run_key='synthetic-lost-ack-20261116';
+const noRecord=await dispatch({operation:'find',run_key});
+const prompt='synthetic managed instructions',data=Buffer.from('synthetic image');
+try{await dispatch({operation:'start',run_key,provider:'claude',model:'claude-fable-5-2',
+ prompt,prompt_metadata:{prompt_sha256:hash(prompt)},source_sha256:hash(data),image:{data:data.toString('base64'),mimeType:'image/png'}})}catch{}
+const errors=[];
+for(let n=0;n<2;n++)try{await dispatch({operation:'find',run_key})}catch(e){errors.push(e.code)}
+visible=true;
+const found=await dispatch({operation:'find',run_key});
+console.log(JSON.stringify({noRecord,errors,created,recovered:found.agent_id===createdAgent.id}));
+'''
+    result = subprocess.run(['node', '--input-type=module', '-e', harness, bridge, str(tmp_path)],
+                            capture_output=True, text=True, check=True, encoding='utf8')
+    assert json.loads(result.stdout) == {
+        'noRecord': None, 'errors': ['PASEO_START_UNCERTAIN', 'PASEO_START_UNCERTAIN'],
+        'created': 1, 'recovered': True,
+    }

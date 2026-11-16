@@ -351,3 +351,29 @@ def test_retry_rechecks_late_remote_run_after_starting_recovery_reported_missing
     assert error.value.code == 'JOB_STILL_ACTIVE'
     assert len(runtime.calls) == 1
     runtime.inspect_run = original_inspect
+
+
+def test_starting_job_waits_through_uncertain_lookup_then_recovers_original_run(backend):
+    from app.receipt_paseo import PaseoError
+    runtime = backend['runtime']
+    runtime.inspect_run = lambda handle: {'status': 'running'}
+    _batch, saved = _start_batch(backend)
+    job = saved['jobs'][0]
+    store = receipt_workflow_store.ReceiptWorkflowStore(backend['workflow_path'])
+    store.read(lambda conn: conn.execute(
+        "UPDATE receipt_workflow_jobs SET status='starting',handle_json=NULL WHERE job_id=?", (job['job_id'],)))
+    find = runtime.find_run
+    runtime.find_run = lambda key: (_ for _ in ()).throw(PaseoError('PASEO_START_UNCERTAIN'))
+    for _ in range(2):
+        assert backend['worker'].process_once() is False
+        assert store.read(lambda conn: conn.execute(
+            'SELECT status FROM receipt_workflow_jobs WHERE job_id=?', (job['job_id'],)).fetchone()[0]) == 'starting'
+        with pytest.raises(receipt_workflow.WorkflowError) as error:
+            receipt_workflow.retry_job(backend['fixture'].server.card_store,
+                {'job_id': job['job_id'], 'request_id': 'e' * 32}, receipts_path=backend['fixture'].store)
+        assert error.value.code == 'JOB_STILL_ACTIVE'
+    runtime.find_run = find
+    assert backend['worker'].process_once() is True
+    assert store.read(lambda conn: conn.execute(
+        'SELECT status FROM receipt_workflow_jobs WHERE job_id=?', (job['job_id'],)).fetchone()[0]) == 'running'
+    assert len(runtime.calls) == 1
