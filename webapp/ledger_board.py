@@ -3537,6 +3537,14 @@ class Handler(BaseHTTPRequestHandler):
         if self._auth_routes(query):
             return
         resolve_role(self.headers, self._cookies())
+        from . import plush_ui
+        if plush_ui.owns_route(parsed.path):
+            from . import ledger_board as board_module
+            try:
+                plush_ui.dispatch(self, parsed, board=board_module)
+            except Exception as exc:
+                self._phase7_refuse(exc)
+            return
         if parsed.path == '/my-actions':
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
