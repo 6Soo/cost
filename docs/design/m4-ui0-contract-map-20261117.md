@@ -15,6 +15,7 @@
 | 프로덕션 빌드 | `vite build` — **성공**(6228 모듈, `dist/` 산출) |
 | 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건), `glossary.test.ts`(3건·#12), `ledger-not-found.test.tsx`(2건·#10), `render-prerequisites.test.ts`(4건·#3·#7 전제) |
 | 백엔드 수락 시험 | `webapp/tests/test_plush_api.py::test_unknown_trip_and_row_answer_404`(#10 서버 404), 전체 22건 통과 |
+| 서버 권한·정적 경로 확인 | `test_plush_integration.py` **4 passed**(P-01 viewer 거부·bootstrap allowlist·합계), `test_ledger_design.py::test_only_the_allowed_font_assets_are_served` **1 passed**(#7 폰트 정적 경로 allowlist) — 현재 브랜치 실측 |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
 
@@ -54,7 +55,7 @@ npm run typecheck
 | 없는 주소 | 그 외 | "화면을 찾을 수 없습니다" 화면 | 동일 | main.tsx, routes.test.ts(→missing) |
 
 - 탐색 링크는 인코딩된 여행 id(`/board?tab=trip%20a%26b`)를 보존하고 `/ui`로 새지 않는다(primary-navigation.test.tsx). ✅
-- viewer는 `여행` + 허용된 여행만 본다(AppShell `role==="viewer"` 분기). 🔎 코드 — **viewer 직접 URL·API 거부는 서버 확인 필요**(P-01, §3 미검증).
+- viewer는 `여행` + 허용된 여행만 본다(AppShell `role==="viewer"` 분기). ✅ 시험 — **viewer 직접 URL·API 거부 서버 검증**(`test_plush_integration.py`: 타 여행·행 404, 카드/관리/보조 403·404, 자료 유출 없음, 허용 장부 읽기전용, bootstrap allowlist). 화면 렌더는 🖥.
 
 ## 3. 수락 결함 13건 대조
 
@@ -73,7 +74,7 @@ npm run typecheck
 | # | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 6 제목·브랜드·식별자 | ✅ 부분 + 🖥 | shell-accessibility: 브랜드 마크(`.cost-brand`) 1회. 화면별 제목은 `titleForPath`+각 페이지 h1. 내부 식별자 대신 라벨 사용. | topbar "COST/제목"은 위치 표시(브랜드 마크 아님) — 모바일 브랜드 중복 여부 렌더 확인(🖥) |
-| 7 글꼴 스택 하나 | ✅ 전제 시험 + 🖥 | `render-prerequisites.test.ts`: `--font-sans`==`--plush-font` 동일 단일 Pretendard 스택 + `@font-face` 정의 검증. | 화면별 계산 글꼴·본문 크기·행간 동일 **브라우저 렌더** 시험(🖥). 폰트 woff2는 `webapp/static/fonts/`에 있고 CSS는 `/assets/fonts/` 참조 — 호스트 정적 경로 매핑 런타임 확인(🗄), 미로드 시 폴백 스택 |
+| 7 글꼴 스택 하나 | ✅ 전제+서버 시험 + 🖥 | `render-prerequisites.test.ts`: `--font-sans`==`--plush-font` 동일 단일 Pretendard 스택 + `@font-face` 정의 검증. 폰트 정적 경로 ✅ 시험(`test_ledger_design.py::test_only_the_allowed_font_assets_are_served`: woff2 200·wOF2·2,057,688B·allowlist 404). | 화면별 계산 글꼴·본문 크기·행간 동일 **브라우저 렌더** 시험만 남음(🖥), 미로드 시 폴백 스택 |
 | 8 입력 테두리·높이·닫기 | ✅ 대비 + 🔎 코드 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. | 입력 높이 계산 렌더 시험(🖥) |
 | 9 건너뛰기 첫 초점 | ✅ 시험 | shell-accessibility: 건너뛰기 링크가 DOM 순서 첫 초점, `#cost-main`(tabIndex -1)이 본문 포함. | 실제 Tab 순서 브라우저 확인(🖥, jsdom은 Tab 이동 미구현) |
 | 10 없는 여행 404 | ✅ 시험 | 서버: `plush_api._trip_for_query`가 없는 여행 id에 **404 RESOURCE_NOT_FOUND**("없는 여행이에요") 반환 — `test_plush_api.py::test_unknown_trip_and_row_answer_404` 검증(없는 행도 404). 클라이언트: ledger가 404 시 h1 **'여행을 찾을 수 없음'** — `ledger-not-found.test.tsx` 검증(404 아닌 오류는 일반 제목 유지). 없는 주소→"화면을 찾을 수 없습니다"(main.tsx). | 브라우저 404 화면 렌더는 UI-6(🖥) |
@@ -113,7 +114,7 @@ npm run typecheck
 
 ## 6. 미검증 항목 (수락 §3 그대로)
 
-- viewer(열람) 역할 화면 — 직접 URL·API 거부 포함(P-01). 🗄 서버 + 🖥
+- viewer(열람) 역할 화면 — 직접 URL·API 거부(P-01)는 ✅ 서버 시험(`test_plush_integration.py`). 화면 렌더만 🖥
 - 운영 자료 상태(검수는 합성 미리보기만). 고객 원문은 보호 경로에만(P-09).
 - 스크린리더 실청취 — 자동 DOM 검사와 구분해 기록.
 - 실기기(모바일 브라우저·확대·고대비).
@@ -126,7 +127,7 @@ npm run typecheck
 | UI-2 셸·장부 대표 | 건너뛰기·관리 링크·주 행동 수(#13) 시험 완료. 잘림(#3)·글꼴(#7)·모바일 입력(LOW) 렌더 시험(🖥) |
 | UI-3 장부·여행·산출물 | 서버 합계·복사·내보내기 일치(P-03) 백엔드 대조(🗄), 사본 안내 문구(#2) 렌더 |
 | UI-4 영수증 | 기존 영속 계약 연결(P-04) 서버 확인(🗄) |
-| UI-5 거래·관리·보조 | 없는 여행 404(#10) 서버+프런트 시험 **완료**, 용어집(#12) 수립+대조 시험 **완료**. viewer 거부(P-01) 서버 확인, OTA 단서(#5) 렌더 남음 |
+| UI-5 거래·관리·보조 | 없는 여행 404(#10) 서버+프런트 시험 **완료**, 용어집(#12) 수립+대조 시험 **완료**, viewer 거부(P-01) 서버 시험 **완료**(`test_plush_integration.py`). OTA 단서(#5) 렌더 남음 |
 | UI-6 최종 검증 | Esc·Tab·역할(#9·#11) 브라우저 시험, 스크린리더·실기기, 되돌림 절차 |
 
 우선 간극(⚠) **해소**: #10 서버 404(서버+프런트 시험 완료), #12 용어집(정본 수립+대조 시험 완료). 13결함 중 8건(#1·#4·#6브랜드·#8·#9·#10·#12·#13) 자동시험 검증. 나머지는 렌더(🖥)·서버(🗄) 확인으로 검증 상태를 올리는 일이다.
