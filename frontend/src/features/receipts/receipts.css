@@ -220,7 +220,7 @@
   .receipt-workspace > .receipt-card.is-mobile-active { display: block; }
   .receipt-source-tile { flex-basis: 104px; }
   .receipt-source-tile__open img { height: 82px; }
-  .receipt-original { padding: 8px; }
+  .receipt-original { padding: 8px; border-radius: 18px; }
   .receipt-original__image-button { --receipt-source-max-height: 58vh; aspect-ratio: 3 / 4; max-height: var(--receipt-source-max-height); }
   .receipt-original__topline { align-items: flex-start; }
   .receipt-original__actions > * { flex: 1; }
