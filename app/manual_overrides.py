@@ -40,8 +40,26 @@ def exists_sql(conn, row_expr, field=None, alias='mo'):
 
 def manual_fields(conn):
     """{(row_id, field)} of real manual overrides."""
+    if not _has_revisions(conn):
+        return {(r[0], r[1]) for r in conn.execute('SELECT row_id, field FROM board_manual_overrides')}
+    # Equivalent to human_sql, but scan history once per set instead of twice
+    # per override. Operational copies may have no board_revisions indexes.
+    # Materialization also prevents SQLite from inlining the correlated work.
     return {(r[0], r[1]) for r in conn.execute(
-        'SELECT o.row_id, o.field FROM board_manual_overrides o WHERE ' + filter_sql(conn))}
+        """WITH tool_saves AS MATERIALIZED (
+            SELECT DISTINCT row_id,event_id FROM board_revisions
+            WHERE NOT (actor='owner' OR actor LIKE 'owner-%')
+        ), human_changes AS MATERIALIZED (
+            SELECT DISTINCT o.row_id,o.field
+            FROM board_revisions hp JOIN board_manual_overrides o ON o.row_id=hp.row_id
+            WHERE hp.revision>1 AND (hp.actor='owner' OR hp.actor LIKE 'owner-%')
+              AND json_extract(hp.prev_json,'$.'||o.field)
+                  IS NOT json_extract(hp.new_json,'$.'||o.field)
+        )
+        SELECT o.row_id,o.field FROM board_manual_overrides o
+        LEFT JOIN tool_saves ts ON ts.row_id=o.row_id AND ts.event_id=o.event_id AND o.event_id!=''
+        LEFT JOIN human_changes hc ON hc.row_id=o.row_id AND hc.field=o.field
+        WHERE ts.row_id IS NULL OR hc.row_id IS NOT NULL""")}
 
 
 def manual_rows(conn):
