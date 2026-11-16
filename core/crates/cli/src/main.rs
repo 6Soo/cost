@@ -13,7 +13,8 @@ use cost_core::bridge::{BridgeError, PythonBridge};
 use cost_core::guard::{GuardError, ensure_private_path, write_private_lines};
 use cost_core::links::ota::Defaults;
 use cost_core::links::refund::{
-    PairingConfig, RefundInputInvalid, Refunds, refund_rows, refund_rows_from_json, refund_values,
+    PairingConfig, RefundInputInvalid, Refunds, VerdictError, check_verdict, entries_verdict,
+    parse_input, refund_rows, refund_rows_from_json, refund_values,
 };
 use cost_core::period;
 use cost_core::pipeline::{
@@ -32,6 +33,8 @@ const DEFAULT_HOST: &str = "D:/WebLedgerHost";
 enum CliError {
     UsageInvalid,
     PlanResponseInvalid,
+    Stdin,
+    Verdict(VerdictError),
     Pipeline(PipelineError),
     Apply(ApplyError),
     Store,
@@ -48,6 +51,8 @@ impl CliError {
         match self {
             Self::UsageInvalid => "USAGE_INVALID".to_owned(),
             Self::PlanResponseInvalid => "PLAN_RESPONSE_INVALID".to_owned(),
+            Self::Stdin => "INPUT_INVALID".to_owned(),
+            Self::Verdict(error) => error.code.to_owned(),
             Self::Pipeline(PipelineError::PlanFailed) => "PLAN_FAILED".to_owned(),
             Self::Pipeline(PipelineError::DbIsLive) => "DB_IS_LIVE".to_owned(),
             Self::Pipeline(PipelineError::Bridge(BridgeError::Failed(code))) => {
@@ -107,6 +112,12 @@ impl From<GuardError> for CliError {
 impl From<RefundInputInvalid> for CliError {
     fn from(_: RefundInputInvalid) -> Self {
         Self::PlanResponseInvalid
+    }
+}
+
+impl From<VerdictError> for CliError {
+    fn from(error: VerdictError) -> Self {
+        Self::Verdict(error)
     }
 }
 
@@ -307,11 +318,19 @@ fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
 
 /// `costcore links refund --db BOARD [--repo-root ROOT]`: 환불 짝을 `transactions` 원행에서 도출해 Python 다리 `links`(kind=refund)와
 /// 같은 계약의 JSON(`links`·`groups`·`group_exclusions`·`held`·`review_originals`)으로 낸다. 읽기 전용이라 운영 DB도 받는다.
+/// `costcore links refund-entries|refund-check --repo-root ROOT`: 봉인 입력(`rows`·`entries`·`booked`·`authority`)을 받아
+/// 묶음 판정·발급·범위 판정을 낸다. 쓰지 않는다.
 fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
-    if args.first().map(String::as_str) != Some("refund") {
-        return Err(CliError::UsageInvalid);
+    match args.first().map(String::as_str) {
+        Some("refund") => refund_links_cmd(&args[1..]),
+        Some("refund-entries") => refund_entries_cmd(&args[1..]),
+        Some("refund-check") => refund_check_cmd(&args[1..]),
+        _ => Err(CliError::UsageInvalid),
     }
-    let flags = Flags::parse(&args[1..])?;
+}
+
+fn refund_links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
     let stdin_rows = flags.on("--rows-stdin");
     if stdin_rows == flags.get("--db").is_some() {
         return Err(CliError::UsageInvalid);
@@ -334,6 +353,40 @@ fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
     };
     let refunds = Refunds::derive(&rows, &config);
     Ok((0, json!({"ok": true, "result": refund_values(&refunds)})))
+}
+
+/// 봉인 입력(`{rows, entries, booked, authority}`)을 받아 `entries` 출력을 낸다. 쓰기·스키마·Python 다리 없음.
+fn refund_entries_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
+    let config = PairingConfig::from_json(&std::fs::read_to_string(
+        repo.join("config").join("refund-pairing.json"),
+    )?)
+    .map_err(|_| CliError::ConfigInvalid)?;
+    let input = refund_input()?;
+    Ok((0, entries_verdict(&input, &config)))
+}
+
+/// 봉인 입력을 받아 `check` 출력을 낸다. `booked`·`authority`는 미리 검증된다.
+fn refund_check_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
+    let config = PairingConfig::from_json(&std::fs::read_to_string(
+        repo.join("config").join("refund-pairing.json"),
+    )?)
+    .map_err(|_| CliError::ConfigInvalid)?;
+    let input = refund_input()?;
+    check_verdict(&input, &config)
+        .map(|result| (0, result))
+        .map_err(CliError::Verdict)
+}
+
+/// 표준 입력 한 판을 봉인 입력으로: 본문 JSON이 아니면 `INPUT_INVALID`(공개 코드는 고정).
+fn refund_input() -> Result<cost_core::links::refund::VerdictInput, CliError> {
+    let mut body = String::new();
+    std::io::stdin().read_to_string(&mut body)?;
+    let value: Value = serde_json::from_str(&body).map_err(|_| CliError::Stdin)?;
+    parse_input(&value).map_err(CliError::Verdict)
 }
 
 /// `costcore plan --db PATH`: 표준 입력의 JSON(선택)을 요청에 합쳐 Rust 엔진 결과를 낸다.

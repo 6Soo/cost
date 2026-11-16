@@ -12,13 +12,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 pub use adapter::{RefundInputInvalid, refund_rows, refund_rows_from_json, refund_values};
-#[cfg_attr(not(test), allow(unused_imports))] // 게시 단위(U14)가 쓴다
 pub(crate) use group::issue_group;
 pub use group::{
     Authority, Block, Entry, RefundNote, Refusal, Role, Scope, apply_pairs, check_groups,
     extension, scope_group,
 };
+mod verdict;
 use serde_json::Value;
+pub use verdict::{VerdictError, VerdictInput, check_verdict, entries_verdict, parse_input};
 
 /// 외화 짝 설정(`config/refund-pairing.json`의 `foreign_amount_pairing`).
 #[derive(Debug, Clone, PartialEq, Eq)]
