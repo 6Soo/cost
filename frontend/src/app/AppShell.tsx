@@ -140,6 +140,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
 
   return (
     <div className={cn("cost-app-shell", className)} data-role={role}>
+      <a className="cost-skip-link" href="#cost-main">본문으로 건너뛰기</a>
       <div className="cost-workspace">
         <aside className="cost-sidebar" aria-label="기본 탐색">
           <a className="cost-brand" href="/ui/" aria-label="COST 홈">
@@ -193,7 +194,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
             </div>
           </header>
 
-          <main className="cost-main">{children}</main>
+          <div className="cost-main" id="cost-main" tabIndex={-1}>{children}</div>
 
           <nav className="cost-bottom-nav" aria-label="주요 탐색" style={{ "--cost-nav-count": role === "owner" ? 5 : 1 } as CSSProperties}>
             {(role === "owner" ? ownerNavigation : [{ label: "여행", href: "/ui/trips", match: ["/trips", "/board"] }]).map((item) => (

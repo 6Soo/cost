@@ -58,6 +58,22 @@
   }
 }
 
+.cost-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 12px 16px;
+  border-radius: var(--cost-radius-control);
+  background: var(--cost-action);
+  color: var(--cost-on-action);
+  transform: translateY(-200%);
+}
+
+.cost-skip-link:focus {
+  transform: translateY(0);
+}
+
 .cost-app-shell {
   min-height: 100dvh;
   background: var(--cost-background);
