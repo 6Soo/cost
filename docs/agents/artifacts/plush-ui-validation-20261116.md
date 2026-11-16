@@ -1,5 +1,17 @@
 # Plush UI 구현·검증 현황
 
+## 2026-11-16 승계 후 직접 검증
+
+- 통합 작업 폴더와 기존 C/D/E 소유권을 유지했다. 영수증 선행 운영 배포 `11267cd0`를 포함한 main을 `8d39ef5a`로 병합했고, 영수증 완료 문서 `27e15d74`는 `a9c31f7e`로 통합했다. Plush 운영 배포는 아직 하지 않았다.
+- 기존 광범위 검사 기준 `b46e4a92`: pytest 본 검사 1,475건 통과·기존 간헐 실패 1건·하위 검사 106건 통과, skip0. 품질 도구의 요약은 알려진 실패 분리 정책에 따라 PASSED이나 pytest exit1을 함께 보존한다. 이 사실을 실패0으로 표현하지 않는다.
+- 해당 업로드 복구 검사(`test_committed_upload_recovers_truncated_or_stalled_response_body`)를 현재 통합본과 기존 main 작업 폴더에서 각각 재실행해 각각 1 passed·2 subtests passed를 확인했다. 관련 구현과 테스트의 Git blob이 기준 main과 동일하고 원본 폴더에도 두 파일의 변경이 없었다. 테스트·기대값·운영 코드를 바꾸지 않았다.
+- `a9c31f7e`의 후속 영향 검사 `python tools/run_quality_checks.py --base b46e4a92 --run`: **62 passed, skip0, 새 실패0**, 자료 보호·컴파일 통과. 기존 광범위 검사와 이 후속 검사의 범위를 구분한다. 최종 C/D/E 통합 후 영향 검사는 다시 필요하다.
+- 프런트 **18 passed**, 타입 검사·정적 빌드 통과. 서버 Plush·배포 보호 표적 **41 passed**. 실제 실행 로그는 통합 worktree의 `.agents/`와 `quality-artifacts/`에 보존한다.
+- ego-browser TaskSpace53의 실제 합성 서버에서 영수증 원본 너비를 키보드로 50%로 조절하고, 확대 창 Tab/ShiftTab 내부 유지·Esc 후 실행 버튼 초점 복귀를 확인했다. 320/390/720/1440px에서 문서 가로 넘침0. `accessibility-v8.png`를 직접 시각 확인했다.
+- C Google 비교·연결·복사, E 규칙 대화·내보내기, D 실제 원천·편집 계약 보완은 기존 작업자가 계속한다. 최종 SHA 독립 검수·PR971 병합·검증 운영 배포는 대기 중이다. 실제 구독 모델 판독은 선행 영수증 작업에서 확인된 Claude 로그인 차단을 유지하며 합성 runtime 검증과 구분한다.
+
+아래는 앞선 통합 단계의 이력이며, 현재 수치와 남은 작업은 이 절을 우선한다.
+
 정본: [전체 설계](../../design/m4-plush-ui-20261116.md), [실행 계약](plush-ui-implementation-contract-20261116.md). 현재 사용자 지시는 모든 구현 재개와 운영 배포다. 영수증 감독의 선행 배포를 통합한 뒤 Plush 배포를 수행한다. 운영 DB/고객 원본 변경·실제 모델 호출·Google 자동 쓰기는 범위 밖이다.
 
 ## 작업 상태

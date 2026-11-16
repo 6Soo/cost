@@ -2,12 +2,14 @@
 
 ## 2026-11-16 — Plush UI 운영 배포 요청 재개 (진행 중)
 
-- **현재 승인:** 사용자 지시 “모든 작업 재개하고 운영배포까지해”. 기존 문서의 운영 배포 제외 문구는 이 Plush 요청에 한해 갱신됐다. Rust 작성자 전환·고객 원본 변경은 포함하지 않는다.
-- **작업 폴더:** `C:/Users/kkokk/.paseo/worktrees/28lt5mey/plush-ui-integration-20261116`, `integration/plush-ui-20261116`. 통합 `58fd9143`·API `670cc2ad`를 재사용하고 `dfe6bc4f`에서 합성 viewer 연결과 Node 웹 API 검사 환경을 바로잡았다. `088b1731`은 바이너리 다운로드 바이트 보존·계정 POST 3개 exact allowlist, `648d5a13`은 기존 라이선스 글꼴 경로 재사용이다.
-- **직접 검증:** API 6건·정적 UI 20건 통과; 연결 누락을 고친 HTTP 4건 통과; 프런트 10건·타입·빌드 통과. 합성 1,003행 DB, ego-browser TaskSpace 53에서 1440/390px light/dark 캡처, 모바일 가로 넘침 0, viewer 다른 여행/쓰기 버튼 비노출, 상세 Esc 닫기·초점 복귀 확인. 키보드 Tab 순환 보완 후 재검증 중이다. 실기기·스크린리더 실청취는 미실행이다.
-- **남은 일:** B/D/C/E의 기존 작업 폴더에서 후속 API 계약 수정·검증 진행. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`은 `webapp/tests/test_receipt_workflow_ui.py` 누락으로 selector 단계 실패; 통과로 기록하지 않는다. 영수증 최신 SHA 통합 후 재실행한다. Git 자료 보호 검사 차단 0건.
-- **배포 순서:** 별도 영수증 감독 `73dfaca3-7c22-4d37-897b-66f088af068e`가 `C:/AX/cost`의 영수증·배포·상태 문서를 소유하고 먼저 배포한다. 그 배포 SHA와 실제 API 계약을 받은 뒤 Plush에 통합, 영향 검사·최종 SHA 독립 검수·PR·`deploy_verified_release.ps1`·운영 smoke를 수행한다. 아직 Plush 운영 배포·완료를 주장하지 않는다. 원본 폴더와 사용자 변경은 보존한다.
-- **복구:** `.agents/plush-integration-checkpoint.json`, 합성 preview `.agents/plush_preview_v5.py`와 `.agents/plush-preview-v5/`, 브라우저 스크립트 `.agents/ego-*-v5.mjs`. preview는 임시 DB·임의 loopback 포트·worker/model 비활성 상태다. graphify 그래프와 실행 파일이 이 worktree에 없어 query/update는 실행할 수 없었다.
+- **현재 승인:** 사용자 지시 “모든 작업 재개하고 운영배포까지해”. 실행 명세는 [Plush 설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)이다. Rust 전환·고객 원본 변경·Google 자동 쓰기는 포함하지 않는다.
+- **작업 폴더:** `C:/Users/kkokk/.paseo/worktrees/28lt5mey/plush-ui-integration-20261116`, `integration/plush-ui-20261116`. 승계 감독은 기존 C Google/D API/E 보조 후속 소유권과 미커밋 자료를 보존한다. 영수증 운영 `11267cd0`의 보호 수정은 `8d39ef5a`, 완료 기록은 `a9c31f7e`로 통합했다. 원본 폴더의 사용자·성능 작업은 변경하지 않는다.
+- **검증:** 기존 broad `b46e4a92`는 1,475 passed·기존 간헐 실패1·106 subtests passed·skip0(품질 도구 요약 PASSED, pytest exit1). 해당 업로드 복구 검사는 같은 구현/테스트 blob인 현재 통합본과 기준 main에서 각각 1 passed·2 subtests passed로 재확인했다. 기대값이나 코드를 변경하지 않았다. 후속 `a9c31f7e` 영향 검사62건·skip0/새 실패0, 별도 서버/배포 표적41건, 프런트18건·타입·빌드 통과. [검증 현황](agents/artifacts/plush-ui-validation-20261116.md)에 범위와 근거를 구분한다.
+- **브라우저:** TaskSpace53, 합성 DB1,003행. 앞선 390/1440 light/dark·viewer·검색·정확 합계·응답 유실/충돌/선택 반영 근거 보존. 승계 후 원본 너비 키보드50%·확대 Tab/ShiftTab/Esc/초점 복귀·320/390/720/1440 가로 넘침0을 직접 재확인했다. 실제 기기·스크린리더 실청취·실모델 판독 성공은 주장하지 않는다.
+- **추가 영수증 계약:** 별도 영수증 감독이 전달한 사용자 요청에 따라 React에 서버 기본 provider/model·effective thinking과 영속 batch의 실제 모델/추론을 표시했다(`8d332330`, 표적2건·타입·빌드 통과). 서버 Terra high 기본 계약과 최종 SHA는 해당 감독 소유이며 통합 대기다. 모델 목록 조회나 기본 선택으로 실행하지 않는다.
+- **남은 일/다음 행동:** 기존 C Google 비교·연결·복사, D 실제 원천/편집/보조 projection, E 규칙 대화·내보내기 후속을 통합한다. 최종 영향 검사와 정확 SHA 독립 검수 뒤 PR971 병합·검증 배포·운영 smoke를 수행한다. 현재 운영은 선행 영수증11267cd0이며 Plush 배포는 미실행이다. 배포 직전 실제 운영 SHA와 다른 배포 세션을 재확인한다.
+- **복구:** `.agents/plush-integration-checkpoint.json`, `.agents/quality-b46-preserved/`, `.agents/*v8*`, `quality-artifacts/`. graphify graph/CLI가 이 worktree에 없어 query/update를 실행하지 못했다. 현재 실행 가능한 후속 작업을 계속하며 전체 완료로 표시하지 않는다.
+
 ## 2026-11-16 20:14 — 영수증 구현·운영 배포 완료, 실모델 판독은 로그인 차단
 
 - **최신 요청/범위:** “영수증 관련 작업은 끝난건가? 이쪽 먼저 구현하고 배포해”에 따라 영수증을 우선 구현·배포했다. 영속 작업·복귀·사진/결과 교정·선택 내역 원자적 반영·PDF 원본 조회·Paseo 연결·운영 workflow 활성화를 통합했다. 성능 개선·Plush·Rust 전환은 이번 배포에 포함하지 않았다.
