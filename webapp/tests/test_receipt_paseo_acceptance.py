@@ -6,14 +6,17 @@ provider or use a production store, port, browser, or original.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
 from app import receipt_vision
+from webapp import ledger_board
 from webapp.tests import test_receipt_review as legacy
 
 
@@ -25,8 +28,10 @@ class SyntheticRuntime:
 
     @staticmethod
     def prompt_metadata():
-        return {"prompt_version": "acceptance-v1", "prompt_sha256": "a" * 64,
-                "schema_version": "acceptance-v1", "schema_sha256": "b" * 64}
+        return {"prompt_version": "acceptance-v1", "prompt_sha256": hashlib.sha256(
+                    (receipt_vision.SYSTEM_PROMPT + "\n\n" + receipt_vision.playbook_prompt()).encode("utf-8")).hexdigest(),
+                "schema_version": "acceptance-v1", "schema_sha256": hashlib.sha256(
+                    receipt_vision.SCHEMA_PATH.read_bytes()).hexdigest()}
 
     @staticmethod
     def catalog(provider=None):
@@ -72,6 +77,7 @@ def receipt_http(monkeypatch, tmp_path):
     runtime = SyntheticRuntime()
     workflow_path = tmp_path / "acceptance-workflow.sqlite"
     monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_DB", str(workflow_path))
+    monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_ENABLED", "1")
     for name in ("catalog", "prompt_metadata", "start", "find_run", "inspect_run", "archive_run"):
         monkeypatch.setattr(receipt_paseo, name, getattr(runtime, name))
     fixture = legacy.ReceiptReviewTests()
@@ -99,7 +105,7 @@ def _upload(fixture):
     return image["sha256"]
 
 
-def _enqueue(fixture, image, request_id="acceptance-analysis-1"):
+def _enqueue(fixture, image, request_id="a" * 32):
     status, body = fixture.request("/api/receipts/workflow/batches", {
         "images": [image], "provider": "claude", "model": "synthetic-opus", "request_id": request_id,
     }, token=fixture.csrf())
@@ -157,24 +163,29 @@ def test_stale_selection_rolls_back_whole_batch_and_replayed_apply_is_one_expens
     batch = _enqueue(fixture, _upload(fixture))
     runtime.release.set()
     _wait_until(lambda: _persisted_result(fixture))
-    first, second = [_review(fixture, candidate)
-                     for candidate in _candidates(fixture, batch["batch_id"])]
+    reviewed = [_review(fixture, candidate)
+                for candidate in _candidates(fixture, batch["batch_id"])]
+    first = next(candidate for candidate in reviewed if candidate["currency"] == "JPY")
+    second = next(candidate for candidate in reviewed if candidate["currency"] == "KRW")
     stale_second = dict(second)
     second = _review(fixture, second, merchant="합성 교정 상호")
     status, body = fixture.request("/api/receipts/workflow/apply", {
-        "request_id": "acceptance-stale-batch",
+        "request_id": "b" * 32,
         "selections": [{"candidate_id": candidate["candidate_id"],
                         "expected_revision": candidate["revision"]} for candidate in (first, stale_second)],
     }, token=fixture.csrf())
     assert status == 409, body
     assert _ledger_count(fixture) == 0
-    payload = {"request_id": "acceptance-once", "selections": [
+    payload = {"request_id": "c" * 32, "selections": [
         {"candidate_id": first["candidate_id"], "expected_revision": first["revision"]}]}
     status, outcome = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
     assert status == 200, outcome
     assert _ledger_count(fixture) == 1
     assert fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf()) == (status, outcome)
     assert _ledger_count(fixture) == 1
+    record = json.loads(fixture.server.card_store.conn.execute(
+        "SELECT payload_json FROM board_rows WHERE row_id LIKE 'rcpt-%'").fetchone()[0])
+    assert record["amount_krw"] == 12000
     stored = _candidates(fixture, batch["batch_id"])
     assert sum(bool(candidate["applied"]) for candidate in stored) == 1
 
@@ -182,9 +193,28 @@ def test_stale_selection_rolls_back_whole_batch_and_replayed_apply_is_one_expens
 def test_missing_csrf_or_unknown_original_cannot_start_a_model(receipt_http):
     fixture, runtime = receipt_http
     payload = {"images": ["f" * 64], "provider": "claude", "model": "synthetic-opus",
-               "request_id": "acceptance-forged-image"}
+               "request_id": "d" * 32}
     status, body = fixture.request("/api/receipts/workflow/batches", payload)
     assert status == 403, body
     status, body = fixture.request("/api/receipts/workflow/batches", payload, token=fixture.csrf())
     assert status in (400, 404, 409), body
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize("path", ["/api/receipts/paseo/models", "/api/receipts/workflow",
+                                 "/api/receipts/workflow/batches", "/api/receipts/workflow/review",
+                                 "/api/receipts/workflow/apply", "/api/receipts/workflow/retry"])
+def test_every_workflow_route_refuses_non_owner(receipt_http, path):
+    fixture, runtime = receipt_http
+    with patch.object(ledger_board, "_receipts_owner_request", return_value=False):
+        assert fixture.request(path)[0] == 403
+        assert fixture.request(path, {}, token=fixture.csrf())[0] == 403
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize("path", ["/api/receipts/workflow/batches", "/api/receipts/workflow/review",
+                                 "/api/receipts/workflow/apply", "/api/receipts/workflow/retry"])
+def test_mutation_routes_do_not_accept_get(receipt_http, path):
+    fixture, runtime = receipt_http
+    assert fixture.request(path)[0] == 405
     assert runtime.calls == []
