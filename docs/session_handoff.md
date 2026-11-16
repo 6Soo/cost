@@ -1,3 +1,16 @@
+## 2026-11-16 — Rust 미결 구현·합성 검사 완료
+
+- **요청/범위:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. SPEC M3 / `design/m3-core.md` U12~14를 기준으로 완료된 과제를 재구현하지 않았다. 별도 `integration/rust-exaone-20261116`에서 최신 main `ee118935`를 보존했고 원래 root 사용자 변경·UI 라우팅·운영 서비스는 수정하지 않았다.
+- **위임:** `opencode/exaone/k-exaone_v2.5` 3명, build/medium(high 조사 반복 후 조정), 합성 자료만 사용. 사전검사와 기준선 결함 수정은 작업자 완료물을 통합했다. 환불 작업자는 초안을 작성했으나 컴파일/검증이 지연되어 쓰기 소유권을 회수하고 감독이 완성했다. 중복 위임·유료 모델 전환은 없었다.
+- **환불 배선:** 감독 Python `a55de0c6` + Rust CLI `056253df`. 실제 `apply_pairs`·`check_groups`·`scope_group`·비공개 `issue_group`을 소비한다. 금액/ID/원문은 응답 수정 대상이 아니며, 기존 Python 트랜잭션에서 묶음의 최종 권한 상실은 전부 롤백한다. 실바이너리 기존 골든53+게시/멱등/권한상실3 = **56 passed**, CLI4/core1 passed. Python 환불·기존 검사25 passed.
+- **사전검사:** ExaOne `31feca83` → 통합 `a360f055`, 감독 경계 보완 `c391d415`. 표적25 passed/skip0. 실제 합성 fixture의 WAL 거부를 확인하고 원본 보존 후 별도 DELETE-mode 사본에서 최종 바이너리 READY(환불1=1·OTA1=1, 입력/설정 불변)를 확인했다. 운영 승인·실자료 비교·백업/복원 증거를 대신하지 않는다.
+- **Python 기준선:** ExaOne `60492d7d` → `437125da`. Rust 부모 설정 상속으로 Python 기준까지 Rust를 호출하던 결함을 child 환경 고정으로 수정했다. 감독 실제 회귀1 passed, 작업자 shadow CLI8/fmt/clippy 통과. 부모 환경은 바꾸지 않는다.
+- **OTA:** 기존 `e2a43e10`·`f5c91d95`가 과거 1,648건 측정 뒤 main에 반영된 사실을 확인했다. 감독 Rust 골든7 passed, 작업자 합성 differential9/9. 새 OTA 계산 코드 변경 없이 검증했으며 **실자료 1,648건의 최신 재측정은 미완**이다.
+- **최종 검사 중 발견/보완:** 공식 영향 검사에서 기존 `manual_rows`의 row_id-only 구형 스키마 계약 2실패가 나왔다. origin/main과 성능 이전 코드에도 동일한 문제가 있어 성능 회귀가 아님을 확인했다. 담당과 소유권을 조정해 `8fbf60f0`로 원행 ID만 읽도록 보완했고, 새 red→기존 포함8 passed. 기존 테스트를 완화하지 않았다. 공식 재검사는 Python923/Rust191 passed·skip0/known0, build/fmt/clippy exit0. 독립 sol medium 코드 검수 APPROVE·표적42 passed. 최신 UI main 통합 뒤 실제 환불/Plush 교차 검사97 passed. [검증 근거](agents/artifacts/rust-exaone-validation-20261116.md)에 SHA와 한계를 기록했다. 최종 SHA 검수 판정은 동일 PR에 남긴다.
+- **운영/남은 일:** Rust 전환·배포 없음. 다른 세션이 UI 기존 URL 연결/배포를 맡으며 현재 전달받은 운영 SHA는 `c77eaa2bcfd04d8a553122330ebbda914a78cef0`. UI main `d088e1cb`를 통합 `ddc22536`에 보존했다. 코드·합성 검증은 완료했고 PR 최종 검수/병합을 진행한다. C1/C2/승인①②·운영 전환은 별도 미완이다. graphify update는 CLI 미설치로 실행 불가했다.
+
+# 현재 상태
+
 # 현재 상태
 
 ## 2026-11-16 — Plush UI 운영 배포 완료

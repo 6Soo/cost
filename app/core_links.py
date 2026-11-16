@@ -183,3 +183,142 @@ def clear_cache() -> None:
     with _lock:
         _cache.clear()
         _versions.clear()
+
+
+_ENTRY_TEXT = ('item', 'display_tab_id', 'trip_id', 'description')
+_ENTRY_KEYS = frozenset(('id', *_ENTRY_TEXT, 'blocked', 'already_booked', 'external', 'ready'))
+
+
+def _ledger_entry(entry, ready_ids):
+    return dict(id=entry['transaction_id'],
+                **{key: str(entry.get(key) or '') for key in _ENTRY_TEXT},
+                blocked=(dict(code=entry['blocked'], reason=str(entry.get('reason') or ''))
+                         if entry.get('blocked') else None),
+                already_booked=bool(entry.get('already_booked')),
+                external=bool(entry.get('source_batch_id')), ready=entry['transaction_id'] in ready_ids)
+
+
+def _ledger_run(conn, command, entries, *, booked=(), authority=None):
+    """Use this connection's exact source snapshot, including its pending rows. Never fall back."""
+    binary = os.environ.get(BIN_ENV, '')
+    if not binary:
+        raise RuntimeError('CORE_LINKS_NOT_CONFIGURED')
+    digest = source_digest(conn)
+    config = CONFIG.read_bytes()
+    request = dict(rows=row_dicts(fetch_rows(conn)), entries=entries, booked=list(booked),
+                   authority=authority or dict(trips=None, tabs=None))
+    done = subprocess.run([binary, 'links', command, '--repo-root', str(ROOT)],
+                          input=json.dumps(request, ensure_ascii=False), capture_output=True,
+                          text=True, encoding='utf-8', timeout=300)
+    if source_digest(conn) != digest or CONFIG.read_bytes() != config:
+        raise RuntimeError('CORE_LINKS_DB_CHANGING')
+    try:
+        response = json.loads(done.stdout.splitlines()[0])
+        if not isinstance(response, dict):
+            raise ValueError
+    except (ValueError, IndexError):
+        raise RuntimeError('CORE_LINKS_NO_RESPONSE') from None
+    if done.returncode or response.get('ok') is not True:
+        from .db import StoreError
+        error = response.get('error')
+        code = error.get('code') if isinstance(error, dict) else None
+        if code in ('REFUND_GROUP_INCOMPLETE', 'REFUND_GROUP_EXCLUDED', 'INVALID_INPUT'):
+            raise StoreError(code, '환불 묶음 검증을 통과하지 못했습니다.')
+        raise RuntimeError('CORE_LINKS_FAILED')
+    if not isinstance(response.get('result'), dict):
+        raise RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+    return response['result']
+
+
+def _validate_entries(result, sent, source_ids):
+    out = result.get('entries')
+    invalid = lambda: RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+    if not isinstance(out, list) or len(out) != len(sent):
+        raise invalid()
+    for before, after in zip(sent, out):
+        if not isinstance(after, dict) or not _ENTRY_KEYS <= after.keys() or after.keys() - (_ENTRY_KEYS | {'refund_link'}):
+            raise invalid()
+        if (after['id'] != before['id'] or after['id'] not in source_ids
+                or any(type(after[key]) is not bool for key in ('already_booked', 'external', 'ready'))
+                or any(after[key] != before[key] for key in ('already_booked', 'external'))
+                or any(not isinstance(after[key], str) for key in _ENTRY_TEXT)):
+            raise invalid()
+        block = after['blocked']
+        if block is not None and (not isinstance(block, dict) or set(block) != {'code', 'reason'}
+                                  or any(not isinstance(block[k], str) for k in block) or not block['code']):
+            raise invalid()
+        if block is not None and after['ready']:
+            raise invalid()
+        note = after.get('refund_link')
+        if note is not None:
+            required = {'gross_krw', 'refund_krw', 'net_krw', 'status', 'role', 'counterpart_id'}
+            if (not isinstance(note, dict) or not required <= note.keys()
+                    or note.keys() - (required | {'basis', 'inferred'})
+                    or any(type(note[k]) is not int for k in ('gross_krw', 'refund_krw', 'net_krw'))
+                    or note['status'] not in ('full', 'partial', 'excess')
+                    or note['role'] not in ('original', 'refund')
+                    or note['counterpart_id'] not in source_ids
+                    or type(note.get('inferred', False)) is not bool
+                    or note.get('basis') is not None and not isinstance(note['basis'], str)):
+                raise invalid()
+    return out
+
+
+def ledger_pairs(conn, rows, ready, unresolved, *, trip_validator=None, tab_validator=None):
+    """Consume Rust's decision fields only, validating the entire response before changing any row."""
+    ready_ids = {entry['transaction_id'] for entry in ready}
+    sent = [_ledger_entry(entry, ready_ids) for entry in rows]
+    ids = [entry['id'] for entry in sent]
+    if len(set(ids)) != len(ids):
+        raise RuntimeError('CORE_LINKS_DUPLICATE_ENTRY')
+    def authorities(key, validator, extra=()):
+        return ({value: bool(validator(value)) for value in {entry[key] for entry in sent} | set(extra) if value}
+                if callable(validator) else None)
+    result = _ledger_run(conn, 'refund-entries', sent,
+                         authority=dict(trips=authorities('trip_id', trip_validator),
+                                        tabs=authorities('display_tab_id', tab_validator, ('refunds',))))
+    source_ids = {row[0] for row in conn.execute('SELECT transaction_id FROM transactions')}
+    updates = _validate_entries(result, sent, source_ids)
+    for entry, update in zip(rows, updates):
+        entry.update({key: update[key] for key in _ENTRY_TEXT})
+        for key in ('blocked', 'reason', 'refund_link'):
+            entry.pop(key, None)
+        if update['blocked'] is not None:
+            entry.update(blocked=update['blocked']['code'], reason=update['blocked']['reason'])
+        if update.get('refund_link') is not None:
+            entry['refund_link'] = update['refund_link']
+        for bucket in (ready, unresolved):
+            if entry in bucket:
+                bucket.remove(entry)
+        (ready if update['ready'] else unresolved).append(entry)
+
+
+def check_ledger_groups(conn, rows):
+    """Return the sealed member IDs whose last authority check must remain atomic with publication."""
+    ready_ids = {row['transaction_id'] for row in rows if not row.get('blocked') and not row.get('already_booked')}
+    sent = [_ledger_entry(row, ready_ids) for row in rows]
+    booked = [row[0] for row in conn.execute('SELECT transaction_id FROM ledger_entries ORDER BY transaction_id')]
+    result = _ledger_run(conn, 'refund-check', sent, booked=booked)
+    groups = result.get('groups')
+    if not isinstance(groups, list):
+        raise RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+    source_ids = {row[0] for row in conn.execute('SELECT transaction_id FROM transactions')}
+    members, group_ids = set(), set()
+    for group in groups:
+        if (not isinstance(group, dict) or set(group) != {'id', 'members'}
+                or not isinstance(group['id'], str) or not group['id'] or group['id'] in group_ids
+                or not isinstance(group['members'], list)
+                or any(not isinstance(member, str) for member in group['members'])):
+            raise RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+        current = set(group['members'])
+        if (len(current) != len(group['members']) or len(current) < 2 or current & members
+                or not current <= source_ids or not current & ready_ids
+                or not current <= ready_ids | set(booked)):
+            raise RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+        members.update(current)
+        group_ids.add(group['id'])
+    required = {row['transaction_id'] for row in rows if row['transaction_id'] in ready_ids
+                and row.get('refund_link') and not row['refund_link'].get('inferred')}
+    if not required <= members:
+        raise RuntimeError('CORE_LINKS_INVALID_RESPONSE')
+    return frozenset(members)

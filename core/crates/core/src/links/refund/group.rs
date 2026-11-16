@@ -452,7 +452,6 @@ pub fn extension(refunds: &Refunds, current: &BTreeSet<String>) -> BTreeSet<Stri
 /// `RefundGroup`의 유일한 발급처(RFND-044, SPEC §13). 아래 하나라도 해당하면 만들지 않는다.
 /// 추론·초과 환불·검증 밖 연결, 이 범위에 없는 구성원, 완료 기간 구성원과 깨끗하지 않은 취소(PROC-072, RFND-006).
 /// Python의 전액 상쇄 확장은 완료 기간을 거르지 않지만, 묶음 게시는 완료 자료를 건드리지 않도록 더 엄격하다.
-#[cfg_attr(not(test), allow(dead_code))] // 게시 단위(U14)가 쓴다
 pub(crate) fn issue_group(
     refunds: &Refunds,
     entries: &[Entry],

@@ -64,4 +64,6 @@ def manual_fields(conn):
 
 def manual_rows(conn):
     """Row ids with any real manual override."""
+    if not _has_revisions(conn):
+        return {r[0] for r in conn.execute('SELECT row_id FROM board_manual_overrides')}
     return {row_id for row_id, _ in manual_fields(conn)}
