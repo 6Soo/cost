@@ -59,3 +59,9 @@
 - **검증 근거:** `npm run typecheck` 통과, `npm run build` 통과(폰트 경로는 런타임 `/ui/fonts/...`로 남음). Vitest는 8건 중 7건 통과, blob fixture 1건은 Windows Node/jsdom Response가 Blob 본문을 `[object Blob]`로 직렬화하는 환경 불일치로 실패했다.
 - **미완료/차단:** `webapp/plush_ui.py`는 정적 셸만 제공하고 `/api/plush/*` dispatcher가 아직 없다. 통합 HTTP 테스트는 `dist` fixture를 찾지 못해 4건이 setup error이며, API 구현 부재 검증까지 진행하지 못했다. 인증·ledger·receipt 서버 API와 운영 배포는 미완료다.
 - **다음 명령:** D 작업 결과에서 실제 `plush_api` 서버 dispatcher를 찾아 `ledger_board` GET/POST hook에 통합한 뒤, frontend build 산출물로 `pytest -q webapp/tests/test_plush_integration.py`를 재실행한다. API가 없으면 해당 범위를 별도 구현 작업으로 기록하고 배포하지 않는다.
+
+## 2026-11-16 — Plush projection API 통합 갱신
+
+- D worktree의 미커밋 산출물 `webapp/plush_api.py`, `webapp/plush_projection.py`, `webapp/tests/test_plush_api.py`를 확인해 통합했다. `ledger_board._phase7_get`에서 인증 세션 확인 뒤 Plush GET projection dispatcher를 호출하도록 연결했다.
+- 커밋 `670cc2ad`; API 단위 검사 `pytest -q webapp/tests/test_plush_api.py`는 6건 통과했다.
+- 통합 HTTP 검사는 4건 중 2건 통과, 2건 실패했다. viewer 합성 fixture가 active connection을 만들지 않아 `visible_tabs`가 빈 집합을 반환하는 테스트 설정 문제이며, 권한 보호를 약화시키지 않고 보류한다. 운영 배포는 하지 않았다.
