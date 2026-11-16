@@ -57,6 +57,7 @@ def test_original_date_amount_cross_quarter_corrects_item_and_three_projections(
     assert state['transaction']['item']==state['ledger']['item']=='항공료'
     assert state['transaction']['trip_id']==state['ledger']['trip_id']==state['board']['display_tab_id']=='B'
     assert state['transaction']['description'].startswith('항공료')
+    assert state['ledger']['description']==state['transaction']['description']==json.loads(state['board']['payload_json'])['description']
     assert state['transaction']['amount_krw']==before['transaction']['amount_krw']
     assert state['transaction']['source_hash']==before['transaction']['source_hash']
     assert repair._financial_state(c)==financial
@@ -66,6 +67,7 @@ def test_original_date_amount_cross_quarter_corrects_item_and_three_projections(
     restored=repair._state(c,tid)
     for field in ('item','description','display_tab_id','trip_id'):
         assert restored['transaction'][field]==before['transaction'][field]
+        assert restored['ledger'][field]==before['ledger'][field]
 
 
 @pytest.mark.parametrize('guard',['baseline','two_targets','wrong_period','changed_bytes','later_owner','selected_initial_trip','manual_override','p2','ordinary_scope'])
@@ -104,6 +106,8 @@ def test_matching_accepts_date_or_distinctive_merchant_with_same_amount():
     assert not same_transaction(card,dict(original,amount=5001))
     assert same_transaction(dict(card,merchant='SYNTHETIC HOTEL'),dict(original,cells=dict(B='26.05.01',C='SYNTHETIC')))
     assert not same_transaction(dict(card,merchant='ONE HOTEL'),dict(original,cells=dict(B='26.05.01',C='OTHER HOTEL')))
+    assert not same_transaction(dict(card,merchant='THE HOTEL'),dict(original,cells=dict(B='26.05.01',C='THE HOTELS')))
+    assert not same_transaction(dict(card,merchant='NICE PAYMENT GATEWAY'),dict(original,cells=dict(B='26.05.01',C='OTHER PAYMENT GATEWAY')))
 
 
 def test_short_year_is_explicit_not_inferred_from_current_date():

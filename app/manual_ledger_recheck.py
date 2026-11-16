@@ -14,16 +14,18 @@ from .google_expense_rows import day, read
 
 
 def merchant_part(left, right):
+    generic = {'hotel', 'hotels', '호텔', '주식회사', '유한회사', '이니시스',
+               '나이스', '나이스정보통신', '숙박', '숙박비', '식당', '식비',
+               '택시', '교통비', '항공료', '기타', '온라인', '주', 'the', 'and',
+               'nice', 'payments', 'payment', 'gateway', 'pg', 'inc', 'ltd', 'com'}
     def normalize(value):
         value = unicodedata.normalize('NFKC', str(value or '')).casefold()
         for old, new in (('trip.com', '트립닷컴'), ('agoda', '아고다'),
                          ('rakuten', '라쿠텐'), ('booking.com', '부킹닷컴')):
             value = value.replace(old, new)
-        return re.sub(r'[^a-z0-9가-힣]', '', value)
+        return ''.join(token for token in re.findall(r'[a-z0-9]+|[가-힣]+', value)
+                       if token not in generic)
     a, b = normalize(left), normalize(right)
-    generic = {'hotel', 'hotels', '호텔', '주식회사', '유한회사', '이니시스',
-               '나이스', '나이스정보통신', '숙박', '숙박비', '식당', '식비',
-               '택시', '교통비', '항공료', '기타', '온라인', 'the', 'and'}
     for size in range(min(len(a), len(b)), 1, -1):
         for index in range(len(a) - size + 1):
             part = a[index:index + size]

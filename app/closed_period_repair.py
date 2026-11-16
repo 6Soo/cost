@@ -114,8 +114,9 @@ def _complete_refund_groups(conn, rows, linked):
 
 
 def _sync(conn, tid, values, request_id, *, old_board=None):
-    conn.execute('UPDATE ledger_entries SET '+','.join(k+'=?' for k in FIELDS)+' WHERE transaction_id=?',
-                 (*[values[k] for k in FIELDS],tid))
+    fields = FIELDS + (('description',) if 'description' in values else ())
+    conn.execute('UPDATE ledger_entries SET '+','.join(k+'=?' for k in fields)+' WHERE transaction_id=?',
+                 (*[values[k] for k in fields],tid))
     board = _state(conn,tid)['board']
     if not board:
         return
