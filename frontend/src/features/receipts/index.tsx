@@ -384,7 +384,10 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
     try {
       const data = await getJSON<PaseoCatalog>(`/api/receipts/paseo/models${suffix}`);
       setCatalog(data);
-      if (!forProvider && !provider && data.providers.length) setProvider(data.providers[0].id);
+      if (!forProvider && !provider && data.providers.length) {
+        setProvider(data.providers.find((item) => item.id === data.default_provider)?.id
+          || data.providers.find((item) => item.available)?.id || data.providers[0].id);
+      }
       return data;
     } catch (error) {
       setCatalogError(errorText(error));
@@ -555,7 +558,8 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       setPageError('분석할 사진을 먼저 선택하세요.');
       return;
     }
-    await submitModelRun({ request_id: randomRequestId(), images: [...selectedShas], provider: model.provider, model: model.id, label: model.label });
+    const thinking = model.effective_thinking || model.default_thinking;
+    await submitModelRun({ request_id: randomRequestId(), images: [...selectedShas], provider: model.provider, model: model.id, label: `${model.label}${thinking ? ` · ${thinking}` : ''}` });
   }, [selectedShas, submitModelRun]);
 
   const beginCandidateEdit = useCallback((candidate: WorkflowCandidate) => {
@@ -906,7 +910,8 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         <div className="receipt-model-grid">
           {currentModels.map((model) => <article className={`receipt-model ${model.selectable ? '' : 'is-disabled'}`} key={`${model.provider}/${model.id}`}>
             <div><span className="receipt-model__provider">{model.provider}</span><h3>{model.label}</h3><code>{model.id}</code></div>
-            {model.default_thinking && <p className="receipt-model__meta">기본 추론 · {model.default_thinking}</p>}
+            {model.provider === catalog?.default_provider && model.id === catalog?.default_model && <p className="receipt-model__meta">기본 모델</p>}
+            {(model.effective_thinking || model.default_thinking) && <p className="receipt-model__meta">적용 추론 · {model.effective_thinking || model.default_thinking}</p>}
             {!model.selectable && <p className="receipt-model__reason">{model.reason || '현재 실행할 수 없습니다.'}</p>}
             <button type="button" className="receipt-button receipt-button--primary" disabled={!model.selectable || !catalog?.connected || !selectedShas.size || Boolean(pendingRun)}
               onClick={() => void runModel(model)}>{model.selectable ? '이 모델로 처리' : '선택할 수 없음'}</button>
@@ -967,7 +972,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
           <div className="receipt-job-list">
             <div className="receipt-section-heading receipt-section-heading--small"><h3>사진별 처리 상태</h3><span>{workflow.batches.length}개 작업</span></div>
             {workflow.batches.map((batch) => <div className="receipt-batch" key={batch.batch_id}>
-              <div className="receipt-batch__heading"><strong>{batch.provider} · {batch.model}</strong><span>{statusText(batch.status)}</span></div>
+              <div className="receipt-batch__heading"><strong>{batch.provider} · {batch.model}{batch.thinking ? ` · ${batch.thinking}` : ''}</strong><span>{statusText(batch.status)}</span></div>
               <ul>{batch.jobs.map((job) => <li key={job.job_id}>
                 <button type="button" className="receipt-link-button" onClick={() => { setActiveSha(job.image); setMobilePane('source'); }}>{job.image.slice(0, 12)}…</button>
                 <span className={`receipt-status receipt-status--${job.status.toLowerCase()}`}>{statusText(job.status)}{job.code ? ` · ${job.code}` : ''}</span>

@@ -14,6 +14,7 @@ export interface PaseoModel {
   reason?: string | null;
   thinking_options?: string[];
   default_thinking?: string | null;
+  effective_thinking?: string | null;
 }
 
 export interface PaseoCatalog {
@@ -22,6 +23,9 @@ export interface PaseoCatalog {
   checked_at?: string | null;
   providers: PaseoProvider[];
   models: PaseoModel[];
+  default_provider?: string | null;
+  default_model?: string | null;
+  default_thinking?: string | null;
 }
 
 export interface WorkflowJob {
@@ -54,6 +58,7 @@ export interface WorkflowBatch {
   created_at: string;
   provider: string;
   model: string;
+  thinking?: string | null;
   status: string;
   jobs: WorkflowJob[];
   candidates: WorkflowCandidate[];
