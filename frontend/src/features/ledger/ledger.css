@@ -105,6 +105,7 @@
   .cost-ledger__search { grid-template-columns: 1fr 1fr; }
   .cost-ledger__search > :first-child { grid-column: 1 / -1; }
   .cost-ledger__controls { grid-template-columns: 1fr; }
+  .cost-ledger__totals { grid-template-columns: 1fr; }
   .cost-ledger__mobile-bottom { align-items: start; flex-direction: column; gap: 4px; }
   .cost-ledger__mobile-bottom > span:last-child { text-align: left; }
 }
