@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Bootstrap } from '../../api/types';
 import { getJSON, postJSON } from '../../api/client';
 import type {
@@ -299,6 +299,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const [applying, setApplying] = useState(false);
   const [retryingJob, setRetryingJob] = useState('');
   const [mobilePane, setMobilePane] = useState<'source' | 'results'>('source');
+  const [sourceWidth, setSourceWidth] = useState(45);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [sourceAspect, setSourceAspect] = useState<number | null>(null);
@@ -898,7 +899,15 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         <button type="button" aria-pressed={mobilePane === 'results'} onClick={() => setMobilePane('results')}>결과 {allCandidates.length ? `(${allCandidates.length})` : ''}</button>
       </div>
 
-      <section className="receipt-workspace" aria-label="원본과 처리 결과">
+      <div className="receipt-split-controls">
+        <label htmlFor="receipt-source-width">원본·결과 너비</label>
+        <input id="receipt-source-width" type="range" min="35" max="65" step="5" value={sourceWidth}
+          aria-valuetext={`원본 ${sourceWidth}%, 결과 ${100 - sourceWidth}%`}
+          onChange={(event) => setSourceWidth(Number(event.currentTarget.value))} />
+        <output htmlFor="receipt-source-width">원본 {sourceWidth}% · 결과 {100 - sourceWidth}%</output>
+      </div>
+      <section className="receipt-workspace" aria-label="원본과 처리 결과"
+        style={{ '--receipt-source-width': `${sourceWidth}%` } as CSSProperties}>
         <section className={`receipt-card receipt-source-pane ${mobilePane === 'source' ? 'is-mobile-active' : ''}`} aria-labelledby="receipt-source-title">
           <div className="receipt-section-heading"><div><p className="receipt-step">03 · 사진별 작업</p><h2 id="receipt-source-title">원본 선택</h2></div>
             <span className="receipt-count">{sources.length}개</span></div>
