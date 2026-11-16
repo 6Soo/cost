@@ -100,6 +100,35 @@ def test_start_fails_closed_on_changed_prompt_or_unselectable_model(tmp_path, mo
     assert error.value.code == "PASEO_MODEL_UNAVAILABLE"
 
 
+def test_start_rechecks_prompt_and_schema_snapshot_immediately_before_dispatch(tmp_path, monkeypatch):
+    photo = tmp_path / "synthetic.jpg"
+    photo.write_bytes(JPEG)
+    original = receipt_paseo._prompt_snapshot()
+    changed = {
+        **original,
+        "prompt": original["prompt"] + "\nchanged",
+        "user_prompt": original["user_prompt"] + "\nchanged",
+        "metadata": {**original["metadata"], "prompt_sha256": "f" * 64},
+        "schema": original["schema"] + b" ",
+    }
+    snapshots = [original, changed]
+    monkeypatch.setattr(receipt_paseo, "_prompt_snapshot", lambda: snapshots.pop(0))
+    calls = []
+
+    def bridge(operation, payload, **kwargs):
+        calls.append(operation)
+        if operation == "catalog":
+            return model_catalog(payload.get("provider"))
+        pytest.fail("a changed managed prompt reached agent creation")
+
+    monkeypatch.setattr(receipt_paseo, "_bridge", bridge)
+    with pytest.raises(receipt_paseo.PaseoError) as error:
+        receipt_paseo.start(photo, "claude", "synthetic-photo", run_key="synthetic-run-0008")
+
+    assert error.value.code == "PASEO_PROMPT_CHANGED"
+    assert calls == ["catalog"]
+
+
 def test_inspect_run_validates_json_against_original_hash(monkeypatch):
     handle = {
         "agent_id": "agent-synthetic-2", "workspace_id": "workspace-synthetic-2",
