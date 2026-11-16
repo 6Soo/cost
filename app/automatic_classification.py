@@ -480,9 +480,11 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         tid = row['transaction_id']
         if selected is not None and tid not in selected:
             continue
-        from .closed_period import excluded as completed_excluded
-        if completed_excluded(row, trips, evidence=evidence.get(tid),
-                    manual=tid in decisions or 'card-'+tid in overrides):
+        from .closed_period import excluded as completed_excluded, recoverable_unrecorded_booking
+        manual = tid in decisions or 'card-'+tid in overrides
+        if (completed_excluded(row, trips, evidence=evidence.get(tid), manual=manual)
+                and not recoverable_unrecorded_booking(row, trips, evidence=evidence.get(tid),
+                    recorded=tid in ledger or 'card-'+tid in boards, manual=manual)):
             protected += 1
             continue
         if _protected_row(row, tid, holds, excluded):

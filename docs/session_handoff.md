@@ -1,3 +1,18 @@
+# 2026-11-17 — 회계 대사 코드 운영 배포 완료
+
+- **운영 반영 상태:** `50823317` 회계 대사·예약 복구·메일 범위·수입 구성요소 검증을 최신 main과 통합한 `8888230deb1a5bd09d826da7e66034e2091ba0a1`을 공식 배포했다. 이전 실제 SHA `41d8e8efde542b9611a1f8a83eea3861bcfaaa4e` → backend8752, 도구 exit0. 보호14표 불변·1876파일 blob불일치0·runtime SHA 일치·health/ready200·비인증 보호API401을 확인했다.
+- **실행 원칙:** 구현사항은 표적 검사·영향 검사·독립 검수와 데이터 보호 게이트를 통과한 뒤, 승인된 `tools/deploy_verified_release.ps1` 절차로 운영 반영한다. 배포 전후 실제 SHA·보호 테이블·health/ready·비인가 경로를 확인하고, 금융 원본·Google 장부 쓰기는 별도 승인 없이는 실행하지 않는다.
+- **검증/커밋:** `50823317` 구현, `fa2c2962` 영향 매핑, `8888230d` Rust 포맷 보완. 최종 공식 영향 Python1015+2subtests/Rust191·fmt/clippy/release build, 프런트78·타입·빌드 통과(skip0/known0). 독립 gpt-6.1-sol medium이 정확 배포 SHA를 APPROVE했다. CI 두 job은 해당 SHA의 결제 한도로 시작 전 차단됨을 annotation으로 확인했다. 기존 기준선 비교2건은 main과 동일 실패로 구분했으며 테스트를 완화하지 않았다.
+- **데이터/완료:** 금융 apply·스키마 변경·Google 쓰기 없음. 읽기 전용 대사 database_changes=0. 코드 배포 시 card-flow.json 해시와 기존 바이너리 경로를 보존한 뒤 Rust 감독 `4dedee2e`에게 배포 소유권을 넘겼다. 감독이 같은 SHA의 `costcore-8888230d.exe`로 전환했고 Board/Worker 모두 rust writer/rust links·health/ready200을 재확인했다. 새 planner의 전환 후 대조는 원문7336건·Python/Rust대상4/4·목록밖차이0·PASS다. 연결 첫 창도 OTA7965/7965·환불486/486·목록밖차이0·PASS를 확인했고 감독이 소유권을 해제했다. 이번 회계 코드 운영 활성화와 검증은 완료다. 이후 배포는 두 Rust flags와 새 바이너리 경로를 보존한다. PR978에 코드·배포 결과를 함께 기록하며 문서 때문에 재배포하지 않는다. [검증 기록](agents/artifacts/accounting-release-20261117.md).
+
+## 2026-11-17 00:26 — Rust 2차 연결 운영 전환·첫 창 대조 완료
+
+- **요청/결과:** “전환 수행해”, “모두 진행해”의 남은 2차 전환 COMPLETE. 운영 코드 `8888230deb1a5bd09d826da7e66034e2091ba0a1`에서 Board·Worker 모두 `classification_writer=rust`, `links_producer=rust`를 적용했다. 회계 대사 수정까지 포함한 같은 SHA에서 빌드한 `D:/WebLedgerHost/bin/costcore/costcore-8888230d.exe`를 사용한다(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`). 코드 공식 배포는 회계 감독이 수행했고, 이 세션은 게이트 검증과 스위치 전환을 맡았다.
+- **실제 검증:** 전환 전 최종 C1 판정·연결 PASS, C2 185사례에서 Python plan+Rust 연결 및 Rust plan+Rust 연결 모두 Python 기준과 차이 0. C3 4DB 신선 백업·복원과 Python→Rust→Python 왕복의 연결 해시 동일 PASS. 전환 후 새 사본의 첫 창도 분류 7,336행·OTA 7,965/7,965·환불 연결 486/486, 두 그림자 exit0/PASS·목록 밖 차이 0. 두 역할 적용 기록·살아 있는 PID·릴리스 확인, health/ready 200·보호 API 401.
+- **과거 차이/복구:** 과거 OTA 1,648건은 `individual_payment_evidence=false`가 빠진 수정 전 바이너리의 측정분이었다. `e2a43e10`의 원본 필드 덮어쓰기 보존이 이미 반영돼 새 패치는 하지 않았다. ExaOne low 작업자 조사·합성 검사를 재사용했다. 첫 관리 재시작은 종료 중 CIM 명령행이 null인 경합으로 실패해 원설정·Python 연결로 복구했고, 종료 확인 보완 후 같은 게이트로 재시도해 성공했다.
+- **근거/경계:** `D:/WebLedgerHost/data/backups/links-rust-20261116/`의 `final-links.out.json`, `final-classification.out.json`, `final-fa2/c2-final.json`, `final-fa2/c3-final.json`, `switch-evidence.json`, `switch-first-failed.json`, `first-window/evidence.json`. `final-fa2/`는 보관 폴더명이며 그 안의 C2·C3 최종 결과는 내부 release_sha가 `8888230d`다. 백업 근거는 `c3-links-rust-20261116.json`. 추가 운영 스크립트는 독립 gpt-6.1-sol medium APPROVE. 고객 원문은 보호 호스트 경로에만 보관했고 config 변경은 `costcore_bin`·`links_producer` 두 키뿐이다. 금융 apply·Google 장부 직접 쓰기는 실행하지 않았다. 이번 승인 범위의 남은 전환·검사·차단은 없으며 배포 소유권을 해제했다.
+
+
 ## 2026-11-16 — Rust 미결 구현·합성 검사 완료
 
 - **요청/범위:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. SPEC M3 / `design/m3-core.md` U12~14를 기준으로 완료된 과제를 재구현하지 않았다. 별도 `integration/rust-exaone-20261116`에서 최신 main `ee118935`를 보존했고 원래 root 사용자 변경·UI 라우팅·운영 서비스는 수정하지 않았다.
@@ -8,6 +23,15 @@
 - **OTA:** 기존 `e2a43e10`·`f5c91d95`가 과거 1,648건 측정 뒤 main에 반영된 사실을 확인했다. 감독 Rust 골든7 passed, 작업자 합성 differential9/9. 새 OTA 계산 코드 변경 없이 검증했으며 **실자료 1,648건의 최신 재측정은 미완**이다.
 - **최종 검사 중 발견/보완:** 공식 영향 검사에서 기존 `manual_rows`의 row_id-only 구형 스키마 계약 2실패가 나왔다. origin/main과 성능 이전 코드에도 동일한 문제가 있어 성능 회귀가 아님을 확인했다. 담당과 소유권을 조정해 `8fbf60f0`로 원행 ID만 읽도록 보완했고, 새 red→기존 포함8 passed. 기존 테스트를 완화하지 않았다. 공식 재검사는 Python923/Rust191 passed·skip0/known0, build/fmt/clippy exit0. 독립 sol medium 코드 검수 APPROVE·표적42 passed. 최신 UI main 통합 뒤 실제 환불/Plush 교차 검사97 passed. [검증 근거](agents/artifacts/rust-exaone-validation-20261116.md)에 SHA와 한계를 기록했다. 최종 SHA 검수 판정은 동일 PR에 남긴다.
 - **운영/남은 일:** Rust 전환·배포 없음. 다른 세션이 UI 기존 URL 연결/배포를 맡으며 현재 전달받은 운영 SHA는 `c77eaa2bcfd04d8a553122330ebbda914a78cef0`. UI main `d088e1cb`를 통합 `ddc22536`에 보존했다. 코드·합성 검증은 완료했고 PR 최종 검수/병합을 진행한다. C1/C2/승인①②·운영 전환은 별도 미완이다. graphify update는 CLI 미설치로 실행 불가했다.
+
+# 2026-11-16 — 전체 회계 대사 경로 보강·전수 감사 도구
+
+- **요청/범위:** 0712 몽골 누락을 계기로 전체 원문·기장·보드의 회계 불일치를 찾고, 같은 원인이 재발하지 않도록 코드·규칙을 보강했다. 운영 DB·Google 장부·고객 원문은 쓰지 않았다.
+- **구현:** 완료 기간의 미기장 거래는 원문 해시와 실제 예약 이용기간이 일치하는 정식 예약 근거가 있을 때만 열린 여행으로 복구하도록 Python/Rust 판정 경로를 맞췄다. 전달 메일·소유자 증거 라벨의 과거 수집 범위를 보강했고, Google 수입 행의 예약금·잔금·추가금 구성요소 불일치를 합계 미검증으로 표시한다. `app/accounting_audit.py`와 `tools/audit_accounting_consistency.py`로 수동 교정 포함 원문·ledger·board 대사를 읽기 전용으로 수행하며 장부·보드 귀속 분리와 누락 원문 식별자도 보고한다.
+- **커밋:** `50823317` (`fix: reconcile unrecorded bookings and audit projections`).
+- **검사:** 신규·직접 영향 Python 24건 통과, Rust `plan_judgement` 5건 통과, 운영 `D:/WebLedgerHost/data/board.sqlite` 읽기 전용 대사 `database_changes=0`. 대사 집계는 원문 7,336건·기장 3,359건·보드 3,359건, 미기장 3,678건(완료기간 3,653·열린 기간 25), 귀속 차이 694건, 환불 원문 확인 필요 109건이다. 완료기간 미기장 대부분은 과거 보호 경계에 속하므로 자동 기장하지 않았다.
+- **검증 한계:** 기존 `webapp/tests/test_automatic_plan_refactor.py`의 합성 기준선 비교 2건은 현재 HEAD에 이미 존재한 예약근거 동작 차이로 실패했으며 이번 변경의 완료기간 복구 분기와 무관하다. 운영 재배포·금융 반영·Google 쓰기는 실행하지 않았다.
+- **다음 작업:** 운영 반영 전 독립 검수와 승인된 배포 절차를 거친다. 재개 시 이 커밋의 표적 검사와 읽기 전용 대사를 먼저 재실행한다.
 
 # 현재 상태
 

@@ -13,6 +13,7 @@ import datetime as dt
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import urllib.error
@@ -71,7 +72,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
 #: 파서 세대. 이름 인덱스를 만들기 전 세대(`quarter-expense-v1`)는 같은 workbook
 #: 해시여도 다시 읽어야 이름 인덱스가 생긴다.
-PARSER_VERSION = 'quarter-expense-v3'
+PARSER_VERSION = 'quarter-expense-v4'
 
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
@@ -80,7 +81,9 @@ QUARTER_NAME = re.compile(r"^([1-4])분기_기타비용(?:\s*의 사본)?$")
 COPY_SUFFIX = re.compile(r"\s*의 사본$")
 SUM_OF_AMOUNTS = re.compile(r"^=\s*SUM\(\s*H(\d+)(?:\s*:\s*H(\d+))?\s*\)$", re.IGNORECASE)
 # A block with any of these cannot be summed safely. Its total is None, never 0.
-BLOCKING_FLAGS = {"FORMULA_ERROR", "AMOUNT_INVALID", "AMOUNT_MISSING", "AMOUNT_NOT_CACHED"}
+BLOCKING_FLAGS = {"FORMULA_ERROR", "AMOUNT_INVALID", "AMOUNT_MISSING", "AMOUNT_NOT_CACHED",
+                  "INCOME_COMPONENT_AMOUNT_MISSING", "INCOME_COMPONENT_TOTAL_MISMATCH",
+                  "INCOME_COMPONENT_INVALID"}
 # A block with any of these has a total Google shows but COST cannot verify.
 TOTAL_FLAGS = {"TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH", "TOTAL_FORMULA_UNCLEAR", "TOTAL_NOT_CACHED"}
 
@@ -122,6 +125,20 @@ def _sum_block(first: int, last: int, ws_f, ws_v, flags: set,
     for row in range(first, last + 1):
         value = ws_v.cell(row=row, column=8).value
         if out_names is not None:
+            # A blank transaction date does not make a deposit/balance vanish.
+            # Validate the source's arithmetic, without inventing received cash
+            # or replacing Google's own amount/formula with our calculation.
+            components = [ws_v.cell(row=row, column=col).value for col in (5, 6, 7)]
+            populated = [v for v in components if v is not None and v != '']
+            if populated:
+                if any(isinstance(v, bool) or not isinstance(v, (int, float))
+                       or not math.isfinite(v) or not float(v).is_integer() for v in populated):
+                    flags.add('INCOME_COMPONENT_INVALID')
+                elif value is None or value == '':
+                    flags.add('INCOME_COMPONENT_AMOUNT_MISSING')
+                elif (isinstance(value, (int, float)) and not isinstance(value, bool)
+                      and math.isfinite(value) and value != sum(populated)):
+                    flags.add('INCOME_COMPONENT_TOTAL_MISMATCH')
             # 이름 인덱스는 금액 집계와 무관하다. 금액이 없는 이름 행도 여기만 남는다.
             _collect_name_row(ws_f, ws_v, row, value, out_names)
         if value is None or value == "":

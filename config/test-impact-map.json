@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "accounting-consistency-audit",
+      "paths": ["app/accounting_audit.py", "tools/audit_accounting_consistency.py", "tests/test_accounting_audit.py", "tests/card_pipeline/test_google_income_components.py", "tests/card_pipeline/test_mail_evidence_coverage.py", "webapp/tests/test_unposted_booking_recovery.py"],
+      "tests": ["tests/test_accounting_audit.py", "tests/card_pipeline/test_google_income_components.py", "tests/card_pipeline/test_mail_evidence_coverage.py", "webapp/tests/test_unposted_booking_recovery.py"]
+    },
+    {
       "name": "plush-authenticated-ui",
       "paths": ["frontend/**", "webapp/plush*.py", "webapp/tests/test_plush*.py"],
       "tests": ["webapp/tests/test_plush_ui.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_integration.py"]
