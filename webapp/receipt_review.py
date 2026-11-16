@@ -39,6 +39,7 @@ ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
+PDF_PATH = re.compile(r"^/api/receipts/pdf/([0-9a-f]{64})$")
 VISION_JOB = re.compile(r"^/api/receipts/vision/([0-9a-f]{32})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
@@ -164,7 +165,8 @@ def enabled() -> bool:
 
 
 def owns_route(path: str) -> bool:
-    return path in ROUTES or IMAGE_PATH.match(path) is not None or VISION_JOB.match(path) is not None
+    return (path in ROUTES or IMAGE_PATH.match(path) is not None or PDF_PATH.match(path) is not None
+            or VISION_JOB.match(path) is not None)
 
 
 def _store_path() -> Path:
@@ -427,6 +429,16 @@ def image_bytes(path: Path, sha: str) -> bytes:
     body = (_images_dir(path) / f"{sha}.bin").read_bytes()
     if hashlib.sha256(body).hexdigest() != sha:
         raise ValueError('IMAGE_CORRUPT')
+    return body
+
+
+def pdf_bytes(path: Path, sha: str) -> bytes:
+    data = load(path)
+    if not any(pdf['sha256'] == sha for pdf in data['pdfs']):
+        raise KeyError('PDF_NOT_FOUND')
+    body = (_pdfs_dir(path) / f"{sha}.pdf").read_bytes()
+    if hashlib.sha256(body).hexdigest() != sha:
+        raise ValueError('PDF_CORRUPT')
     return body
 
 
@@ -977,6 +989,17 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             handler._send_json({"code": "IMAGE_NOT_FOUND"}, 404)
         except ValueError:
             handler._send_json({"code": "IMAGE_CORRUPT"}, 409)
+        return True
+    pdf = PDF_PATH.match(parsed.path)
+    if pdf and raw is None:
+        try:
+            handler._send_bytes(pdf_bytes(path, pdf.group(1)), "application/pdf")
+        except ReceiptStoreError:
+            raise
+        except (KeyError, OSError):
+            handler._send_json({"code": "PDF_NOT_FOUND"}, 404)
+        except ValueError:
+            handler._send_json({"code": "PDF_CORRUPT"}, 409)
         return True
     if parsed.path == "/api/receipts/upload" and not local_receipt_ocr.enabled():
         handler._send_json({"code": "OCR_ENGINE_NOT_APPROVED",
