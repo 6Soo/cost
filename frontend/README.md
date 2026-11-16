@@ -32,6 +32,10 @@
 - `npm run test:run` — Vitest 표적 검사
 - `npm run build` — `/ui/` base의 정적 산출물
 
+## 운영 릴리스
+
+`frontend/dist/`는 Git에 포함하지 않습니다. Git 소스만 패키징하면 새 UI를 열 수 없으므로, 검수한 정확한 SHA에서 빌드한 자산을 같은 SHA의 릴리스에 넣어야 합니다. [Plush 릴리스 절차](../docs/playbooks/plush-ui-release.md)의 소스·자산 해시 대조 후 기존 검증 배포 도구로 전환합니다.
+
 ## 소스·라이선스
 
 - Plush UI 컴포넌트 출처와 고정 upstream SHA는 `licenses/UPSTREAM.md` 참고. MIT 원문은 `licenses/plush-ui-MIT.txt`.
