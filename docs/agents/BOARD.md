@@ -6,6 +6,7 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
+| PLUSH UI-0~6 | IN_PROGRESS | 사용자 승인: 다수 Luna xhigh 병렬 구현, 감독 통합·합성 검사·독립 검수. [실행 계약](artifacts/plush-ui-implementation-contract-20261116.md), [검증 현황](artifacts/plush-ui-validation-20261116.md). 운영 배포·고객 자료 변경 제외 |
 | RCP-A: Paseo runtime | IN_PROGRESS | Luna xhigh A: 동적 목록·사진 첨부·제한 실행·결과 회수. 안전한 실제 경로/합성 결과 검증 필요 |
 | RCP-B: 영속 작업·장부 | IN_PROGRESS | Luna xhigh B: 서버 주도 처리·영속 결과·revision·선택 묶음 트랜잭션/멱등·인증 API |
 | RCP-C: 웹 UI | IN_PROGRESS | Luna xhigh C: 모델 선택·복귀·사진과 결과 검수·선택 내역 반영 |
