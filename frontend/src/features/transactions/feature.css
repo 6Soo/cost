@@ -55,9 +55,11 @@
   text-decoration: none;
 }
 
-.e-feature-nav .cost-tab:hover,
 .e-feature-nav .cost-tab:focus-visible {
   border-color: var(--e-border);
+}
+@media (hover: hover) {
+  .e-feature-nav .cost-tab:hover { border-color: var(--e-border); }
 }
 
 .e-feature-nav .cost-tab[aria-current="page"] {

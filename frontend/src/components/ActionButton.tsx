@@ -7,6 +7,7 @@ export type ActionButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "a
   size?: "sm" | "md" | "lg";
   pending?: boolean;
   pendingLabel?: string;
+  static?: boolean;
   "aria-busy"?: boolean;
   children: ReactNode;
 };
@@ -29,6 +30,7 @@ export function ActionButton({
   size = "md",
   pending = false,
   pendingLabel,
+  static: isStatic = false,
   disabled,
   type = "button",
   className,
@@ -44,6 +46,7 @@ export function ActionButton({
       disabled={disabled || pending}
       aria-busy={pending || props["aria-busy"] || undefined}
       data-pending={pending || undefined}
+      data-static={isStatic || undefined}
       {...props}
     >
       {pending && <span aria-hidden="true" className="cost-spinner cost-spinner-inline" />}

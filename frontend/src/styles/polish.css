@@ -1,0 +1,106 @@
+/* Application adapters: keep the vendored Plush components unchanged. */
+:is(.cost-action-button, .cost-button, .receipt-button, .receipt-link-button,
+    .cost-theme-toggle, .cost-icon-button, [data-slot="select-trigger"],
+    [data-slot="checkbox"], [data-slot="radio-group-item"]) {
+  -webkit-tap-highlight-color: transparent;
+  scale: 1;
+  transition: opacity 150ms ease-out, background-color 150ms ease-out,
+    border-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.cost-action-button, .cost-button, .receipt-button, .receipt-link-button,
+      .cost-theme-toggle, .cost-icon-button, [data-slot="select-trigger"],
+      [data-slot="checkbox"], [data-slot="radio-group-item"]) {
+    transition: scale 150ms ease-out, opacity 150ms ease-out,
+      background-color 150ms ease-out, border-color 150ms ease-out,
+      color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  :is(.cost-action-button, .cost-button, .receipt-button, .receipt-link-button,
+      .cost-theme-toggle, .cost-icon-button, [data-slot="select-trigger"],
+      [data-slot="checkbox"], [data-slot="radio-group-item"]):active:not(:disabled):not([aria-disabled="true"]):not([data-static="true"]) {
+    scale: 0.96;
+  }
+}
+
+/* Routine tab selection has an immediate static cue; no trailing spring. */
+.cost-tabs-list [data-slot="plush-tabs-pill"],
+.cost-tabs-list [data-slot="plush-tabs-pill-trail"],
+.cost-tabs-list [data-slot="tabs-trigger"] {
+  scale: 1;
+  transition: opacity 150ms ease-out, background-color 150ms ease-out;
+}
+
+.cost-nav-link,
+.cost-trip-link {
+  transition: background-color 150ms ease-out;
+}
+
+:is(.cost-drawer-body, .cost-trip-switcher-panel, .cost-tablet-menu-panel,
+    .cost-bottom-more-panel, .cost-sidebar-section, .receipt-zoom__viewport,
+    [data-slot="select-content"]) {
+  overscroll-behavior: contain;
+}
+
+:root { --cost-image-outline: oklch(0 0 0 / 0.1); }
+:root.dark { --cost-image-outline: oklch(1 0 0 / 0.1); }
+
+/* Elevation edges retain a border in forced-colors mode. */
+.cost-panel,
+.cost-trip-switcher-panel,
+.cost-tablet-menu-panel,
+.cost-bottom-more-panel {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--cost-image-outline), var(--cost-shadow-soft);
+}
+.cost-drawer {
+  box-shadow: 0 0 0 1px var(--cost-image-outline), var(--cost-shadow-raised);
+}
+
+:is(.receipt-manual__source, .receipt-source-tile__open,
+    .receipt-original__image-button, .receipt-legacy-row__source,
+    .receipt-zoom__viewport) img {
+  outline: 1px solid var(--cost-image-outline);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --plush-press-scale: 1;
+    --plush-press-scale-pill: 1;
+    --plush-press-scale-wide: 1;
+    --plush-press-scale-check: 1;
+    --plush-press-scale-icon: 1;
+    --plush-hover-grow: 1;
+  }
+
+  [data-slot="switch-thumb"] { scale: 1; }
+
+  [data-slot="checkbox-indicator"] svg {
+    clip-path: none;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  [data-slot="checkbox"][data-state="checked"] [data-slot="checkbox-indicator"] svg:first-child,
+  [data-slot="checkbox"][data-state="indeterminate"] [data-slot="checkbox-indicator"] svg:last-child {
+    opacity: 1;
+  }
+
+  [data-slot="radio-group-indicator"] > span {
+    scale: 1;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+    transition-delay: 0ms;
+  }
+  [data-slot="radio-group-item"][data-state="checked"] [data-slot="radio-group-indicator"] > span {
+    opacity: 1;
+  }
+
+  :is(.cost-action-button, .cost-button, .receipt-button, .receipt-link-button,
+      .cost-theme-toggle, .cost-icon-button, [data-slot="select-trigger"],
+      [data-slot="checkbox"], [data-slot="radio-group-item"]):is(:active, :hover) {
+    scale: 1;
+    transform: none;
+  }
+}
