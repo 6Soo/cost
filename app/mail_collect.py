@@ -22,6 +22,8 @@ RETRY_BASE_SECONDS = 2
 HISTORY_START = '2026-04-01'
 # A stay inside the ledger can be booked up to a year before it; only supplier mail is read that far back.
 SUPPLIER_HISTORY_START = '2025-04-01'
+OWNER_EVIDENCE_LABELS = ('결제데이터',)
+HISTORY_SCOPE_VERSION = 2
 API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 
@@ -30,12 +32,20 @@ def supplier_query() -> str:
     return f'({senders} OR subject:토요코인)'
 
 
+def owner_evidence_query() -> str:
+    """Owner-authorized discovery scope; never changes sender authentication."""
+    recipients = ' OR '.join(f'to:{address} OR cc:{address}' for address in ALWAYS_RECIPIENTS)
+    labels = ' OR '.join(f'label:"{label}"' for label in OWNER_EVIDENCE_LABELS)
+    return f'({recipients} OR {labels})'
+
+
 def build_query(after: str) -> str:
     senders = ' OR '.join(f'from:{domain}' for domain in SUPPLIER_DOMAINS)
     recipients = ' OR '.join(f'to:{address} OR cc:{address}' for address in ALWAYS_RECIPIENTS)
     # Toyoko Inn sender addresses vary; subject matching is a separate discovery path.
     forest_receipts = forest_receipt_query()
-    return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR subject:토요코인 OR {forest_receipts})'
+    labels = ' OR '.join(f'label:"{label}"' for label in OWNER_EVIDENCE_LABELS)
+    return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR {labels} OR subject:토요코인 OR {forest_receipts})'
 
 
 def forest_receipt_query() -> str:
@@ -173,7 +183,7 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
 
 
 def collect_window(client, directory: Path, after: str, before: str, *, forest_only=False,
-                   suppliers_only=False, sync=True) -> dict:
+                   suppliers_only=False, sync=True, owner_history_after=None) -> dict:
     """Append a bounded historical query without changing the recurring watermark."""
     import tempfile
     import uuid
@@ -186,6 +196,15 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     since = start.isoformat().replace("-", "/")
     query = (f'after:{since} {forest_receipt_query()}' if forest_only
              else f'after:{since} {supplier_query()}' if suppliers_only else build_query(start.isoformat()))
+    if owner_history_after is not None:
+        historical_start = date.fromisoformat(owner_history_after)
+        if forest_only or suppliers_only or historical_start >= start:
+            raise ValueError('MAIL_OWNER_HISTORY_SCOPE_INVALID')
+        # The outer bound applies to BOTH branches. A recent polling watermark
+        # cannot hide an old forwarded booking for an open, future trip.
+        older = (f'after:{historical_start.isoformat().replace("-", "/")} '
+                 f'before:{since} {owner_evidence_query()}')
+        query = f'(({query}) OR ({older}))'
     query += ' before:' + end.isoformat().replace('-', '/')
     listed = list(dict.fromkeys(client.list_ids(query)))
     stored = stored_ids(directory)
@@ -237,13 +256,16 @@ def reconcile_history(client, directory: Path, now: datetime | None = None) -> d
     checkpoint = directory / 'history-reconciliation.json'
     state = json.loads(checkpoint.read_text(encoding='utf-8')) if checkpoint.is_file() else {}
     today = now.date().isoformat()
+    scope = {'version': HISTORY_SCOPE_VERSION, 'owner': owner_evidence_query()}
     if (state.get('completed_on') == today and state.get('after') == HISTORY_START
-            and state.get('supplier_after') == SUPPLIER_HISTORY_START):
+            and state.get('supplier_after') == SUPPLIER_HISTORY_START
+            and state.get('scope') == scope):
         return {'matched': 0, 'fetched': 0, 'skipped': True}
     before = (now.date() + timedelta(days=1)).isoformat()
     earlier = collect_window(client, directory, SUPPLIER_HISTORY_START, HISTORY_START,
                              suppliers_only=True, sync=False)
-    result = collect_window(client, directory, HISTORY_START, before)
+    result = collect_window(client, directory, HISTORY_START, before,
+                            owner_history_after=SUPPLIER_HISTORY_START)
     result = dict(result, matched=result['matched'] + earlier['matched'],
                   fetched=result['fetched'] + earlier['fetched'])
     # An import failure must leave the previous checkpoint intact so the next
@@ -252,7 +274,7 @@ def reconcile_history(client, directory: Path, now: datetime | None = None) -> d
     fd, temporary = tempfile.mkstemp(prefix='.mail-history-', suffix='.tmp', dir=directory)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as output:
-            json.dump({'after': HISTORY_START, 'supplier_after': SUPPLIER_HISTORY_START,
+            json.dump({'after': HISTORY_START, 'supplier_after': SUPPLIER_HISTORY_START, 'scope': scope,
                        'before': before, 'completed_on': today,
                        'completed_at': now.isoformat(timespec='seconds'),
                        'matched': result['matched'], 'fetched': result['fetched']}, output)
