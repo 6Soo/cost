@@ -21,17 +21,14 @@ from webapp.tests import test_receipt_review as legacy
 
 
 class SyntheticRuntime:
-    def __init__(self):
+    def __init__(self, metadata):
         self.calls = []
         self.runs = {}
         self.release = threading.Event()
+        self._metadata = dict(metadata)
 
-    @staticmethod
-    def prompt_metadata():
-        return {"prompt_version": "acceptance-v1", "prompt_sha256": hashlib.sha256(
-                    (receipt_vision.SYSTEM_PROMPT + "\n\n" + receipt_vision.playbook_prompt()).encode("utf-8")).hexdigest(),
-                "schema_version": "acceptance-v1", "schema_sha256": hashlib.sha256(
-                    receipt_vision.SCHEMA_PATH.read_bytes()).hexdigest()}
+    def prompt_metadata(self):
+        return dict(self._metadata)
 
     @staticmethod
     def catalog(provider=None):
@@ -73,8 +70,9 @@ class SyntheticRuntime:
 @pytest.fixture
 def receipt_http(monkeypatch, tmp_path):
     from app import receipt_paseo
+    from webapp.receipt_workflow import ReceiptWorkflowWorker
 
-    runtime = SyntheticRuntime()
+    runtime = SyntheticRuntime(receipt_paseo.prompt_metadata())
     workflow_path = tmp_path / "acceptance-workflow.sqlite"
     monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_DB", str(workflow_path))
     monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_ENABLED", "1")
@@ -84,6 +82,11 @@ def receipt_http(monkeypatch, tmp_path):
     fixture.workflow_path = workflow_path
     try:
         fixture.setUp()
+        worker = ReceiptWorkflowWorker(receipts_path=fixture.store, board=fixture.server.card_store,
+                                       runtime=runtime, interval=0.01)
+        worker.start()
+        fixture.workflow_worker = worker
+        fixture.addCleanup(worker.stop)
         yield fixture, runtime
     finally:
         runtime.release.set()
@@ -155,6 +158,23 @@ def test_worker_saves_results_without_browser_polling_and_never_posts_automatica
     assert all(candidate["image"] == image and not candidate["selected"]
                and not candidate["applied"] for candidate in candidates)
     assert _ledger_count(fixture) == 0
+    assert len(runtime.calls) == 1
+
+
+def test_recreated_worker_reconnects_to_saved_run_without_resubmission(receipt_http):
+    from webapp.receipt_workflow import ReceiptWorkflowWorker
+
+    fixture, runtime = receipt_http
+    batch = _enqueue(fixture, _upload(fixture))
+    _wait_until(lambda: len(runtime.calls) == 1)
+    fixture.workflow_worker.stop()
+    replacement = ReceiptWorkflowWorker(receipts_path=fixture.store, board=fixture.server.card_store,
+                                         runtime=runtime, interval=0.01)
+    fixture.addCleanup(replacement.stop)
+    replacement.start()
+    runtime.release.set()
+    _wait_until(lambda: _persisted_result(fixture))
+    assert len(_candidates(fixture, batch["batch_id"])) == 2
     assert len(runtime.calls) == 1
 
 
