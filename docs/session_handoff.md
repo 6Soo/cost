@@ -1,3 +1,10 @@
+# 2026-11-17 03:05 — Plush UI 전수 감사 수정 운영 배포 완료
+
+- **실제 결과:** Plush UI/UX 전수 감사 수정 13건(아이콘·팝오버·모바일 터치 레이아웃·홈 카드 grid)+경로 변경 팝오버 닫힘 회귀 테스트를 운영 배포했다. 공식 도구 exit0, actual `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`/backend8752·gateway8790, Previous9af. 추적1885 blob불일치0·보호14표 불변·health/ready200·비인증 API401. 금융 apply·마이그레이션·Google 쓰기 없음.
+- **후보/검수:** UI(`b7308aee`→`fe773fe8`)+정책문서 `90da8c42`+PR980 main clean merge `4cd76d2b`. 독립 gpt-6.1-sol medium 정확 SHA PASS(MEDIUM0·LOW 비차단 문구1). 후보 HEAD typecheck·build·vitest 17파일88·영향 Plush Python45 통과. PR980 소득표시/원문기장경로 보존. PR979 병합 `10b2a39d`(main 트리=배포 후보 트리).
+- **정책:** 소유자 결정 "혼자 개발·관리 레포는 검수 PASS 후 언제나 운영 배포"를 `AGENTS.md`에 명시(`90da8c42`). 회계감사 후임 Accounts AGY(`20acee6b`) 기장 완료·소유권 해제 후 배포했다.
+- **다음/한계:** 인증 화면 렌더링은 로그인 필요로 미수행(익명 거부401 확인, 감사 당시 로컬 합성 프리뷰 렌더링과 구분). 문서 때문에 재배포하지 않는다. 이후 PreviousSha는 다른 배포가 없으면 `4cd76d2b`. 근거 `.local-archive/plush-ui-audit-20261116/deploy-4cd76d2b/`·`releases/deploy-evidence-4cd76d2b….json`. [운영 기록](operations.md).
+
 # 2026-11-17 02:31 — 몽골 항공료 실제 기장·Google 수입 표시 완료
 
 - **실제 결과:** 운영 worker가 항공료8건·6,500,202원을 표준 경로로 기장했다. 각 ledger/board 정확1회·귀속/이용기간/원문 해시 일치. 유효 몽골 보드는 **14건·6,767,151원**이다. 원문·금액·날짜·ID·수동 교정·대상 밖 금융/core 결정·나머지 보호표 불변. 같은8건 큐 재처리 후 모든 보호 금융표와 core 전체 상태 동일, pending0·recorded8/failures0.
