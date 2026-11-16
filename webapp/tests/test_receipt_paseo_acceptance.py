@@ -255,6 +255,13 @@ def test_committed_ledger_recovers_when_workflow_acknowledgement_is_lost(receipt
         status, body = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
     assert status == 503, body
     assert _ledger_count(fixture) == 1
+    # A direct edit before any GET must also consult the financial authority.
+    # Otherwise the workflow could accept changes to an already posted cost.
+    status, body = fixture.request("/api/receipts/workflow/review", {
+        "candidate_id": candidate["candidate_id"], "expected_revision": candidate["revision"],
+        "changes": {"merchant": "교정하면 안 되는 이미 반영된 내역"},
+    }, token=fixture.csrf())
+    assert status == 409, body
     # A newly read workflow must reconcile from the ledger's committed source,
     # even though its own update rolled back after the injected failure.
     saved = next(item for item in _candidates(fixture, batch["batch_id"])
