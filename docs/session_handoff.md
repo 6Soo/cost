@@ -8,6 +8,17 @@
 - **남은 일:** B/D/C/E의 기존 작업 폴더에서 후속 API 계약 수정·검증 진행. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`은 `webapp/tests/test_receipt_workflow_ui.py` 누락으로 selector 단계 실패; 통과로 기록하지 않는다. 영수증 최신 SHA 통합 후 재실행한다. Git 자료 보호 검사 차단 0건.
 - **배포 순서:** 별도 영수증 감독 `73dfaca3-7c22-4d37-897b-66f088af068e`가 `C:/AX/cost`의 영수증·배포·상태 문서를 소유하고 먼저 배포한다. 그 배포 SHA와 실제 API 계약을 받은 뒤 Plush에 통합, 영향 검사·최종 SHA 독립 검수·PR·`deploy_verified_release.ps1`·운영 smoke를 수행한다. 아직 Plush 운영 배포·완료를 주장하지 않는다. 원본 폴더와 사용자 변경은 보존한다.
 - **복구:** `.agents/plush-integration-checkpoint.json`, 합성 preview `.agents/plush_preview_v5.py`와 `.agents/plush-preview-v5/`, 브라우저 스크립트 `.agents/ego-*-v5.mjs`. preview는 임시 DB·임의 loopback 포트·worker/model 비활성 상태다. graphify 그래프와 실행 파일이 이 worktree에 없어 query/update는 실행할 수 없었다.
+## 2026-11-16 20:14 — 영수증 구현·운영 배포 완료, 실모델 판독은 로그인 차단
+
+- **최신 요청/범위:** “영수증 관련 작업은 끝난건가? 이쪽 먼저 구현하고 배포해”에 따라 영수증을 우선 구현·배포했다. 영속 작업·복귀·사진/결과 교정·선택 내역 원자적 반영·PDF 원본 조회·Paseo 연결·운영 workflow 활성화를 통합했다. 성능 개선·Plush·Rust 전환은 이번 배포에 포함하지 않았다.
+- **완료 코드/PR:** 최종 운영 SHA `11267cd012e074a0b89d28adb93a4dd736f64079`. 영수증 PR [#970](https://github.com/6Soo/cost/pull/970)(코드 `e977e235`, 병합 `921159ab`)와 보호 검사 수정 PR [#972](https://github.com/6Soo/cost/pull/972)(코드 `11267cd0`, 병합 `2a2ba33e`). 코드와 최종 SHA는 각각 독립 `gpt-6.1-sol medium` APPROVE. GitHub CI는 결제 한도로 작업 시작 전 실패했음을 정확 SHA의 annotation으로 확인했다.
+- **검사:** 광범위 기준 `85ac8bcc` **1,443 passed +107 subtests**, 최종 영수증 변경분 `e977e235` **217 passed**, 배포 검사 수정 `11267cd0` **32 passed**, 전부 skip0·실패0. Rust costcore release build 통과. 별도 검수자는 보호 검사 표적11건과 추가 합성 불변조건29건 통과. 중복 집계하지 않는다.
+- **첫 배포 실패와 복구:** `e977e235` 첫 배포는 새 빈 `receipt_evidence_links`가 추가돼 보호 표가 13→14개가 되자 개수 고정 검사가 실패했다. 공식 도구는 이전 `77865bfa`/8751로 롤백했고 health/ready200을 확인했다. 원래13표 변경0·삭제0, 추가표0행이었다. `11267cd0`는 원래 필수 표의 이름과 기존 모든 표의 내용·스키마를 검증하며, 명시 승인된 빈 추가 표만 허용한다.
+- **운영 완료 근거:** 공식 `tools/deploy_verified_release.ps1` exit0. `77865bfa`→`11267cd0`, Board8752·Worker 전환 및 core writers 정합성 확인, Gateway8790. 릴리스1,764파일 Git blob 불일치0, 보호14표 불변, financial apply NOT_RUN. 별도 재점검 health200(0.423초)·ready200(0.045초), 비인증 `/receipts`·모델목록·workflow API401. 설정 workflow=true와 신규3표 존재 확인. 상세는 [운영 기록](operations.md) 맨 위 절이다.
+- **백업/복원:** 첫 시도 전과 롤백 후 재시도 전 모두 board/core 범위 백업·복원 확인. 최신 `D:/WebLedgerHost/data/backups/receipt-deploy-retry-20261116-restore-evidence.json`(live/out-of-scope unchanged, binding equal). 사본 스키마 예행에서 기존78표 불변·빈3표 추가 확인. 연속 배포 도구의 `fresh_backup_restore=false`는 도구 내부 full-backup 옵션을 사용하지 않았다는 뜻이며, 위 별도 범위 백업/복원은 실제 수행했다.
+- **남은 외부 차단:** 실제 사진 판독 성공만 PARTIAL/BLOCKED. 마지막 실제 Paseo 진단에서 Claude loggedIn=false·subscriptionAuth=false, 목록은 연결되지만 선택 차단. 사용자 로그인 복구 후 합성 사진의 start→완료→저장·복귀만 재검증한다. 실제 판독 성공을 주장하지 않으며 자동 유료 전환은 없다. 브라우저 TaskSpace44는 사용자 제어 중이라 takeover/대체공간을 만들지 않았고 기존 합성 검수 근거를 보존했다.
+- **보존/후속:** 사용자 AGENTS.md·.codex/·.qwen/·review-size-attempt4.md와 성능 세션 변경 보존. 성능 후속 `0a1e359f`/`fix/ledger-first-load-20261116`는 운영 미반영(기록 당시 SQL48.307→0.187초, 로컬home57.405→1.874초, 표적158건); 후속 검수·배포·공개 재측정은 해당 세션 범위다. `graphify update .`는 CLI 미설치로 실패했으며 graph.json도 없어 갱신하지 못했다. 검증 worktree의 증거는 `.local-archive/receipt-deploy-20261116/`에 보존하고 공식 archive로 정리한다.
+
 ## 2026-11-16 — 영수증 Paseo 흐름 통합 검수 완료(운영 배포 전)
 
 - **통합 커밋:** `291c44a7` (`feat(receipts): add local Paseo SDK bridge`). 로컬 Paseo provider/model catalog, 승인된 사진 입력 모델 필터, 고정 프롬프트·스키마 해시, 사진 첨부, run-key 멱등·복구, timeline 결과 회수·도구 차단·archive를 `tools/receipt_paseo_bridge.mjs`로 연결했다. `webapp/receipt_workflow.py`의 trailing whitespace도 제거해 diff 게이트를 통과시켰다.
