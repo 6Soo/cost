@@ -2540,6 +2540,13 @@ class Handler(BaseHTTPRequestHandler):
         session = require_session(self.headers, self._cookies())
         path = parsed.path
 
+        # Plush authenticated JSON projections are read-only and must run after
+        # the same session resolution as every other phase-7 read.
+        from . import plush_api
+        if plush_api.owns_route(path):
+            if plush_api.dispatch(self, parsed, board=_active_store()):
+                return True
+
         from . import trip_flight_read
         if trip_flight_read.owns_route(path):
             store = _active_store()
@@ -3537,6 +3544,14 @@ class Handler(BaseHTTPRequestHandler):
         if self._auth_routes(query):
             return
         resolve_role(self.headers, self._cookies())
+        from . import plush_ui
+        if plush_ui.owns_route(parsed.path):
+            from . import ledger_board as board_module
+            try:
+                plush_ui.dispatch(self, parsed, board=board_module)
+            except Exception as exc:
+                self._phase7_refuse(exc)
+            return
         if parsed.path == '/my-actions':
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED'}, code=403)

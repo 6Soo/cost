@@ -1,5 +1,23 @@
 # 운영 기록
 
+## 2026-11-16 22:01 — Plush UI 운영 배포 완료
+
+- **실제 SHA:** `eacc3bc73104425202cfeece0ec52e6b4e1b7aa8` (이전 `1f43642605e72794452b71e38337829a9983c202`), backend8752. 정확 SHA 독립 `gpt-6.1-sol medium APPROVE` 후 공식 `tools/deploy_verified_release.ps1 -Apply` exit0.
+- **배포 게이트:** tracked1858·Git blob불일치0·runtime SHA verified·listener1·보호14표 내용/스키마 불변·health/ready200·비인증 보호API401. 금융 apply NOT_RUN. 스키마/금융 원본 변경 없는 코드 배포이며 full-backup 옵션은 사용하지 않았다.
+- **근거:** `D:/WebLedgerHost/releases/deploy-evidence-eacc3bc73104425202cfeece0ec52e6b4e1b7aa8.json`, 같은 위치 `release-audit-eacc3bc73104425202cfeece0ec52e6b4e1b7aa8.json`; integration `.agents/deploy-eacc-v12/deploy.log`, `review.json`, `production-smoke.json`. JS/CSS/HTML3파일 운영 응답 SHA-256이 패키지와 일치했다.
+- **운영 읽기 전용 smoke:** 로그인 브라우저 `/ui/`·영수증·Google·계정 화면 main/heading/nav 정상·오류 알림0·가로 넘침0. bootstrap/ready/글꼴200. 비로그인 curl UI·bootstrap401; urllib 요청은 edge403이어서 인증 결과와 구분했다. 운영 고객 값·화면 캡처·고객 장부 apply·Google 쓰기는 미실행.
+- **검사/통합:** 프런트72/13파일·타입·빌드, 최종영향45/skip0/실패0 및 선행 범위별 검사 근거는 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md). CI 두 job 시작 전 결제 한도 차단은 정확 SHA annotation으로 확인했고 승인된 독립 검수 예외를 적용했다. 결과 문서는 같은 PR971에서 검수·통합하며 문서 때문에 재배포하지 않는다. 배포 소유권 해제·별도 Rust 감독에게 actual SHA 전달 완료.
+- **제한:** 자동화 paint 목표200ms 미달, 실기기·스크린리더 실청취 미검증. OTA/환불/참가자 일부 교정은 기존 인증 화면 링크 보존 범위다.
+
+
+## 2026-11-16 21:05 창 — 영수증 Terra high `1f436426` 운영 배포
+
+- **전환:** PR [#973](https://github.com/6Soo/cost/pull/973), 검수 코드 `1f43642605e72794452b71e38337829a9983c202`, 병합 `dd1d005d`. 공식 `tools/deploy_verified_release.ps1` exit0, PreviousSha `11267cd012e074a0b89d28adb93a4dd736f64079`. Board8751·Worker 동일 릴리스, core writers VERIFIED, Gateway8790. 신규 분석 기본은 Codex 구독 Terra/high이며 UI는 선택 모델·추론 수준과 저장된 작업의 실제 실행값을 표시한다.
+- **실행 설정:** 일반 Codex를 유지하고 전용 `cost-receipt-codex` alias만 좁은 config RPC로 등록했다. 안정 launcher는 Windows 사용자 LocalAppData의 `Cost/receipt-paseo/launcher/receipt_codex_launch.mjs`이며 Git 릴리스와 동일 바이트임을 확인했다. API endpoint/key 상속 차단, ChatGPT 구독/OpenAI 강제, 도구 feature·상속 MCP 차단을 native config/read로 확인했다. daemon을 재시작하거나 인증 파일을 직접 변경·복사하지 않았으며 추가 과금 경로를 사용하지 않았다.
+- **검증/안전:** 표적51, 기준 영향524+26subtests, 최종delta83 모두 실패0/skip0. 정확 SHA 독립 sol medium APPROVED(독립3건). 실제 합성사진 Terra/high 판독·스키마 검증·동일 handle 복구·archive 통과, tool event0. 릴리스1,767파일 불일치0·runtime SHA verified·보호14표 불변·financial apply NOT_RUN. 스키마/금융 변경 없는 코드 배포로 full-backup 옵션은 사용하지 않았다. CI는 정확 SHA의 두 job이 billing 한도로 미시작임을 확인했다.
+- **전환 후:** 공식 health/ready200·기존 비인증API401. 별도 smoke health200(0.073초), ready200(0.006초), `/receipts`·모델목록·workflow401. 운영 릴리스에서 별도 CODEX_HOME 환경 없이 catalog의 Codex/Terra/high/selectable=true와 동적 UI 소스를 확인했다. 로그인된 브라우저 재검수·고객 영수증 장부 반영·Google 쓰기는 하지 않았다.
+- **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-1f43642605e72794452b71e38337829a9983c202.json` 및 `continuous-switch-1f43642605e72794452b71e38337829a9983c202.json`, `.local-archive/receipt-terra-20261116/`의 broad-quality·delta-quality·final-review.md·live-summary.json·native-config-evidence.json·candidate-catalog.json·production-smoke.json·deploy.log. Plush 감독에게 완료를 통지하고 배포 소유권을 해제했다. 다른 배포가 없으면 다음 PreviousSha는 `1f436426`이다.
+
 ## 2026-11-16 20:14 창 — 영수증 `11267cd0` 운영 배포
 
 - **전환:** PR [#970](https://github.com/6Soo/cost/pull/970)·[#972](https://github.com/6Soo/cost/pull/972). 검수된 코드 SHA `11267cd012e074a0b89d28adb93a4dd736f64079`를 공식 `tools/deploy_verified_release.ps1`로 배포, exit0. PreviousSha `77865bfadce7cc96336cf751d1dbd41964549388`. Board8752·Worker 같은 릴리스, Gateway8790, core writers VERIFIED. workflow=true를 원본 설정 백업 후 명시 활성화했다.

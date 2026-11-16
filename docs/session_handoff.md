@@ -1,12 +1,24 @@
 # 현재 상태
 
-## 2026-11-16 — 영수증 기본 Terra high·선택 모델 동적 표시
+## 2026-11-16 — Plush UI 운영 배포 완료
+
+- **현재 승인:** “모든 작업 재개하고 운영배포까지해”. [설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)을 실행했다. 작업 폴더는 지정 `plush-ui-integration-20261116`, PR971이다. 원본 폴더의 사용자·성능 작업과 별도 Rust 후속을 혼합하지 않는다.
+- **코드:** `a92c0b8773971d9abb71db131e070e46482c1f4f`. 전체 Plush 셸·여행/장부·거래·영수증·관리/보조를 실제 인증 API에 연결했다. Google·계정·규칙·항공권·참가자/예약·내보내기의 실제 계약/상태 오류와 누락을 보완했다. OTA 예약 교정·환불 원문·참가자 추가 교정은 명시한 기존 인증 업무 화면 접근을 보존하며 React 편집으로 새로 이식했다고 주장하지 않는다.
+- **검사:** 전체 프런트72건/13파일·타입·빌드 통과. 마지막 영향45건, 그 전173건/565건+26subtests/778건+35subtests 모두 실패0/skip0/exit0. 이전 broad의 간헐 실패1건과 현재/main 재실행은 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 별도 보존했다. 독립 sol medium의 발견 사항을 수정하고 정확 배포 SHA 승인 후 전환했다.
+- **브라우저:** 합성 영수증 복귀/응답 유실/충돌/원자 반영·PDF/키보드/모션 감소/320~1440px, 실제 XLSX ZIP 다운로드, 계정 승인→연결→해지 오류0, 마지막 참가자/예약/항공권390/1440px 넘침0 확인. 기존공간53이 닫혀 Task54를 사용했고 사용자 공간44는 보존했다. 실제 기기·스크린리더·실사용 paint 성능은 한계를 구분한다.
+- **운영 완료:** 독립 `gpt-6.1-sol medium`이 정확 SHA `eacc3bc73104425202cfeece0ec52e6b4e1b7aa8`를 APPROVE했다. 공식 `deploy_verified_release.ps1` exit0, `1f436426`→`eacc3bc7`, backend8752·runtime SHA 검증, 1858파일 blob 불일치0·보호14표 불변·health/ready200·비인증 API401. 로그인 운영 UI/영수증/Google/계정 화면은 오류·넘침0, bootstrap/글꼴200. JS·CSS·HTML3개 모두 운영 응답과 릴리스 SHA-256 일치. 비로그인 curl은 `/ui/`·bootstrap401, Python urllib은 edge403으로 구분했다. 고객 값·운영 화면 캡처·금융 apply 없음. [운영 기록](operations.md)과 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 근거를 남겼다.
+- **통합/남은 일:** 기능·운영 요청 COMPLETE, 별도 구현 차단 없음. 배포 결과 문서만 같은 PR971에서 독립 검수·병합한다. 문서만을 위한 재배포는 하지 않는다. 별도 Rust 작업은 포함하지 않았으며 다음 배포 PreviousSha는 다른 전환이 없으면 `eacc3bc7`이다.
+- **보호/복구:** 고객 원문·수동 교정·Google 자동 쓰기 금지 유지, 실제 금융 apply 미실행. `.agents/plush-integration-checkpoint.json`과 단계별 `quality-*` 근거 보존. graph.json/CLI가 없어 graphify update는 명령 미발견으로 실패했다.
+
+## 2026-11-16 21:05 — 영수증 기본 Terra high·선택 모델 동적 표시 운영 완료
 
 - **최신 요청:** Claude 대신 `codex/gpt-6.1-terra` high를 기본으로 하고 선택 모델을 UI에 동적으로 표시한다. catalog의 기본값·모델별 실제 추론 수준으로 초기 선택과 버튼/상태를 표시하며, 기존 작업은 저장된 provider/model/thinking을 보존한다. 목록 로딩 경쟁·새로고침은 분석을 자동 실행하지 않는다.
 - **실제 판독:** 합성 사진으로 Terra high start→스키마 검증 완료→새 bridge에서 동일 handle 복구→archive 성공, tool event 0, 금융 apply 없음. Claude 로그인 차단은 새 기본 경로의 차단 사유가 아니다. 근거 `.local-archive/receipt-terra-20261116/live-summary.json`.
 - **실행 보호:** 일반 Codex 설정을 바꾸지 않는 영수증 전용 Paseo alias와 로컬 launcher를 추가했다. 구독 인증·OpenAI provider를 강제하고 파일/셸/웹/MCP/플러그인/다중 에이전트 도구를 끈다. native config/read 예행에서 기존 MCP 항목이 실제 비활성화됨을 확인했다. 단순 read-only를 도구 차단으로 취급하지 않는다.
 - **실행 결함 수정:** SDK의 workspaceId는 기존 작업공간 참조이므로, 임의 ID를 만들던 대신 daemon이 반환한 작업공간 ID와 경로를 검증해 보존한다. 기존 불확실 실행은 재전송하지 않는다. SDK config의 options 필드로 native 제약을 전달한다.
-- **현재 단계:** 표적 검사·영향 검사·최종 SHA 독립 검수와 운영 반영을 마무리한다. 운영은 아직 `11267cd0`이며 이번 변경 배포 완료를 주장하지 않는다. React 화면 변경은 별도 Plush 감독이 같은 DTO 계약으로 통합 중이다. 사용자·성능 세션 변경은 보존한다.
+- **완료 코드/검사:** `7ee0b311`·`1f43642605e72794452b71e38337829a9983c202`, PR [#973](https://github.com/6Soo/cost/pull/973)(병합 `dd1d005d`). 표적 **51 passed**, 기준 영향 **524 passed +26 subtests**, 최종 보완분 영향 **83 passed**, 모두 실패0/skip0. Rust costcore release build 통과. 최종 SHA 독립 `gpt-6.1-sol medium` APPROVED, 독립 회귀3건 통과. GitHub 두 job은 결제 한도로 시작 전에 실패했으며 실제 검사 실패를 우회한 것이 아니다. 검사는 중복 합산하지 않는다.
+- **운영:** 공식 배포 exit0, `11267cd0`→`1f436426`, Board8751·Worker·core writers 전환 확인. 릴리스1,767파일 blob불일치0, 보호14표 불변, 금융 apply 없음. 추가 점검 health200(0.073초)·ready200(0.006초), 비인증 영수증3경로401. 운영 릴리스의 catalog에서 Codex/Terra/high/selectable=true와 동적 UI 소스를 확인했다. 스키마·고객 자료 변경 없는 코드 배포여서 full-backup 옵션은 사용하지 않았다.
+- **마무리/범위:** 이번 요청은 COMPLETE이며 남은 차단 없음. 실제 로그인된 브라우저 재검수는 사용자 제어 TaskSpace44를 보존해 미실행했으며, 동적 선택·이력·새로고침은 합성 JS 실행으로 검증했다. React 화면 변경은 별도 Plush 감독이 같은 DTO 계약으로 통합 중이다. 검사 근거는 `.local-archive/receipt-terra-20261116/`에 보존했고 검증 workspace/임시 검증 branch는 공식 archive 후 정리했다. 사용자·성능 세션 변경과 기존 영수증 결과는 보존했다. graphify CLI·graph.json 부재로 그래프 갱신은 미실행이다.
 
 ## 2026-11-16 20:14 — 영수증 구현·운영 배포 완료, 실모델 판독은 로그인 차단
 
@@ -80,3 +92,16 @@
 - **단계:** M2 종료, M3 진행. 구현 정본은 [SPEC](SPEC.md), 판정 정본은 [규칙집](DECISION_POLICY.md)과 `policy/`다. 이후 Rust·React·클라우드 순서와 데이터 보호는 그대로 유지한다.
 
 이전 상세 인계와 완료 근거는 [정리 전 인계](history/session_handoff-through-20261116.md), [과거 배정표](history/BOARD-through-20261116.md), [문서 지도](README.md)에서 찾는다.
+## 2026-11-16 — Plush UI 구현 통합 체크포인트
+
+- **승인 범위:** 사용자가 Plush 전체 UI 구현을 병렬 위임하고 중단 후 재개를 지시했다. 설계 `73bd96be` 이후 공용 React 기반, 인증 API 클라이언트, 홈·여행·장부·거래·관리·영수증 화면을 통합 worktree `integration/plush-ui-20261116`에 반영했다.
+- **실제 반영:** `frontend/src` 공용 컴포넌트·토큰·AppShell, `frontend/src/api` DTO/클라이언트, feature 폴더와 `main.tsx`의 `/ui/*` 경로 라우팅을 통합했다. 타입 호환 수정과 GET action 필드 순서·blob 응답 처리를 반영했다.
+- **검증 근거:** `npm run typecheck` 통과, `npm run build` 통과(폰트 경로는 런타임 `/ui/fonts/...`로 남음). Vitest는 8건 중 7건 통과, blob fixture 1건은 Windows Node/jsdom Response가 Blob 본문을 `[object Blob]`로 직렬화하는 환경 불일치로 실패했다.
+- **미완료/차단:** `webapp/plush_ui.py`는 정적 셸만 제공하고 `/api/plush/*` dispatcher가 아직 없다. 통합 HTTP 테스트는 `dist` fixture를 찾지 못해 4건이 setup error이며, API 구현 부재 검증까지 진행하지 못했다. 인증·ledger·receipt 서버 API와 운영 배포는 미완료다.
+- **다음 명령:** D 작업 결과에서 실제 `plush_api` 서버 dispatcher를 찾아 `ledger_board` GET/POST hook에 통합한 뒤, frontend build 산출물로 `pytest -q webapp/tests/test_plush_integration.py`를 재실행한다. API가 없으면 해당 범위를 별도 구현 작업으로 기록하고 배포하지 않는다.
+
+## 2026-11-16 — Plush projection API 통합 갱신
+
+- D worktree의 미커밋 산출물 `webapp/plush_api.py`, `webapp/plush_projection.py`, `webapp/tests/test_plush_api.py`를 확인해 통합했다. `ledger_board._phase7_get`에서 인증 세션 확인 뒤 Plush GET projection dispatcher를 호출하도록 연결했다.
+- 커밋 `670cc2ad`; API 단위 검사 `pytest -q webapp/tests/test_plush_api.py`는 6건 통과했다.
+- 통합 HTTP 검사는 4건 중 2건 통과, 2건 실패했다. viewer 합성 fixture가 active connection을 만들지 않아 `visible_tabs`가 빈 집합을 반환하는 테스트 설정 문제이며, 권한 보호를 약화시키지 않고 보류한다. 운영 배포는 하지 않았다.
