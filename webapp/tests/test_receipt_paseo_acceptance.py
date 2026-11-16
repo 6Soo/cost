@@ -351,6 +351,55 @@ def test_result_for_another_original_is_preserved_as_failure_without_candidates(
     assert _ledger_count(fixture) == 0
 
 
+def test_corporate_receipt_attaches_evidence_without_repricing_or_creating_expense(receipt_http):
+    from webapp.card_flow import CardFlow
+
+    fixture, runtime = receipt_http
+    board = fixture.server.card_store
+    flow = CardFlow(board)
+    card_data = (
+        "Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,"
+        "Date,Post Date,Authorization Code,Cancel,Status\n"
+        "국민,1234,overseas,purchase,합성 식당,12345,1200,JPY,12345,"
+        "2026-10-12,2026-10-13,SYNTHETIC123,,매입\n"
+    ).encode("utf-8")
+    received = flow.pipeline.receive(card_data, "synthetic-corporate-receipt.csv")
+    card_batch = flow.pipeline.get_batch(received["batch_id"])
+    assert len(card_batch["rows"]) == 1, card_batch
+    card = card_batch["rows"][0]
+    transaction_id = card["transaction_id"]
+    flow.pipeline.save_decision(
+        transaction_id, card["revision"], item="식비", display_tab_id=fixture.trip,
+        trip_id=fixture.trip, request_id="synthetic-corporate-decision",
+        trip_validator=flow.trip_valid, tab_validator=flow.tab_valid)
+    assert flow.record_decision(received["batch_id"], transaction_id) == 1
+    before_source = tuple(board.conn.execute(
+        "SELECT * FROM transactions WHERE transaction_id=?", (transaction_id,)).fetchone())
+    before_rows = board.conn.execute(
+        "SELECT row_id,payload_json FROM board_rows WHERE row_kind='expense' ORDER BY row_id").fetchall()
+    assert len(before_rows) == 1
+    batch = _enqueue(fixture, _upload(fixture))
+    runtime.release.set()
+    _wait_until(lambda: _persisted_result(fixture))
+    candidate = next(item for item in _candidates(fixture, batch["batch_id"])
+                     if item["currency"] == "JPY")
+    candidate = _review(fixture, candidate, payment="corporate_card")
+    status, result = fixture.request("/api/receipts/workflow/apply", {
+        "request_id": "9" * 32,
+        "selections": [{"candidate_id": candidate["candidate_id"],
+                        "expected_revision": candidate["revision"]}],
+    }, token=fixture.csrf())
+    assert status == 200, result
+    assert result["results"][0]["outcome"] == "evidence_linked"
+    assert result["results"][0]["ledger_id"] == before_rows[0][0]
+    assert board.conn.execute(
+        "SELECT row_id,payload_json FROM board_rows WHERE row_kind='expense' ORDER BY row_id").fetchall() == before_rows
+    assert tuple(board.conn.execute(
+        "SELECT * FROM transactions WHERE transaction_id=?", (transaction_id,)).fetchone()) == before_source
+    assert _ledger_count(fixture) == 0
+    assert board.conn.execute("SELECT COUNT(*) FROM receipt_evidence_links").fetchone()[0] == 1
+
+
 @pytest.mark.parametrize("path", ["/api/receipts/paseo/models", "/api/receipts/workflow",
                                  "/api/receipts/workflow/batches", "/api/receipts/workflow/review",
                                  "/api/receipts/workflow/apply", "/api/receipts/workflow/retry"])
