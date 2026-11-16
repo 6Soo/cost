@@ -184,10 +184,18 @@ pub fn plan_with_periods(
             && !input.ledger.contains_key(&tid)
             && !input.boards.contains_key(&format!("card-{tid}"))
             && row.get("decided_at").is_none_or(Value::is_null)
-            && matches!(source.as_str(), "" | "rule" | "inference" | "code_inference" | "auto_inferred")
+            && matches!(
+                source.as_str(),
+                "" | "rule" | "inference" | "code_inference" | "auto_inferred"
+            )
             && text(row, "transaction_direction") == "purchase"
-            && row.get("amount_krw").and_then(Value::as_i64).is_some_and(|n| n > 0)
-            && ["parse_error", "conflict_reason", "duplicate_of"].iter().all(|k| text(row, k).is_empty())
+            && row
+                .get("amount_krw")
+                .and_then(Value::as_i64)
+                .is_some_and(|n| n > 0)
+            && ["parse_error", "conflict_reason", "duplicate_of"]
+                .iter()
+                .all(|k| text(row, k).is_empty())
             && exception_trip(&card_row(row), &tabs, completed_evidence.as_ref(), false).is_some();
         if excluded(&card_row(row), &tabs, completed_evidence.as_ref(), manual) && !recoverable {
             protected += 1;
