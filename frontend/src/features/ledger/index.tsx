@@ -158,9 +158,23 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   }, [requestUrl, refreshVersion]);
 
   const trips = bootstrap.trips;
-  const currentTrip = data?.trip ?? trips.find((trip) => trip.id === tab);
-  const pageCount = data ? Math.max(1, Math.ceil(data.total_count / data.page_size)) : 1;
-  const ownerCanWrite = bootstrap.role === 'owner' && !data?.closed && !quarterTab;
+  const loadedTrip = data?.trip.id === tab ? data.trip : undefined;
+  const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
+  const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
+  const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
+  const isClosed = loadedTrip ? data?.closed === true : currentTrip?.closed ?? false;
+  const ledgerLoadedForTab = loadedTrip !== undefined
+    && typeof data?.closed === 'boolean'
+    && !loading
+    && !loadError;
+  const ownerCanWrite = bootstrap.role === 'owner'
+    && ledgerLoadedForTab
+    && currentTrip !== undefined
+    && !currentTrip.closed
+    && !currentTrip.archived
+    && !isClosed
+    && tab !== 'unclassified'
+    && !quarterTab;
 
   function openRow(row: LedgerRow) {
     update({ row: row.id });

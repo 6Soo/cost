@@ -18,8 +18,8 @@ type PageProps = {
 function stateFor(trip: TripListItem): Exclude<TripState, 'all'> {
   if (trip.kind === 'quarter' || trip.id.startsWith('quarter:')) return 'quarter';
   if (trip.archived) return 'archived';
-  if (trip.previous) return 'previous';
   if (trip.closed) return 'closed';
+  if (trip.previous) return 'previous';
   return 'active';
 }
 

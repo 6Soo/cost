@@ -9,6 +9,7 @@ type RowDetail = {
   source: Record<string, unknown> | null;
   decision: Record<string, unknown> | null;
   history: unknown[];
+  expected_revision: string | number | null;
   actions: ActionDescriptor[];
 };
 
@@ -101,14 +102,22 @@ function RowActionForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState(requestId);
+  const [changeMode, setChangeMode] = useState<'exception' | 'rule_change'>('exception');
   const actionHref = internalHref(action.href);
-  const revision = detail.row.revision;
+  const revision = detail.expected_revision;
+  const requiresChangeMode = Boolean(
+    actionHref?.startsWith('/api/rows/')
+    && actionHref.endsWith('/save')
+    && !fields.some((field) => field.name === 'change_mode'),
+  );
   const encoding = (action as ActionDescriptor & { encoding?: string }).encoding;
   const canSubmit = Boolean(actionHref?.startsWith('/api/'))
     && action.method === 'POST'
     && fields.length > 0
     && (encoding === undefined || encoding === 'json')
+    && revision !== null
     && revision !== undefined
+    && String(revision).trim() !== ''
     && bootstrap.role === 'owner'
     && !detail.row.read_only
     && !action.disabled;
@@ -118,13 +127,20 @@ function RowActionForm({
     if (!canSubmit || !actionHref || pending) return;
     const payload: Record<string, unknown> = {};
     fields.forEach((field) => {
-      if (field.read_only || field.type === 'hidden' || field.type === 'checkbox' || field.type !== 'file') {
-        const value = values[field.name];
-        if (value !== undefined) payload[field.name] = value;
-      }
+      if (field.read_only || field.type === 'file') return;
+      const value = values[field.name];
+      if (value === undefined) return;
+      // The projection can intentionally omit a current value (such as a private
+      // note). Leaving that editor blank must not clear the stored value.
+      if ((field.value === undefined || field.value === null) && value === '' && field.type !== 'checkbox') return;
+      payload[field.name] = value;
     });
-    if (!('expected_revision' in payload)) payload.expected_revision = revision;
-    if (!('client_request_id' in payload)) payload.client_request_id = clientRequestId;
+    // Use the dedicated API concurrency token even if a descriptor also lists it.
+    payload.expected_revision = revision;
+    if (requiresChangeMode) payload.change_mode = changeMode;
+    if (typeof payload.client_request_id !== 'string' || !payload.client_request_id.trim()) {
+      payload.client_request_id = clientRequestId;
+    }
     setPending(true);
     setError(null);
     try {
@@ -184,8 +200,22 @@ function RowActionForm({
               />
             )}
           </FormField>
-        );
-      })}
+          );
+        })}
+      {requiresChangeMode && (
+        <FormField id={`row-edit-${action.id}-change-mode`} label="변경 이유" required>
+          <Select
+            id={`row-edit-${action.id}-change-mode`}
+            value={changeMode}
+            required
+            disabled={pending}
+            onChange={(event) => setChangeMode(event.currentTarget.value as 'exception' | 'rule_change')}
+          >
+            <option value="exception">예외 사항</option>
+            <option value="rule_change">규칙 변경</option>
+          </Select>
+        </FormField>
+      )}
       <div className="cost-ledger__entry-actions">
         <ActionButton type="button" variant="secondary" onClick={onCancel} disabled={pending}>취소</ActionButton>
         <ActionButton type="submit" variant="primary" pending={pending} pendingLabel="저장 중" disabled={!canSubmit}>저장</ActionButton>
@@ -224,6 +254,7 @@ export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps
   }, [detailVersion, rowId]);
 
   const actions = detail?.actions ?? [];
+  const writeActions = actions.filter((action) => action.method === 'POST');
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
 
@@ -236,13 +267,14 @@ export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps
           <div className="cost-ledger__detail-amount"><Amount value={detail.row.amount} currency={detail.row.currency} /></div>
           <p className="cost-ledger__detail-description">{detail.row.description || detail.row.merchant}</p>
           {detail.row.read_only && <InlineNotice tone="info" title="읽기 전용">이 행 또는 마감 기간은 현재 수정할 수 없습니다.</InlineNotice>}
-          {bootstrap.role === 'owner' && actions.length > 0 && (
+          {bootstrap.role === 'owner' && writeActions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
               <h3>동작</h3>
-              {actions.map((action) => {
+              {writeActions.map((action) => {
                 const href = internalHref(action.href);
                 const actionEncoding = (action as ActionDescriptor & { encoding?: string }).encoding;
-                const postCanEdit = action.method === 'POST' && action.fields?.length && (actionEncoding === undefined || actionEncoding === 'json') && href?.startsWith('/api/') && !action.disabled && !detail.row.read_only;
+                const hasRevision = detail.expected_revision !== null && detail.expected_revision !== undefined && String(detail.expected_revision).trim() !== '';
+                const postCanEdit = action.method === 'POST' && action.fields?.length && (actionEncoding === undefined || actionEncoding === 'json') && href?.startsWith('/api/') && hasRevision && !action.disabled && !detail.row.read_only;
                 if (action.method === 'GET' && href?.startsWith('/api/')) {
                   return <a className="cost-ledger__action-link" href={href} key={action.id}>{action.label}</a>;
                 }
