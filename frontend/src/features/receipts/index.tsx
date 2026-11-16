@@ -49,18 +49,13 @@ function errorText(error: unknown): string {
 }
 
 function randomRequestId(): string {
-<<<<<<< HEAD
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID().replaceAll('-', '');
-=======
   const browserCrypto = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : undefined;
   if (browserCrypto?.randomUUID) return browserCrypto.randomUUID().replaceAll('-', '');
   if (!browserCrypto?.getRandomValues) {
     return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.padStart(32, '0').slice(-32);
   }
->>>>>>> f0d9574f (fix: recover receipt review retries safely)
   const bytes = new Uint8Array(16);
-  const cryptoApi = (globalThis as typeof globalThis & { crypto?: Crypto }).crypto;
-  if (cryptoApi) cryptoApi.getRandomValues(bytes);
+  browserCrypto.getRandomValues(bytes);
   return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
@@ -854,18 +849,6 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       {legacyManualOpen && <section className="receipt-card receipt-manual" aria-labelledby="receipt-manual-title">
         <div className="receipt-section-heading"><div><p className="receipt-step">기존 기능</p><h2 id="receipt-manual-title">영수증 내용 직접 입력</h2></div>
           <button type="button" className="receipt-button receipt-button--quiet" onClick={() => setLegacyManualOpen(false)}>닫기</button></div>
-<<<<<<< HEAD
-        {manualSha && <div className="receipt-manual__source"><img src={imageUrl(manualSha)} alt="직접 입력할 영수증 원본" /><span>선택한 원본 사진 · 확대해도 저장 원본은 바뀌지 않습니다.</span></div>}
-        <div className="receipt-form-grid">
-          <label>상호<input id="receipt-manual-merchant" value={manualMerchant} onChange={(event) => setManualMerchant(event.target.value)} autoComplete="off" /></label>
-          <label>날짜<input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
-          <label>통화<select value={manualCurrency} onChange={(event) => setManualCurrency(event.target.value)}>{currencyOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label>금액<input inputMode="decimal" type="number" min="1" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
-          <label>결제수단<select value={manualPayment} onChange={(event) => setManualPayment(event.target.value)}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label>여행<select value={manualTrip} onChange={(event) => setManualTrip(event.target.value)}><option value="">여행 미지정</option>{bootstrap.trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}</select></label>
-        </div>
-        <div className="receipt-row-actions"><button type="button" className="receipt-button receipt-button--primary" onClick={() => void saveManual()} disabled={savingManual}>{savingManual ? '저장 중…' : '영수증 등록'}</button></div>
-=======
         {manualSha && <div className="receipt-manual__source"><img src={imageUrl(manualSha)} alt="직접 입력할 영수증 원본" /><span>{activeSource?.kind === 'pdf-page' ? '선택한 PDF 페이지 이미지' : '선택한 원본 사진'} · 확대해도 저장 원본은 바뀌지 않습니다.</span></div>}
         <form className="receipt-form-grid" onSubmit={(event) => { event.preventDefault(); void saveManual(); }}>
           <label>상호<input id="receipt-manual-merchant" name="merchant" autoComplete="organization" required value={manualMerchant} onChange={(event) => setManualMerchant(event.target.value)} /></label>
@@ -876,7 +859,6 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
           <label>여행<select name="trip_id" value={manualTrip} onChange={(event) => setManualTrip(event.target.value)}><option value="">여행 미지정</option>{bootstrap.trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}</select></label>
           <div className="receipt-row-actions"><button type="submit" className="receipt-button receipt-button--primary" disabled={savingManual}>{savingManual ? '저장 중…' : '영수증 등록'}</button></div>
         </form>
->>>>>>> f0d9574f (fix: recover receipt review retries safely)
       </section>}
 
       <section className="receipt-card receipt-models" aria-labelledby="receipt-model-title">
@@ -929,21 +911,12 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
           <div className="receipt-original">
             {activeSha ? <>
               <div className="receipt-original__topline"><span>{activeSource?.label || '영수증 사진'} · 원본 SHA 뒤 8자리 {activeSha.slice(-8)}</span>
-<<<<<<< HEAD
-                <button type="button" className="receipt-link-button" onClick={() => { setZoom(1); setZoomOpen(true); }}>원본 확대</button></div>
-              <button type="button" className="receipt-original__image-button" style={{
-                aspectRatio: sourceAspect || '4 / 3',
-                width: sourceAspect ? `min(100%, calc(var(--receipt-source-max-height) * ${sourceAspect}))` : undefined,
-              }} onClick={() => { setZoom(1); setZoomOpen(true); }} aria-label="선택한 영수증 원본 확대">
-                <img src={imageUrl(activeSha)} alt="선택한 영수증 원본 사진" onLoad={(event) => {
-=======
               <button type="button" className="receipt-link-button" onClick={(event) => openZoom(event.currentTarget)}>{activeSource?.kind === 'pdf-page' ? '페이지 확대' : '원본 확대'}</button></div>
               <button type="button" className="receipt-original__image-button" style={{
                 aspectRatio: sourceAspect || '4 / 3',
                 width: sourceAspect ? `min(100%, calc(var(--receipt-source-max-height) * ${sourceAspect}))` : undefined,
               }} onClick={(event) => openZoom(event.currentTarget)} aria-label="선택한 영수증 원본 확대">
                 <img src={imageUrl(activeSha)} alt={activeSource?.kind === 'pdf-page' ? '선택한 PDF 페이지 이미지' : '선택한 영수증 원본 사진'} onLoad={(event) => {
->>>>>>> f0d9574f (fix: recover receipt review retries safely)
                   const image = event.currentTarget;
                   if (image.naturalWidth && image.naturalHeight) setSourceAspect(image.naturalWidth / image.naturalHeight);
                 }} />
@@ -952,7 +925,8 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
               </button>
               {activeSource?.kind === 'pdf-page' && <p className="receipt-help">PDF {activeSource.pdfSha?.slice(0, 8)}의 {activeSource.page}페이지 미리보기입니다. PDF 원본 파일은 서버에서 보존됩니다.</p>}
               <div className="receipt-original__actions"><button type="button" className="receipt-button receipt-button--quiet" onClick={() => startManualFor(activeSha)}>이 사진에 직접 입력</button>
-                <a className="receipt-button receipt-button--quiet" href={imageUrl(activeSha)} target="_blank" rel="noreferrer">원본 파일 열기</a></div>
+                <a className="receipt-button receipt-button--quiet" href={imageUrl(activeSha)} target="_blank" rel="noreferrer">{activeSource?.kind === 'pdf-page' ? '페이지 이미지 열기' : '원본 사진 열기'}</a>
+                {activeSource?.pdfSha && <a className="receipt-button receipt-button--quiet" href={`/api/receipts/pdf/${encodeURIComponent(activeSource.pdfSha)}`} target="_blank" rel="noreferrer">PDF 원본 열기</a>}</div>
             </> : <div className="receipt-empty"><strong>사진을 선택하세요.</strong><span>저장된 원본은 확대해 확인할 수 있습니다.</span></div>}
           </div>
           <div className="receipt-job-list">
@@ -1057,16 +1031,6 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         </div> : <div className="receipt-empty"><span>기존 수기 후보가 없습니다. 직접 입력을 시작할 수 있습니다.</span><button type="button" className="receipt-link-button" onClick={() => startManualFor(activeSha)}>직접 입력</button></div>}
       </section>
 
-<<<<<<< HEAD
-      {zoomOpen && activeSha && <div className="receipt-zoom" role="dialog" aria-modal="true" aria-label="영수증 원본 확대" onMouseDown={(event) => { if (event.target === event.currentTarget) setZoomOpen(false); }}>
-        <div className="receipt-zoom__toolbar"><span>원본 확대 · {activeSource?.label || '사진'} · {activeSha.slice(-8)}</span>
-          <div><button type="button" className="receipt-button receipt-button--quiet" onClick={() => setZoom((value) => Math.max(1, value - 0.25))} aria-label="축소">−</button>
-            <span>{Math.round(zoom * 100)}%</span><button type="button" className="receipt-button receipt-button--quiet" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} aria-label="확대">+</button>
-            <button type="button" className="receipt-button receipt-button--primary" onClick={() => setZoomOpen(false)}>닫기</button></div></div>
-        <div className="receipt-zoom__viewport"><img src={imageUrl(activeSha)} alt="확대된 영수증 원본" style={{ transform: `scale(${zoom})` }} /></div>
-        <p>키보드 + / −로 확대·축소하고 Escape로 닫습니다. PDF는 저장된 페이지 원본 이미지를 표시합니다.</p>
-      </div>}
-=======
       {zoomOpen && activeSha && <dialog ref={zoomDialog} className="receipt-zoom" aria-labelledby="receipt-zoom-title" aria-describedby="receipt-zoom-description"
         onClose={onZoomClose} onClick={(event) => { if (event.target === event.currentTarget) closeZoom(); }}
         onKeyDown={(event) => {
@@ -1080,7 +1044,6 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         <div className="receipt-zoom__viewport"><img src={imageUrl(activeSha)} alt={activeSource?.kind === 'pdf-page' ? '확대된 PDF 페이지 이미지' : '확대된 영수증 원본 사진'} style={{ transform: `scale(${zoom})` }} /></div>
         <p id="receipt-zoom-description">키보드 + / − 또는 확대·축소 버튼으로 크기를 조절하고 Escape로 닫습니다. PDF는 보존된 페이지 이미지만 표시하며 PDF 파일 자체를 읽어 표시하지 않습니다.</p>
       </dialog>}
->>>>>>> f0d9574f (fix: recover receipt review retries safely)
     </main>
   );
 }
