@@ -13,7 +13,7 @@ use crate::digest::{python_json, sha256_hex};
 pub use input::{BoardRow, FIELDS, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
 pub use judgement::{Keep, Outcome};
 
-use crate::dates::{completed_period, excluded};
+use crate::dates::{completed_period, exception_trip, excluded};
 use crate::domain::{Judgement, ProtectionReason};
 use crate::period::{PeriodEvidence, PeriodRow, period_for};
 use crate::trips::{Canonical, Trip, trip_tab};
@@ -176,7 +176,28 @@ pub fn plan_with_periods(
         let manual =
             ctx.decisions.contains_key(&tid) || input.overrides.contains(&format!("card-{tid}"));
         let completed_evidence = fact.map(evidence_of);
-        if excluded(&card_row(row), &tabs, completed_evidence.as_ref(), manual) {
+        // A weak unposted historical assignment is recoverable only when an
+        // exact source-bound booking proves the open trip. Posted ledgers and
+        // all human decisions retain the completed-period boundary.
+        let recoverable = completed_period(&card_row(row).dates).is_some()
+            && !manual
+            && !input.ledger.contains_key(&tid)
+            && !input.boards.contains_key(&format!("card-{tid}"))
+            && row.get("decided_at").is_none_or(Value::is_null)
+            && matches!(
+                source.as_str(),
+                "" | "rule" | "inference" | "code_inference" | "auto_inferred"
+            )
+            && text(row, "transaction_direction") == "purchase"
+            && row
+                .get("amount_krw")
+                .and_then(Value::as_i64)
+                .is_some_and(|n| n > 0)
+            && ["parse_error", "conflict_reason", "duplicate_of"]
+                .iter()
+                .all(|k| text(row, k).is_empty())
+            && exception_trip(&card_row(row), &tabs, completed_evidence.as_ref(), false).is_some();
+        if excluded(&card_row(row), &tabs, completed_evidence.as_ref(), manual) && !recoverable {
             protected += 1;
             let day = card_row(row).dates;
             let judged = completed_period(&day).map_or(

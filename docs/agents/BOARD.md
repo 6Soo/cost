@@ -6,6 +6,7 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
+| 몽골 항공료·Google 수입 표시 | COMPLETE (운영 기장·브라우저·재처리 검증) | actual9af20414/8751. 항공료8건6500202원 정확1회, 유효보드14건6767151원. 수입14행17337200원/미확인1/잠정안내 실제확인. 신선백업복원·원본/수동/대상밖금융 불변·재처리중복0. [증거](artifacts/reviewed-booking-income-20261117.md), 최종PR980 판정/병합은 PR기록 |
 | RUST-OTA | VERIFIED (합성) | ExaOne 2.5 medium: 기존 e2a43e10/f5c91d95 확인, 새 red 없음·변경0. 감독 재실행 Rust 회귀7 통과. 실제 사본 재측정 미완 |
 | RUST-REFUND | COMPLETE (구현·합성 검사) | ExaOne 초안 후 감독 완성056253df, Python a55de0c6. 실제 바이너리56/CLI4/core1·Python25 통과, 공식Python923/Rust191·교차97 통과, 독립sol medium 코드 APPROVE |
 | RUST-PREFLIGHT | VERIFIED (합성) | ExaOne 31feca83 → 통합 a360f055, 감독 보완 c391d415. 표적25 passed/skip0, 실제 CLI READY(환불1=1·OTA1=1); 원래 fixture WAL은 BLOCKED로 거부 |
@@ -29,8 +30,8 @@
 
 | 항목 | 상태 | 재개 조건 |
 | --- | --- | --- |
-| Rust 1차 운영 전환 | 승인 ① 대기 | 백업/복원·사본 되돌림 예행 승인 후 절차서 순서. 이번 정리 요청을 전환 승인으로 해석하지 않음 |
-| Rust 2차 연결 전환 | 보류 | 목록 밖 OTA 차이 해소와 별도 전환 검증 |
+| Rust 1차 운영 전환 | COMPLETE | 사용자 전환 승인 후 classification_writer=rust 적용. 최종8888230d 바이너리·Board/Worker 적용 및 첫 창 분류7336행 PASS/목록 밖0. [현재 상태](../session_handoff.md) 상단 |
+| Rust 2차 연결 전환 | COMPLETE | links_producer=rust. 신선 C1 OTA7965/7965·환불486/486·목록 밖0, C2 185사례 동일, C3 백업복원·왕복 동일 및 전환 후 첫 창 PASS. 과거1648건은 수정 전 측정분. [운영 기록](../operations.md) 상단 |
 | 카드 수집 라이브 인증·다운로드 | 미검증 | 계정 자격·실사이트 접근 등 실제 수집 조건 확인. 합성 검사와 구분 |
 | 오래된 실패 검사·중단 실험 | 미병합 보존 | [통합 기록](../history/workspace-integration-20261116.md)의 반려 근거·복구 참조 유지. 정리를 위해 실패를 통과로 바꾸거나 철회 코드를 재활성화하지 않음 |
 

@@ -66,6 +66,30 @@ def excluded(row, trips=(), *, evidence=None, manual=False, valid=None):
     return not exception_trip(row, trips, evidence=evidence, manual=manual, valid=valid)
 
 
+def recoverable_unrecorded_booking(row, trips, *, evidence=None, recorded=True, manual=False):
+    """An unposted calendar guess is not a submitted historical ledger.
+
+    Only a source-bound formal booking for an open trip can cross the period
+    boundary. Callers must positively verify absence from BOTH ledger stores;
+    unknown recording state is protected by default. No booking is inferred here.
+    """
+    if (recorded or manual or not completed_period(row)
+            or row.get('decided_at') is not None
+            or row.get('classification_source') not in ('', 'rule', 'inference', 'code_inference', 'auto_inferred')
+            or row.get('transaction_direction') != 'purchase'
+            or type(row.get('amount_krw')) is not int or row['amount_krw'] <= 0
+            or any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of'))):
+        return False
+    fact = evidence or {}
+    period = fact.get('service_period') or {}
+    try:
+        date.fromisoformat(period.get('starts_on', ''))
+        date.fromisoformat(period.get('ends_on', ''))
+    except (TypeError, ValueError):
+        return False
+    return bool(exception_trip(row, trips, evidence=fact))
+
+
 def manual_ids(conn):
     from .decision_provenance import active_decision_sql
     ids = {r[0] for r in conn.execute('SELECT d.transaction_id FROM review_decisions d WHERE ('
@@ -148,11 +172,17 @@ def open_scope(row, trips):
 
 def excluded_ids(conn, trips=(), *, evidence=None):
     """Narrow projection for review counters; never read customer source blobs."""
-    fields = ('transaction_id','source_hash','approval_date','posting_date','trip_id','display_tab_id')
+    fields = ('transaction_id','source_hash','approval_date','posting_date','trip_id','display_tab_id',
+              'classification_source','decided_at','transaction_direction','amount_krw',
+              'parse_error','conflict_reason','duplicate_of')
     rows = [dict(zip(fields,r)) for r in conn.execute('SELECT '+','.join(fields)+' FROM transactions')]
     completed = [r for r in rows if completed_period(r)]
     if not completed:
         return set()
     manual, valid = manual_ids(conn), trip_map(trips)
+    recorded = {r[0] for r in conn.execute('SELECT transaction_id FROM ledger_entries')}
+    recorded.update(r[0][5:] for r in conn.execute("SELECT row_id FROM board_rows WHERE row_id LIKE 'card-%'"))
     return {r['transaction_id'] for r in completed
-            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual,valid=valid)}
+            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual,valid=valid)
+            and not recoverable_unrecorded_booking(r,trips,evidence=(evidence or {}).get(r['transaction_id']),
+                recorded=r['transaction_id'] in recorded,manual=r['transaction_id'] in manual)}

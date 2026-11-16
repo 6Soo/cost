@@ -1,5 +1,28 @@
 # 운영 기록
 
+## 2026-11-17 02:31 — 몽골 항공료 실제 기장·수입 표시 완료
+
+- **배포:** 공식 도구 exit0, actual9af204148b1b6450f7bb9c6ec1185c5f2f3aa852, Previous8888230deb1a5bd09d826da7e66034e2091ba0a1, backend8751/gateway8790. 1883파일 blob불일치0·코드배포 보호14표 불변·health/ready200·보호API401. Board/Worker Rust/rust·기존costcore-8888230d.exe·card-flow.json 해시 보존. 배포 도구의 financial_apply=NOT_RUN은 코드 배포 단계만 가리킨다.
+- **안전 게이트:** 신선4DB 백업/복원 exit0·원본/범위 밖 불변·복원 binding 동일. 첫 설치가 프로세스 임대 기록 변경(rule_process_leases2351→2354)을 감지해 원문/큐 설치 전에 중단됐다. 게이트를 완화하지 않고 postdeploy board/core 백업/복원을 새로 통과했다. 범위 밖 OTA/원본 폴더 불변. 독립 승인된 설치 스크립트를 배타 lock 아래 실행해 보호 원문과 정확8건의 기존 queue_batch만 등록했다. 직접 금융 SQL 없음.
+- **금융/화면:** 기존 worker가 전체 근거 대조 후 항공료8건6500202원을 표준 기장(recorded8/failures0/pending0). ledger/board 각각 정확1회·귀속/이용기간/원문 해시 일치. 유효 몽골 보드14건6767151원. 원본·수동·대상 밖 금융/core 결정·나머지 보호표 불변. 같은8건 큐 재처리 후 모든 보호 금융표와 core 전체 상태 동일. 실제 인증 브라우저 지출14건/항공료8건과 수입14행17337200원·미확인1·잠정 안내 확인. 수입390/1440px 가로넘침0. 차액10570049원은 잠정이며 Google 최종 장부 쓰기0.
+- **검사/근거:** 정확코드9af 공식1101+30subtests/skip0·frontend79/type/build PASS, gpt-6.1-sol medium 독립 APPROVE. CI 결제 한도 차단은 실제 annotation 확인. 보호 호스트 data/backups/reviewed-mongolia-20261117/의 백업·기장·재처리·실제 화면 증거와 releases/deploy-evidence-9af204148b1b6450f7bb9c6ec1185c5f2f3aa852.json에 저장했다. 고객 원문/화면은 Git에 넣지 않았다. [상세 기록](agents/artifacts/reviewed-booking-income-20261117.md), PR980. 문서 후속 때문에 재배포하지 않는다.
+
+## 2026-11-17 00:26 — Rust 2차 연결 전환 및 최종 바이너리 활성화
+
+- **실행:** 회계 감독의 공식 코드 배포 `8888230deb1a5bd09d826da7e66034e2091ba0a1` 완료·소유권 해제 후, 같은 릴리스에서 costcore release 빌드. `costcore_bin`을 `D:/WebLedgerHost/bin/costcore/costcore-8888230d.exe`(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`)로 고정하고 `links_producer=rust` 적용. 기존 `classification_writer=rust` 유지. 공식 배포와 같은 배타 잠금 아래 사전 `--check` 통과 후 Board·Worker 관리 재시작, 두 역할 release888·Rust/Rust 적용 및 `--verify-applied --require-worker` 확인. 운영 backend8752/gateway8790, health/ready200·비인증 보호API401.
+- **게이트:** 전환 전 최종 C1 판정·환불·OTA PASS/목록 밖0. C2 185사례에서 Python plan+Rust 연결 및 Rust plan+Rust 연결 모두 Python 기준과 차이0. C3 `c3-links-rust-20261116.json`은 board/core/OTA evidence/review 4DB 백업·복원·live/out-of-scope unchanged PASS. 사본의 Python→Rust→Python 왕복도 환불·OTA 해시가 모두 같았다. 추가 harness/전환 스크립트는 독립 gpt-6.1-sol medium 검수 APPROVE.
+- **첫 창:** 전환 후 신선4DB 사본·OTA 입력 포착 뒤 분류 `shadow` 7,336행 PASS/unlisted0, `shadow-links` OTA7965/7965·환불486/486·private_details0·types[]·unlisted0, 두 명령 exit0. 회계 planner Rust 변경도 새 바이너리로 활성화됐다.
+- **실패/복구:** 첫 재시작은 종료 중 CIM 프로세스의 null 명령행 조회로 실패했다. 원설정 복귀·Board/Worker Python 연결 적용·health/ready200을 확인했고, null 프로세스 종료 대기를 보완해 재시도 성공했다. 첫 실패를 성공으로 집계하지 않았다. 과거 OTA1648건은 `e2a43e10` 수정 전 측정분으로 확인돼 새 소스 패치·추가 PR은 만들지 않았다.
+- **근거/보존:** `D:/WebLedgerHost/data/backups/links-rust-20261116/`의 `final-classification.out.json`, `final-links.out.json`, `final-fa2/c2-final.json`, `final-fa2/c3-final.json`, `switch-evidence.json`, `switch-first-failed.json`, `first-window/evidence.json` 및 상세 파일. `final-fa2/`는 보관 폴더명이고 최종 검사 내부 release_sha는888이다. 추가 검수·실행 스크립트는 `.local-archive/rust-links-cutover-20261116/`에 보존. 카드 원문·금액·부호·ID·수동 교정 보호 유지, 금융 apply·Google 장부 직접 쓰기 없음. 운영 소유권 해제. 이후 PreviousSha는 다른 배포가 없으면 `8888230deb1a5bd09d826da7e66034e2091ba0a1`이며 두 Rust 스위치·바이너리 경로를 보존한다.
+
+## 2026-11-17 00:14 — 회계 대사 보강 코드 운영 배포 완료
+
+- **상태/실제 SHA:** 회계 대사·완료기간 예약 복구·메일 수집·Google 수입 검증 보강을 `8888230deb1a5bd09d826da7e66034e2091ba0a1`로 공식 배포했다. PreviousSha는 직전 실제 `41d8e8efde542b9611a1f8a83eea3861bcfaaa4e`, backend8752·gateway8790. `tools/deploy_verified_release.ps1 -Apply` exit0, 기록 시각 `2026-11-16T15:13:59Z`.
+- **반영 원칙:** 구현사항은 표적/영향 검사와 독립 검수, 보호 데이터 게이트를 통과한 뒤 `tools/deploy_verified_release.ps1`로 운영 반영한다. 배포 전후 실제 SHA·보호 테이블·health/ready·비인가 경로를 확인한다. 금융 원본과 Google 최종 장부에는 별도 승인 없이 쓰지 않는다.
+- **게이트/운영 smoke:** 추적1876파일 blob불일치0, frontend3파일 복사 전후 SHA-256 일치, runtime SHA verified, listener1, 보호14표 내용/스키마 불변. health/ready200·보호API401. 추가 비인증 `/`·`/ui/`·bootstrap·영수증 모델API401; health0.056초·ready0.007초. 금융 apply NOT_RUN. 인증 브라우저 UI 재검수는 UI 변경 없는 배포이므로 미실행했다.
+- **검증/복구:** 정확 SHA 독립 gpt-6.1-sol medium APPROVE, 공식 영향 Python1015+2subtests/Rust191 통과·skip0/known0, fmt/clippy/build 통과, frontend78·타입·빌드 통과. 첫 영향 검사의 Rust fmt 실패를 수정 후 전체 재검사했다. 기존 refactor 비교2건은 현재 main과 동일 결과/digest의 실패로 별도 보존했다. CI는 결제 한도로 시작 전 차단, 실제 검사 실패를 우회하지 않았다. Rust 감독의 선행 scoped4DB 백업/복원 검증과 writer 보류 인계 후 배포했으며, 도구의 fresh_backup_restore=false는 code-only 배포의 full-backup 옵션 미사용을 뜻한다.
+- **근거/후속:** `D:/WebLedgerHost/releases/deploy-evidence-8888230deb1a5bd09d826da7e66034e2091ba0a1.json`, 같은 위치 release-audit 파일, 작업공간 `.local-archive/accounting-deploy-20261116/`의 최종 검사·검수·보호·config 해시·deploy.log. 코드 배포 시 card-flow.json·기존 바이너리 경로 불변과 rust writer/python links 정합성을 확인했다. 이후 소유권을 받은 Rust 감독이 `costcore-8888230d.exe`(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`)와 rust links로 전환했다. 두 서비스의 SHA/설정 정렬·health/ready200 및 planner 첫 창 원문7336·대상4/4·목록밖차이0·PASS를 재확인했다. 첫 재시작은 CIM 종료중 null 조회로 원설정 복귀 후 대기 보완·재시도 PASS였다. 연결 첫 창도 OTA7965/7965·환불486/486·private_details0·types空·목록밖차이0·PASS이며 감독이 운영 소유권을 해제했다. 근거 `D:/WebLedgerHost/data/backups/links-rust-20261116/switch-evidence.json`과 `first-window/{evidence,shadow.out,shadow-links.out}.json`. 이후 배포에서도 두 Rust flags와 새 바이너리 경로를 보존한다. [검증 기록](agents/artifacts/accounting-release-20261117.md), PR978에서 결과 문서 통합 후 재배포하지 않는다.
+
 ## 2026-11-16 22:01 — Plush UI 운영 배포 완료
 
 - **실제 SHA:** `eacc3bc73104425202cfeece0ec52e6b4e1b7aa8` (이전 `1f43642605e72794452b71e38337829a9983c202`), backend8752. 정확 SHA 독립 `gpt-6.1-sol medium APPROVE` 후 공식 `tools/deploy_verified_release.ps1 -Apply` exit0.
