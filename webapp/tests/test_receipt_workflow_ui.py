@@ -98,6 +98,26 @@ def test_job_retry_is_explicit_terminal_and_uses_retry_endpoint_with_stable_id()
     assert "if (error.httpStatus === 409)" in script
 
 
+def test_reanalysis_links_to_canonical_candidate_and_keeps_new_reading_read_only():
+    script = receipt_workflow_ui.WORKFLOW_SCRIPT
+
+    assert "function linkedCandidateIds(job, batch)" in script
+    assert "batch.related_candidates || []" in script
+    assert "job.candidate_ids || []" in script
+    assert "function reanalysisForJob(job, batch)" in script
+    assert "batch.reanalyses || []" in script
+    assert "observation.receipt" in script
+    assert "escapeHtml(readValue(receipt[key]))" in script
+    assert "rw-reanalysis-fields" in script
+    assert "새 판독 근거 · 비교용" in script
+    assert "기존 검수 내역과 장부 반영 상태는 유지됩니다." in script
+    assert 'id="rw-candidate-${escapeHtml(id)}"' in script
+    assert 'href="#rw-candidate-${encodeURIComponent(candidateId)}"' in script
+    assert "기존 검수 연결 · ${linkedCount}건" in script
+    assert "return { label: '영수증 0건', state: 'empty' }" in script
+    assert "새 후보 ${count}건 · 기존 검수 연결 ${relatedCount}건" in script
+
+
 def test_backend_error_codes_show_korean_guidance_and_keep_raw_code_diagnostic_only():
     script = receipt_workflow_ui.WORKFLOW_SCRIPT
 

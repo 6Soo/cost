@@ -216,13 +216,55 @@
     }
   }
 
-  function statusInfo(job, count) {
+  function statusInfo(job, count, linkedCount = 0) {
     if (job.status === 'running' || job.status === 'queued' || job.status === 'starting') return { label: '분석 중', state: 'running' };
     if (job.status === 'failed' || job.status === 'error') return { label: '분석 실패', state: 'failed' };
     if (job.status === 'done' || job.status === 'complete' || job.status === 'completed') {
-      return count ? { label: `분석 완료 · ${count}건`, state: 'done' } : { label: '영수증 0건', state: 'empty' };
+      if (count && linkedCount) return { label: `새 후보 ${count}건 · 기존 검수 ${linkedCount}건`, state: 'done' };
+      if (count) return { label: `분석 완료 · ${count}건`, state: 'done' };
+      if (linkedCount) return { label: `기존 검수 연결 · ${linkedCount}건`, state: 'done' };
+      return { label: '영수증 0건', state: 'empty' };
     }
     return { label: job.status || '상태 확인 중', state: 'unknown' };
+  }
+
+  function linkedCandidateIds(job, batch) {
+    const related = new Set((batch.related_candidates || []).map((item) => item.candidate_id));
+    return [...new Set((job.candidate_ids || []).filter((candidateId) => related.has(candidateId)))];
+  }
+
+  function reanalysisForJob(job, batch) {
+    return (batch.reanalyses || []).find((item) => item.job_id === job.job_id);
+  }
+
+  function reanalysisMarkup(job, batch, candidateIds) {
+    const reanalysis = reanalysisForJob(job, batch);
+    if (!reanalysis || !candidateIds.length) return '';
+    const observations = (reanalysis.observations || []).filter((item) => candidateIds.includes(item.candidate_id));
+    if (!observations.length) return '';
+    const fields = [
+      ['merchant', '새 판독 상호'], ['date', '새 판독 날짜'], ['amount', '새 판독 금액'],
+      ['currency', '통화'], ['payment', '결제수단'], ['category_hint', '항목 제안'],
+      ['confidence', '확신도'], ['uncertain_fields', '불확실한 항목'], ['note', '판독 메모'], ['box', '판독 영역'],
+    ];
+    const readValue = (value) => Array.isArray(value) ? value.join(', ')
+      : value && typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return `<section class="rw-reanalysis" aria-label="새 판독 근거"><h5>새 판독 근거 · 비교용</h5>
+      <p>기존 검수 내역과 장부 반영 상태는 유지됩니다.</p>${observations.map((observation) => {
+        const receipt = observation.receipt && typeof observation.receipt === 'object' ? observation.receipt : null;
+        const rows = receipt ? fields.filter(([key]) => receipt[key] !== undefined && receipt[key] !== null && receipt[key] !== '')
+          .map(([key, label]) => `<div><dt>${label}</dt><dd>${escapeHtml(readValue(receipt[key]))}</dd></div>`).join('') : '';
+        return `<dl class="rw-reanalysis-fields" data-observation="${escapeHtml(observation.candidate_id)}">${rows || '<div><dt>판독</dt><dd>기존 검수에 연결된 새 영수증 정보가 없습니다.</dd></div>'}</dl>`;
+      }).join('')}</section>`;
+  }
+
+  function linkedCandidateMarkup(candidateIds) {
+    if (!candidateIds.length) return '';
+    return `<section class="rw-linked-candidates" aria-label="기존 검수 결과"><h5>기존 검수 결과</h5><ul>${candidateIds.map((candidateId) => {
+      const candidate = candidateById.get(candidateId);
+      const label = candidate?.merchant ? `기존 검수로 이동 · ${candidate.merchant}` : '기존 검수로 이동';
+      return `<li><a href="#rw-candidate-${encodeURIComponent(candidateId)}">${escapeHtml(label)}</a></li>`;
+    }).join('')}</ul></section>`;
   }
 
   function boxStyle(box) {
@@ -281,7 +323,7 @@
       ? '다른 화면에서 이 내역이 수정되었습니다. 최신 revision을 확인하고 다시 저장해 주세요.'
       : draft?.error || (draft?.saving ? '수정 저장 중' : '수정은 자동 저장됩니다.');
     const retryText = draft?.conflict ? '최신 revision으로 다시 저장' : '다시 저장';
-    return `<article class="rw-candidate" data-candidate="${escapeHtml(id)}">
+    return `<article id="rw-candidate-${escapeHtml(id)}" class="rw-candidate" data-candidate="${escapeHtml(id)}">
       <div class="rw-candidate-head"><h5>${escapeHtml(candidate.merchant || `영수증 ${index + 1}`)}</h5>
         <span class="rw-status" data-state="${applied ? 'posted' : 'review'}">${applied ? '장부 반영됨' : '검수 대기'}</span></div>
       ${applied ? '' : `<label class="rw-candidate-select"><input type="checkbox" data-select-candidate="${escapeHtml(id)}" data-focus-key="${escapeHtml(id)}|selected" ${selected ? 'checked' : ''}> 장부에 반영할 내역으로 선택</label>`}
@@ -303,15 +345,19 @@
 
   function renderJob(job, batch, index) {
     const candidates = (batch.candidates || []).filter((candidate) => candidate.image === job.image);
-    const info = statusInfo(job, candidates.length);
+    const linkedIds = linkedCandidateIds(job, batch);
+    const info = statusInfo(job, candidates.length, linkedIds.length);
     const reason = job.code ? `<p class="rw-job-reason" title="진단 코드: ${escapeHtml(job.code)}">처리 안내: ${escapeHtml(messageForCode(job.code) || '분석 과정에서 문제가 생겨 결과를 만들지 못했습니다. 원본은 보관되어 있습니다. 다시 분석을 시도해 주세요.')}</p>` : '';
     const canRetry = Boolean(job.job_id && (job.status === 'done' || job.status === 'failed'));
     const retrying = retryingJobs.has(job.job_id);
     const retryButton = canRetry
       ? `<button type="button" class="rw-button rw-quiet" data-retry-job="${escapeHtml(job.job_id)}" ${retrying ? 'disabled' : ''}>${retrying ? '재분석 접수 중' : '이 사진 다시 분석'}</button>`
       : '';
-    const content = candidates.length
-      ? candidates.map((candidate, candidateIndex) => candidateMarkup(candidate, index * 100 + candidateIndex)).join('')
+    const canonicalCandidates = candidates.map((candidate, candidateIndex) => candidateMarkup(candidate, index * 100 + candidateIndex)).join('');
+    const linkedCandidates = linkedCandidateMarkup(linkedIds);
+    const newReading = reanalysisMarkup(job, batch, linkedIds);
+    const content = canonicalCandidates || linkedCandidates || newReading
+      ? `${canonicalCandidates}${linkedCandidates}${newReading}`
       : `<div class="rw-job-empty"><p class="rw-empty">${info.state === 'empty' ? '사진에서 영수증을 찾지 못했습니다. 원본은 보관되어 있습니다.' : info.state === 'running' ? '결과가 도착하면 이 목록에 저장됩니다.' : info.state === 'failed' ? '원본을 보관했습니다. 실패한 사진만 다시 처리할 수 있습니다.' : '아직 검수할 결과가 없습니다.'}</p>
         ${/^[0-9a-f]{64}$/.test(job.image || '') ? `<div class="rw-photo-stage rw-job-photo"><a class="rw-photo-link" href="${imageUrl(job.image)}" target="_blank" rel="noopener" aria-label="원본 사진을 새 창에서 열기"><img src="${imageUrl(job.image)}" loading="lazy" width="640" height="480" alt="영수증 원본 사진"></a></div>` : ''}</div>`;
     return `<section class="rw-job" data-job="${escapeHtml(job.job_id || '')}">
@@ -326,16 +372,22 @@
       return;
     }
     candidateById.clear();
+    for (const batch of batches) {
+      (batch.candidates || []).forEach((candidate) => candidateById.set(candidate.candidate_id, candidate));
+    }
     let jobIndex = 0;
     root.innerHTML = batches.map((batch) => {
-      (batch.candidates || []).forEach((candidate) => candidateById.set(candidate.candidate_id, candidate));
       const jobHtml = (batch.jobs || []).map((job) => renderJob(job, batch, jobIndex++)).join('');
       const count = (batch.candidates || []).length;
+      const relatedCount = new Set((batch.related_candidates || []).map((item) => item.candidate_id)).size;
+      const candidateSummary = relatedCount
+        ? `새 후보 ${count}건 · 기존 검수 연결 ${relatedCount}건`
+        : `후보 ${count}건`;
       const batchLabel = batch.status === 'posted' ? '장부 반영됨' :
         (batch.jobs || []).some((job) => job.status === 'running' || job.status === 'queued' || job.status === 'starting') ? '분석 중' :
           (batch.jobs || []).length && (batch.jobs || []).every((job) => job.status === 'done' || job.status === 'completed' || job.status === 'failed') ? '처리 완료' : (batch.status || '상태 확인 중');
       return `<article class="rw-batch"><div class="rw-batch-heading"><div><h3>${escapeHtml(batch.provider || 'Paseo')} · ${escapeHtml(batch.model || '선택 모델')}</h3>
-        <p class="rw-batch-meta">시작 ${escapeHtml(isoTime(batch.created_at))} · 사진 ${(batch.jobs || []).length}장 · 후보 ${count}건</p></div>
+        <p class="rw-batch-meta">시작 ${escapeHtml(isoTime(batch.created_at))} · 사진 ${(batch.jobs || []).length}장 · ${candidateSummary}</p></div>
         <span class="rw-status" data-state="${batchLabel === '장부 반영됨' ? 'posted' : batchLabel === '분석 중' ? 'running' : 'done'}">${escapeHtml(batchLabel)}</span></div>${jobHtml}</article>`;
     }).join('');
     updateControls();
