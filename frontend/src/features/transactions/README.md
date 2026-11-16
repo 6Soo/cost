@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 카드 `/cards/all` | `webapp/cards_all.py`, `GET /api/cards/transactions` 및 `years`, `summary`, `day`, `undated`, `detail`; legacy 화면은 `year`, `month` 또는 `period`, `card`, `q`, `cursor`, `undated_cursor`, `undated`를 읽음. 새 URL에 `card_kind`가 있으면 함께 전달 | owner 전용. `view=cards`; URL 조건을 첫 API 조회까지 보존하고 카드 기본 페이지 크기 100건을 사용. React 페이지 이동은 연도·월·카드·검색 조건을 유지하고 offset `page`로 이동하며 오래된 cursor는 초기화. 통합 API는 실제 정수 월 키, `period`, 카드 키, cursor/undated 조건과 500건 초과 원천 페이지를 처리한다. 업로드는 설명자의 실제 파일 동작으로만 제공하고 카드 분류를 새 승인 대기 목록으로 바꾸지 않음 |
 | OTA `/ota` | `webapp/ota_catalog.py`: `GET /api/ota`, `/api/ota-refresh-state`, `/ota/booking`; 예약·카드 근거 작업은 `webapp/card_flow.py` `/api/imports*` | `view=ota`; 실제 catalog의 month/provider/state/sort/q를 조회·검색·페이지 이동에 보존한다. 예약·카드 관계와 서버가 준 상태를 표시 |
-| 환불 `/board?tab=refunds` | 장부 `refunds` 탭 및 카드 흐름의 기존 환불 관계/원자 반영 API (`/api/imports/{batch}/refund-groups/{group}/commit`) | `view=refunds`; 원결제·부분/전체 환불 관계와 원본 부호·금액을 보존하고, UI에서 상계·짝을 추정하지 않음 |
+| 환불 `/board?tab=refunds` | 장부 `refunds` 탭 및 카드 흐름의 기존 환불 관계/원자 반영 API (`/api/imports/{batch}/refund-groups/{group}/commit`) | `view=refunds`; 기존 정본의 환불 그룹·원결제 관계와 원본 부호·금액을 보존하고, UI에서 상계·짝을 추정하지 않음 |
 | 항공권 `/flight-passengers` | `webapp/flight_passenger_page.py`: `GET /api/flight-passengers/candidates`, owner-only `POST /api/flight-passengers/name-search`, `POST /api/flight-passengers/assign`; 카드 상세·날짜 근거 API | `view=flights`; trip/tab URL을 조회·검색·페이지 이동에 보존. 후보 검색/기존 COST 내부 연결 동작을 실제 서버 결과와 함께 제공. 내부 연결을 탑승 사실로 표시하지 않음 |
 
 ## 관리
@@ -24,7 +24,7 @@
 
 | 화면·기존 주소 | 실제 기능/API 근거 | 새 화면 연결 |
 | --- | --- | --- |
-| 참가자·수입 대조 `/participants` | `webapp/participant_income_page.py`: state, trip-panel, link/unlink, participant; 쓰기는 소유자 전용·화면 지문 및 수입 원행 검증 사용 | `view=participants`; 참가자 연결·기존 이름/별칭 보정만 서버 설명자에 있는 범위로 표시. 여행자 생성은 추가하지 않음 |
+| 참가자·수입 대조 `/participants` | `webapp/participant_income_page.py`: state, trip-panel, link/unlink, participant; 쓰기는 소유자 전용·화면 지문 및 수입 원행 검증 사용 | `view=participants`; 지문 기반 참가자 연결/해제는 새 화면에서 처리. 이름·별칭·여행 교정 및 나머지 기존 검토는 현재 여행의 인증된 기존 화면 링크로 보존. 여행자 생성은 추가하지 않음 |
 | 보험 대조 `/participants/insurance-match` | HTML 페이지는 정리되어 410; 실제 경로는 owner-only `GET /api/participants/insurance-match` 하나이며 쓰기 API는 없음 | `view=insurance`; 조회 전용. API의 미설정/권한/원천 오류를 빈 결과나 성공으로 합치지 않음 |
 | 예약 연결 `/reserve-links` | `webapp/reserve_link_ui.py`, `ledger_board.py`: GET `/api/reserve-link/plan`, `/state`; POST `/links`, `/apply` | `view=reserve-links`; 서버 계획·revision·저장 응답을 따라 실제 동작 수행 |
 | 수기 지출 `/expense/new` | 실제 등록 `POST /api/expenses/manual` (가시 폼은 `ledger_board.py`) | `AuxiliaryPage`가 `view=expense-new`로 해석. 실제 manual expense 필드 descriptor와 정밀 금액 문자열을 보존해 제출 |

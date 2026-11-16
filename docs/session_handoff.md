@@ -1,14 +1,13 @@
 # 현재 상태
 
-## 2026-11-16 — Plush UI 최종 통합·검수 (배포 전)
+## 2026-11-16 — Plush UI 구현·검사 완료, 운영 전환 준비
 
-- **승인/범위:** “모든 작업 재개하고 운영배포까지해”. [Plush 설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)을 실행한다. 원본 폴더의 사용자·성능 변경을 보존하고 지정 integration worktree에서 작업한다.
-- **통합:** A/B/C/D/E 결과와 영수증 Terra backend/main PR973을 통합했다. D 세 후속의 mapping은 `5e2aaacf→1b9e7487`, `5e2bd55c→5b94e67b`, `1c888f37→fd13cbee`, C Google `511df99→67dce2fd`, E 규칙/내보내기 `50318f5f`다. 현재 운영은 영수증 감독이 공식 배포한 `1f436426`이며 배포 소유권 해제 확인. Plush 배포는 미실행이다.
-- **직접 검사:** 기준 영향778건+35subtests, 후속 영향565건+26subtests, 모두 실패0/skip0/exit0 및 컴파일·Rust release build 통과. 프런트43건·타입·빌드 통과. 이전 broad1475건의 간헐 실패1건 및 현재/main 재실행 결과는 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 별도 보존했다.
-- **검수 보완:** 독립 sol medium이 Google 실제 숫자 금액과 links_revision 계약, 규칙 사례 변경 preview, 참가자/예약 쓰기 누락을 발견했다. Google `05ae7d19` 수정은 회귀5실패→12통과/타입 통과. E 후속 수정·최종 정확 SHA 재검수 후 공식 배포한다. 기존 반려 SHA를 승인으로 표현하지 않는다.
-- **브라우저:** ego53 합성 DB, 영수증 응답 유실·revision충돌·원자 반영·재복귀, PDF 원본/중복 방지, Tab/ShiftTab/Esc/초점복귀·320~1440px·모션 감소 검사. 새 합성 실제 XLSX ready/GET200/ZIP, Google owner390/1440·viewerAPI403 확인. 운영 인증 읽기는 상태 코드만 확인했고 고객 화면 캡처·원문 로그·금융 apply는 없다. 실제 전경paint 목표·실기기·스크린리더는 미검증/한계 기록을 유지한다.
-- **추가 통합/검사:** 계정·OTA·환불 D 최종 source25c672까지 `3c0672a2`로 반영, 영향173건 실패0/skip0/컴파일0. C 항공권9976e5b9/rootb604 연결, E 참가자/예약a8258425 통합. 규칙61e4c510은 독립7건 검사로 해당P1해소 승인. 새 합성 브라우저Task54에서 실제 접근승인→연결 생성→해지→연결 제거 오류0. 상세는 검증 기록에 있다. 항공권 후보/예약 미저장 편집 identity 보완과 최종 전체 승인은 아직 남아 있다.
-- **다음:** E 최종 보완과 독립 정확SHA 승인, 최종 프런트 검사·빌드 자산해시, 현재 PreviousSha 재확인 후 [공식 배포 절차](playbooks/plush-ui-release.md), 운영 smoke, 같은 PR971에 완료 근거 기록·통합. 로컬 복구 `.agents/plush-integration-checkpoint.json`. graphify는 graph/CLI 없어 갱신 미실행이다.
+- **현재 승인:** “모든 작업 재개하고 운영배포까지해”. [설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)을 실행했다. 작업 폴더는 지정 `plush-ui-integration-20261116`, PR971이다. 원본 폴더의 사용자·성능 작업과 별도 Rust 후속을 혼합하지 않는다.
+- **코드:** `a92c0b8773971d9abb71db131e070e46482c1f4f`. 전체 Plush 셸·여행/장부·거래·영수증·관리/보조를 실제 인증 API에 연결했다. Google·계정·규칙·항공권·참가자/예약·내보내기의 실제 계약/상태 오류와 누락을 보완했다. OTA 예약 교정·환불 원문·참가자 추가 교정은 명시한 기존 인증 업무 화면 접근을 보존하며 React 편집으로 새로 이식했다고 주장하지 않는다.
+- **검사:** 전체 프런트72건/13파일·타입·빌드 통과. 마지막 영향45건, 그 전173건/565건+26subtests/778건+35subtests 모두 실패0/skip0/exit0. 이전 broad의 간헐 실패1건과 현재/main 재실행은 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 별도 보존했다. 독립 sol medium의 발견 사항은 수정했고 최종 정확 문서 SHA 승인 후 전환한다.
+- **브라우저:** 합성 영수증 복귀/응답 유실/충돌/원자 반영·PDF/키보드/모션 감소/320~1440px, 실제 XLSX ZIP 다운로드, 계정 승인→연결→해지 오류0, 마지막 참가자/예약/항공권390/1440px 넘침0 확인. 기존공간53이 닫혀 Task54를 사용했고 사용자 공간44는 보존했다. 실제 기기·스크린리더·실사용 paint 성능은 한계를 구분한다.
+- **운영/다음:** 현재 실제 운영은 `1f43642605e72794452b71e38337829a9983c202`, 보호14표 불변·backend8751·health/ready200 근거와 다른 배포 담당의 소유권 해제를 확인했다. Plush는 아직 미배포다. 최종 SHA 독립 승인→해당 HEAD의 소스/빌드 해시 검증 패키징→공식 검증 배포→고객 값 없이 인증/비인증 smoke→같은 PR971 완료 기록·정확 문서SHA 검수·병합 순으로 진행한다. 별도 기록용 문서 PR이나 문서만을 위한 재배포는 만들지 않는다.
+- **보호/복구:** 고객 원문·수동 교정·Google 자동 쓰기 금지 유지, 실제 금융 apply 미실행. `.agents/plush-integration-checkpoint.json`과 단계별 `quality-*` 근거 보존. graph.json/CLI가 없어 graphify update는 명령 미발견으로 실패했다.
 
 ## 2026-11-16 21:05 — 영수증 기본 Terra high·선택 모델 동적 표시 운영 완료
 
