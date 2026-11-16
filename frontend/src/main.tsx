@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "./app/AppShell";
+import { featureRoute } from "./app/routes";
 import { ApiError, getJSON } from "./api/client";
 import type { Bootstrap } from "./api/types";
 import { HomePage } from "./features/home";
@@ -14,15 +15,16 @@ import "./styles/index.css";
 
 function pageFor(path: string, bootstrap: Bootstrap, search: URLSearchParams) {
   const props = { bootstrap, path, search };
-  if (path === "/" || path === "") return <HomePage {...props} />;
-  if (path === "/trips") return <TripsPage {...props} />;
-  if (path === "/board" && search.get("tab") === "refunds") return <TransactionsPage {...props} />;
-  if (path === "/board") return <LedgerPage {...props} />;
-  if (["/cards/all", "/ota", "/flight-passengers"].includes(path)) return <TransactionsPage {...props} />;
-  if (path === "/receipts") return <ReceiptsPage {...props} />;
-  if (path.startsWith("/access") || path === "/google-ledger" || path === "/review") return <AdminPage {...props} />;
-  if (["/participants", "/reserve-links", "/export", "/expense", "/income"].includes(path)) return <AuxiliaryPage {...props} />;
-  return <HomePage {...props} />;
+  switch (featureRoute(path, search)) {
+    case "home": return <HomePage {...props} />;
+    case "trips": return <TripsPage {...props} />;
+    case "ledger": return <LedgerPage {...props} />;
+    case "transactions": return <TransactionsPage {...props} />;
+    case "receipts": return <ReceiptsPage {...props} />;
+    case "admin": return <AdminPage {...props} />;
+    case "auxiliary": return <AuxiliaryPage {...props} />;
+    default: return <main className="cost-panel"><h1>화면을 찾을 수 없습니다</h1><p><a href="/ui/trips">여행 목록으로 이동</a></p></main>;
+  }
 }
 
 function RootApp() {
