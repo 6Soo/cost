@@ -141,6 +141,7 @@ def apply_ota_review(options: dict) -> None:
 def apply_product_features(options: dict, root: pathlib.Path) -> None:
     """Explicit opt-ins use durable paths under the existing host data root."""
     for name in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR',
+                 'WEBLEDGER_RECEIPT_WORKFLOW_ENABLED',
                  'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', 'WEBLEDGER_GOOGLE_LEDGER_ROWS',
                  'WEBLEDGER_LOCAL_RULE_AI', 'WEBLEDGER_FLIGHT_PASSENGER_MATCHING',
                  'WEBLEDGER_FLIGHT_PASSENGER_DB', 'WEBLEDGER_INSURANCE_REVIEW_MANIFEST'):
@@ -153,6 +154,8 @@ def apply_product_features(options: dict, root: pathlib.Path) -> None:
             raise _Refused('RECEIPT_OCR')
         if engine:
             os.environ['WEBLEDGER_RECEIPT_OCR'] = engine
+        if receipts.get('workflow') is True:
+            os.environ['WEBLEDGER_RECEIPT_WORKFLOW_ENABLED'] = '1'
     if (options.get('google_ledger') or {}).get('enabled') is True:
         os.environ['WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT'] = str(root / 'google-authority' / 'snapshot.json')
         os.environ['WEBLEDGER_GOOGLE_LEDGER_ROWS'] = str(root / 'google-authority' / 'rows.json')

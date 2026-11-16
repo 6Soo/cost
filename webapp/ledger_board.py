@@ -5477,6 +5477,7 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     # in 0.04s. It is the same defect for a real user whose connection stalls.
     server = None
     worker = None
+    receipt_worker = None
     try:
         importer = None if card_flow.enabled() else CardImporter(store.conn, store)
         server = ThreadingHTTPServer((host, port), Handler)
@@ -5506,9 +5507,21 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
                 autonomous.stop(timeout=5)
                 completion_close()
             server.server_close = close_with_autonomous
-        elif with_worker and not card_flow.enabled():
+        if with_worker and not card_flow.enabled():
             worker = CardWorker(db_path)
             worker.start()
+        from . import receipt_workflow
+        if with_worker and receipt_workflow.enabled():
+            from . import receipt_review
+            receipt_worker = receipt_workflow.ReceiptWorkflowWorker(
+                receipts_path=receipt_review._store_path(), board=store)
+            store._receipt_workflow_worker = receipt_worker
+            server.receipt_workflow_worker = receipt_worker
+            previous_close = server.server_close
+            def close_with_receipt_workflow():
+                receipt_worker.stop(timeout=5)
+                previous_close()
+            server.server_close = close_with_receipt_workflow
         server.card_worker = worker
         server.card_store = store
     except BaseException:
@@ -5533,6 +5546,8 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
             worker.start()
         if getattr(store, '_autonomous_cleanup_worker', None) is not None:
             store._autonomous_cleanup_worker.start()
+        if receipt_worker is not None:
+            receipt_worker.start()
     except BaseException:
         server.server_close()
         store.close()

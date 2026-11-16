@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -95,6 +96,8 @@ from .ledger_store_schema import (
     _ensure_correction_columns,
     _ensure_rule_turn_columns,
     _ensure_trip_tab_columns,
+    _ensure_ledger_outbox_evidence,
+    _ensure_receipt_apply_tables,
 )
 from .operator_ledger import LedgerError, OperatorLedger
 from .owner_metadata import company_name_default
@@ -287,6 +290,8 @@ class LedgerStore:
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA_SQL)
         self.conn.executescript(INDEX_SQL)
+        _ensure_ledger_outbox_evidence(self.conn)
+        _ensure_receipt_apply_tables(self.conn)
         _ensure_correction_columns(self.conn)
         _ensure_rule_turn_columns(self.conn)
         _ensure_trip_tab_columns(self.conn)
@@ -5890,6 +5895,224 @@ class LedgerStore:
                     "event_id": None, "request_id": client_request_id,
                     "ledger_pending": True}
 
+    def apply_receipt_batch(self, *, request_id: str, request_hash: str,
+                            prepare, actor: str = "owner") -> dict:
+        """Apply reviewed receipt costs and card evidence in one COST transaction.
+
+        ``prepare`` is a backend-only validator called after BEGIN IMMEDIATE. It
+        reads the current trips, card rows and existing COST rows through this
+        store, and returns a list of validated ``expense`` or ``evidence`` plans.
+        No browser-supplied record reaches the write layer directly.
+        """
+        if (not isinstance(request_id, str) or not request_id
+                or not isinstance(request_hash, str) or len(request_hash) != 64):
+            raise SaveError("INVALID_VALUE", "영수증 반영 요청을 읽을 수 없어요")
+        if not callable(prepare):
+            raise SaveError("INVALID_VALUE", "영수증 반영 검증이 필요해요")
+        with self._lock:
+            self._replay_pending()
+            self._begin_write(needed_bytes=SAVE_BYTES_PER_ROW * 50,
+                              what="영수증 비용과 증빙을 쓰는 데")
+            outbox_ids = []
+            try:
+                prior = self.conn.execute(
+                    "SELECT request_hash,result_json FROM receipt_apply_requests WHERE request_id=?",
+                    (request_id,),
+                ).fetchone()
+                if prior:
+                    self._rollback_write()
+                    if prior[0] != request_hash:
+                        raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                    return json.loads(prior[1])
+
+                plan = prepare(self)
+                if not isinstance(plan, list) or not plan or len(plan) > 50:
+                    raise SaveError("INVALID_VALUE", "반영할 영수증 내역을 확인해 주세요")
+                ids = [item.get("candidate_id") for item in plan if isinstance(item, dict)]
+                if (len(ids) != len(plan) or len(set(ids)) != len(ids)
+                        or any(not isinstance(value, str) or not value for value in ids)):
+                    raise SaveError("INVALID_VALUE", "영수증 선택이 올바르지 않아요")
+
+                created_at = _utc_now()
+                results = []
+                for item in plan:
+                    candidate_id = item["candidate_id"]
+                    source_identity = item.get("source_identity")
+                    image_sha256 = item.get("image_sha256")
+                    revision = item.get("revision")
+                    if (not isinstance(source_identity, str) or not source_identity
+                            or not isinstance(image_sha256, str) or len(image_sha256) != 64
+                            or type(revision) is not int or revision < 1):
+                        raise SaveError("INVALID_VALUE", "영수증 원본 연결을 확인할 수 없어요")
+                    existing_source = self.conn.execute(
+                        "SELECT ledger_id,source_identity FROM receipt_apply_sources WHERE candidate_id=?",
+                        (candidate_id,),
+                    ).fetchone()
+                    if existing_source:
+                        raise SaveError("CANDIDATE_ALREADY_APPLIED", "이미 COST에 반영한 영수증입니다")
+                    source_json = item.get("source_json")
+                    if not isinstance(source_json, dict):
+                        raise SaveError("INVALID_VALUE", "영수증 판독 근거를 확인할 수 없어요")
+
+                    evidence_link = None
+                    if item.get("kind") == "expense":
+                        fields = item.get("fields")
+                        if not isinstance(fields, dict):
+                            raise SaveError("INVALID_VALUE", "영수증 비용 항목을 확인해 주세요")
+                        # These IDs are derived from the stable candidate ID,
+                        # never from a possibly long or shared request prefix.
+                        inner_request = "receipt-expense-" + candidate_id
+                        generated_id, want_input = validate_manual_expense_create_input(
+                            fields, inner_request, valid_date_fn=_valid_date,
+                            normalize_create_input_fn=_normalize_create_input,
+                            canonical_fn=_canonical, save_error_cls=SaveError)
+                        row_id = "rcpt-" + candidate_id
+                        if self.conn.execute(
+                                "SELECT 1 FROM board_rows WHERE row_id=?", (row_id,)).fetchone():
+                            raise SaveError("CANDIDATE_ALREADY_APPLIED", "이미 COST에 반영한 영수증입니다")
+                        # A prior attempt made through any COST path using the
+                        # receipt source key is also a duplicate.
+                        for existing_row in self.conn.execute(
+                                "SELECT payload_json FROM board_rows WHERE row_kind='expense'"):
+                            try:
+                                record = json.loads(existing_row[0])
+                            except (TypeError, ValueError):
+                                continue
+                            if record.get("source_event_id") == "receipt:" + candidate_id:
+                                raise SaveError("CANDIDATE_ALREADY_APPLIED", "이미 COST에 반영한 영수증입니다")
+                        record = build_manual_expense_record(
+                            row_id=row_id, fields=fields, client_request_id=inner_request)
+                        record.update(
+                            source_kind="수기", source_event_id="receipt:" + candidate_id,
+                            evidence_type="영수증", classification_basis="영수증 사용자 검수",
+                            source_merchant=str(item.get("merchant") or ""),
+                            receipt_candidate_id=candidate_id,
+                            receipt_image_sha256=image_sha256,
+                            pay_method=fields.get("pay_method"),
+                            receipt_payment=fields.get("receipt_payment"),
+                            receipt_amount_original=fields.get("receipt_amount_original"),
+                            receipt_currency=fields.get("receipt_currency"),
+                            receipt_exchange_rate_krw_per_unit=(
+                                fields.get("receipt_exchange_rate_krw_per_unit")),
+                        )
+                        outbox_id = "ledger-" + inner_request
+                        self.conn.execute(
+                            "INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json)"
+                            " VALUES (?,?,?,?,?)",
+                            (row_id, "expense", record["display_tab_id"], 1, _canonical(record)))
+                        self.conn.execute(
+                            "INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,"
+                            "change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                            (row_id, 1, _canonical({}), _canonical(record), "", "exception",
+                             actor, created_at, inner_request))
+                        self._enqueue_ledger(
+                            outbox_id=outbox_id, stream_id=f"row-{row_id}", action="propose",
+                            target=record["source_event_id"], rationale=f"영수증 비용 {candidate_id}",
+                            actor=actor)
+                        self.conn.execute(
+                            "INSERT INTO board_requests(client_request_id,row_id,expected_revision,"
+                            "result_json,ledger_pending,created_at) VALUES (?,?,?,?,?,?)",
+                            (inner_request, row_id, 1,
+                             _canonical({"row_id": row_id, "expected_revision": 1,
+                                         "changes": {"create": "reviewed-receipt"},
+                                         "change_mode": "exception", "source_event_id": row_id,
+                                         "actor": actor, "new_revision": 1,
+                                         "create_input": want_input,
+                                         "result": {"outcome": "saved", "row_id": row_id,
+                                                    "revision": 1, "event_id": None,
+                                                    "request_id": inner_request,
+                                                    "ledger_pending": True}}),
+                             1, created_at))
+                        outbox_ids.append(outbox_id)
+                        result = {"candidate_id": candidate_id, "outcome": "created",
+                                  "ledger_id": row_id, "revision": 1}
+                    elif item.get("kind") == "evidence":
+                        transaction_id = item.get("transaction_id")
+                        ledger_id = item.get("ledger_id")
+                        if (not isinstance(transaction_id, str) or not transaction_id
+                                or not isinstance(ledger_id, str) or not ledger_id):
+                            raise SaveError("CARD_LEDGER_ROW_NOT_FOUND", "연결할 법인카드 비용을 찾지 못했습니다")
+                        link_json = item.get("evidence_json")
+                        if not isinstance(link_json, dict):
+                            raise SaveError("INVALID_VALUE", "증빙 연결 근거가 올바르지 않아요")
+                        link_request = "receipt-evidence-" + candidate_id
+                        existing_link = self.conn.execute(
+                            "SELECT candidate_id FROM receipt_evidence_links WHERE transaction_id=?",
+                            (transaction_id,),
+                        ).fetchone()
+                        if existing_link:
+                            raise SaveError("CARD_EVIDENCE_ALREADY_LINKED", "이 카드 비용에는 이미 영수증 증빙이 연결되어 있습니다")
+                        refs = [{"kind": "receipt", "key": candidate_id,
+                                 "sha256": image_sha256}]
+                        stream_id = f"row-{ledger_id}"
+                        if self.ledger._head(stream_id) is None:
+                            source_sha256 = item.get("source_json", {}).get("ledger_source_sha256")
+                            if (not isinstance(source_sha256, str)
+                                    or not re.fullmatch(r"[0-9a-f]{64}", source_sha256)):
+                                raise SaveError("CARD_SOURCE_UNVERIFIED", "기존 카드 원본의 감사 연결을 확인할 수 없어요")
+                            # CardFlow can project owner-confirmed legacy card rows before an
+                            # audit stream exists. Establish the stream from the verified,
+                            # immutable transaction source, then append the receipt evidence.
+                            baseline_id = "ledger-card-baseline-" + hashlib.sha256(
+                                stream_id.encode("utf-8")).hexdigest()[:32]
+                            self._enqueue_ledger(
+                                outbox_id=baseline_id, stream_id=stream_id, action="propose",
+                                target=transaction_id, rationale="기존 법인카드 비용 감사 기준",
+                                actor=actor, evidence_refs=[{
+                                    "kind": "card_source", "key": transaction_id,
+                                    "sha256": source_sha256,
+                                }])
+                            outbox_ids.append(baseline_id)
+                        outbox_id = "ledger-" + link_request
+                        evidence_link = (candidate_id, transaction_id, ledger_id, image_sha256,
+                                         revision, request_id, _canonical(link_json), created_at)
+                        self._enqueue_ledger(
+                            outbox_id=outbox_id, stream_id=stream_id, action="attach_evidence",
+                            target=transaction_id, rationale=f"영수증 증빙 연결 {candidate_id}",
+                            actor=actor, evidence_refs=refs)
+                        outbox_ids.append(outbox_id)
+                        result = {"candidate_id": candidate_id, "outcome": "evidence_linked",
+                                  "ledger_id": ledger_id, "transaction_id": transaction_id}
+                    else:
+                        raise SaveError("INVALID_VALUE", "영수증 반영 유형이 올바르지 않아요")
+
+                    self.conn.execute(
+                        "INSERT INTO receipt_apply_sources(candidate_id,source_identity,source_kind,"
+                        "ledger_id,image_sha256,applied_revision,request_id,source_json,created_at)"
+                        " VALUES (?,?,?,?,?,?,?,?,?)",
+                        (candidate_id, source_identity, item["kind"], result["ledger_id"],
+                         image_sha256, revision, request_id, _canonical(source_json), created_at))
+                    if evidence_link is not None:
+                        self.conn.execute(
+                            "INSERT INTO receipt_evidence_links(candidate_id,transaction_id,ledger_row_id,"
+                            "image_sha256,applied_revision,request_id,evidence_json,created_at)"
+                            " VALUES (?,?,?,?,?,?,?,?)", evidence_link)
+                    results.append(result)
+
+                result_body = {"request_id": request_id, "outcome": "applied",
+                               "results": results}
+                self.conn.execute(
+                    "INSERT INTO receipt_apply_requests(request_id,request_hash,result_json,created_at)"
+                    " VALUES (?,?,?,?)",
+                    (request_id, request_hash, _canonical(result_body), created_at))
+                self._commit_write()
+            except SaveError:
+                self._rollback_write()
+                raise
+            except sqlite3.IntegrityError as exc:
+                self._rollback_write()
+                message = str(exc).lower()
+                code = "CANDIDATE_ALREADY_APPLIED" if "receipt_apply_sources" in message else "REQUEST_ID_REUSED"
+                raise SaveError(code, "영수증 반영 요청이 이미 처리됐거나 겹칩니다") from None
+            except Exception:
+                self._rollback_write()
+                raise
+            self._relay_outbox(outbox_ids)
+            for result in results:
+                if result["outcome"] == "created":
+                    self._finalize_board_request("receipt-expense-" + result["candidate_id"])
+            return result_body
+
     def import_income_row(self, *, row_id: str, fields: dict, batch_id: str,
                           client_request_id: str, actor: str = "owner") -> dict:
         record = {
@@ -6036,28 +6259,39 @@ class LedgerStore:
             pass
 
     def _enqueue_ledger(self, *, outbox_id: str, stream_id: str, action: str,
-                        target, rationale: str, actor: str) -> None:
+                        target, rationale: str, actor: str,
+                        evidence_refs: list | None = None) -> None:
         """같은 쓰기 트랜잭션 안에 정본 사건 payload를 남긴다. 호출자는 트랜잭션 소유."""
+        evidence_refs = list(evidence_refs or [])
         if self._embedded_audit:
             if not self.conn.in_transaction:
                 raise LedgerError('audit requires the board transaction')
-            event, _ = self.ledger.append(
-                stream_id=stream_id, action=action,
-                target_direct_event_key=target, rationale=rationale,
-                actor_local_id=actor, client_request_id=outbox_id)
+            if action == "attach_evidence":
+                event, _ = self.ledger.attach_evidence(
+                    stream_id=stream_id, added_refs=evidence_refs,
+                    rationale=rationale, actor_local_id=actor,
+                    client_request_id=outbox_id)
+            else:
+                event, _ = self.ledger.append(
+                    stream_id=stream_id, action=action,
+                    target_direct_event_key=target, rationale=rationale,
+                    actor_local_id=actor, client_request_id=outbox_id,
+                    evidence_refs=evidence_refs)
             # 기존 화면의 event_id 조회용 호환 기록이다. 전달 작업은 만들지 않는다.
             self.conn.execute(
                 'INSERT OR IGNORE INTO ledger_outbox(outbox_id,stream_id,action,'
-                'target_direct_event_key,rationale,actor_local_id,event_id,relayed,created_at)'
-                ' VALUES (?,?,?,?,?,?,?,1,?)',
-                (outbox_id,stream_id,action,target,rationale,actor,event['event_id'],_utc_now()))
+                'target_direct_event_key,rationale,actor_local_id,evidence_refs_json,'
+                'event_id,relayed,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)',
+                (outbox_id,stream_id,action,target,rationale,actor,
+                 _canonical(evidence_refs),event['event_id'],_utc_now()))
             return
         self.conn.execute(
             "INSERT OR IGNORE INTO ledger_outbox(outbox_id, stream_id, action,"
-            " target_direct_event_key, rationale, actor_local_id,"
+            " target_direct_event_key, rationale, actor_local_id, evidence_refs_json,"
             " event_id, relayed, created_at)"
-            " VALUES (?,?,?,?,?,?,'',0,?)",
-            (outbox_id, stream_id, action, target, rationale, actor, _utc_now()),
+            " VALUES (?,?,?,?,?,?,?, '',0,?)",
+            (outbox_id, stream_id, action, target, rationale, actor,
+             _canonical(evidence_refs), _utc_now()),
         )
 
     def _relay_outbox(self, outbox_ids=None) -> dict:
@@ -6065,27 +6299,34 @@ class LedgerStore:
         if outbox_ids is None:
             rows = self.conn.execute(
                 "SELECT outbox_id, stream_id, action, target_direct_event_key,"
-                " rationale, actor_local_id FROM ledger_outbox WHERE relayed=0"
+                " rationale, actor_local_id, evidence_refs_json FROM ledger_outbox WHERE relayed=0"
             ).fetchall()
         else:
             rows = []
             for oid in dict.fromkeys(outbox_ids):
                 row = self.conn.execute(
                     "SELECT outbox_id, stream_id, action, target_direct_event_key,"
-                    " rationale, actor_local_id FROM ledger_outbox"
+                    " rationale, actor_local_id, evidence_refs_json FROM ledger_outbox"
                     " WHERE outbox_id=? AND relayed=0",
                     (oid,),
                 ).fetchone()
                 if row:
                     rows.append(row)
         results = {}
-        for oid, stream_id, action, target, rationale, actor in rows:
+        for oid, stream_id, action, target, rationale, actor, evidence_refs_json in rows:
             try:
-                event, _ = self.ledger.append(
-                    stream_id=stream_id, action=action,
-                    target_direct_event_key=target, rationale=rationale,
-                    actor_local_id=actor, client_request_id=oid,
-                )
+                if action == "attach_evidence":
+                    event, _ = self.ledger.attach_evidence(
+                        stream_id=stream_id,
+                        added_refs=json.loads(evidence_refs_json or "[]"),
+                        rationale=rationale, actor_local_id=actor,
+                        client_request_id=oid)
+                else:
+                    event, _ = self.ledger.append(
+                        stream_id=stream_id, action=action,
+                        target_direct_event_key=target, rationale=rationale,
+                        actor_local_id=actor, client_request_id=oid,
+                        evidence_refs=json.loads(evidence_refs_json or "[]"))
                 event_id = event["event_id"]
             except Exception:
                 results[oid] = None

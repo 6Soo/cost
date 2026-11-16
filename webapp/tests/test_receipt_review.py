@@ -229,6 +229,41 @@ class ReceiptReviewTests(unittest.TestCase):
         status, served = self.request(f'/api/receipts/image/{sha}')
         self.assertEqual((status, served), (200, PNG))
 
+    def test_registered_pdf_original_is_served_with_pdf_content_type_and_verified_bytes(self):
+        from webapp import receipt_review
+        import urllib.request as ur
+
+        original = b'%PDF-1.7 synthetic registered original bytes'
+        with patch.object(receipt_review.local_receipt_ocr, 'recognize_pdf', return_value={'pages': []}):
+            status, record = self.request('/api/receipts/pdf', token=self.csrf(), raw=original)
+        self.assertEqual(status, 200)
+        sha = record['sha256']
+        self.assertEqual(sha, hashlib.sha256(original).hexdigest())
+
+        with ur.urlopen(self.base + f'/api/receipts/pdf/{sha}') as response:
+            self.assertEqual(response.headers.get_content_type(), 'application/pdf')
+            self.assertEqual(response.read(), original)
+
+    def test_pdf_download_requires_registration_and_rejects_changed_original_bytes(self):
+        from webapp import receipt_review
+
+        unregistered = b'%PDF-1.7 synthetic file without receipt registration'
+        unregistered_sha = hashlib.sha256(unregistered).hexdigest()
+        folder = receipt_review._pdfs_dir(self.store)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f'{unregistered_sha}.pdf').write_bytes(unregistered)
+        status, body = self.request(f'/api/receipts/pdf/{unregistered_sha}')
+        self.assertEqual((status, body.get('code')), (404, 'PDF_NOT_FOUND'))
+
+        original = b'%PDF-1.7 synthetic registered original'
+        with patch.object(receipt_review.local_receipt_ocr, 'recognize_pdf', return_value={'pages': []}):
+            status, record = self.request('/api/receipts/pdf', token=self.csrf(), raw=original)
+        self.assertEqual(status, 200)
+        target = folder / f"{record['sha256']}.pdf"
+        target.write_bytes(b'%PDF-1.7 changed bytes')
+        status, body = self.request(f"/api/receipts/pdf/{record['sha256']}")
+        self.assertEqual((status, body.get('code')), (409, 'PDF_CORRUPT'))
+
     def test_interrupted_photo_write_does_not_publish_a_partial_original(self):
         from webapp import receipt_review
         original_write = Path.write_bytes
@@ -553,18 +588,23 @@ class ReceiptReviewTests(unittest.TestCase):
 
 
     def test_without_owner_every_receipt_route_is_refused(self):
+        from webapp import receipt_review
+        with patch.object(receipt_review.local_receipt_ocr, 'recognize_pdf', return_value={'pages': []}):
+            _, pdf = self.request('/api/receipts/pdf', token=self.csrf(), raw=b'%PDF-1.7 private synthetic')
+        before = self.store.read_bytes()
         self._owner.stop()
         self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=False)
         self._owner.start()
         self.addCleanup(self._owner.stop)
         for method_path in (('GET', '/receipts'), ('GET', '/api/receipts'), ('GET', '/api/receipts/tsv'),
-                            ('GET', '/api/receipts/image/' + 'a' * 64)):
+                            ('GET', '/api/receipts/image/' + 'a' * 64),
+                            ('GET', '/api/receipts/pdf/' + pdf['sha256'])):
             status, body = self.request(method_path[1])
             self.assertEqual(status, 403, method_path)
             self.assertEqual(body['code'], 'OWNER_ONLY', method_path)
         status, body = self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         self.assertEqual((status, body['code']), (403, 'OWNER_ONLY'))
-        self.assertFalse(self.store.exists())
+        self.assertEqual(self.store.read_bytes(), before)
 
     def test_access_enforcement_off_means_no_owner_by_default(self):
         self._owner.stop()

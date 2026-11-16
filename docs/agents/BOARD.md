@@ -6,10 +6,18 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
-| 임시 브랜치 조사·복구 사본 | COMPLETE | 앞선 23개 worktree·213개 브랜치 조사에 더해 남은 공간 신선 사본·bundle 검증. 원본 사용자 15파일 및 제거 폴더의 실제 복원·SHA-256 대조 |
-| 남은 브랜치 통합·정리 | COMPLETE (선별·보존 포함) | #850·#966·#967·#968 병합. 남은 4개 브랜치도 main 조상 확인 후 제거. 결함/철회 코드의 미병합 상태는 변경하지 않고 archive refs·bundle에 보존. 이번 문서 PR 자체는 병합 후 삭제 |
-| 임시 작업공간 정리 | COMPLETE | worktree 23→1(이번 5→1), Paseo workspace 누적15개 archive. 사용자 승인한 임시 프로세스7개 종료·운영 프로세스 보존. 원본 폴더만 유지 |
-| 전체 문서 정리 | COMPLETE | 추적 Markdown216개 전체 파일·절 링크 검사, 기술 README·절차서·설계의 현행 기준과 역사적 상태 구분. 최종 SHA 검수·병합 결과는 이번 PR 기록 |
+| RCP-A: Paseo runtime | PARTIAL | SDK bridge 통합·합성 검사 통과. 11/16 재조회에서 Claude 구독 로그인 미확인으로 선택 차단. 실제 사진 판독 성공은 로그인 복구 후 검증 |
+| RCP-B: 영속 작업·장부 | COMPLETE (구현·합성 검사) | 서버 주도 처리·영속 결과·revision·원자적 반영·멱등·인증 API 통합, runtime/backend/UI/PDF 표적 98건·subtest15 통과 |
+| RCP-C: 웹 UI | IN_PROGRESS | Luna xhigh C: 모델 선택·복귀·사진과 결과 검수·선택 내역 반영 |
+| RCP-Q: 통합·검수 | IN_PROGRESS | 감독 세션: 계약 통합·표적/영향 검사·ego-browser 합성 수락·최종 SHA 별도 검수. 운영 배포는 요청 범위 밖 |
+| 영수증 변경 요구와 질문 | COMPLETE | 사용자 요청·3개 답변 반영. 승인된 사진 지원 구독 모델·관리 프롬프트·선택 내역 일괄 반영 확정 |
+| 영수증 흐름 설계 | COMPLETE (구현 승인) | [설계](../design/receipt-paseo-workflow-20261116.md): 동적 목록·사진 첨부·영속 작업·복귀 검수·실제 장부 반영·수락 기준. 사용자가 다수 Luna xhigh 병렬 구현을 승인했으며 실제 구현 상태는 RCP-A~Q를 따른다 |
+| 판정 규칙·정본 연결 | COMPLETE (문서 작성) | SPEC §7.1, RCPT-020·022 개정/031 신설, CODE_GAPS에 현 코드 차이와 미구현 상태 기록 |
+| 영수증 운영 배포 | IN_PROGRESS | 최신 사용자 지시로 승인. PDF 원본 endpoint·운영 설정 opt-in 연결 통합, 신선 백업/복원·최종 SHA 독립 검수·배포 진행. 고객 원본 변경·Rust 전환 없음 |
+
+## 이전 요청 완료
+
+임시 작업공간·브랜치·전체 문서 정리는 [PR #969](https://github.com/6Soo/cost/pull/969)·main `9e2d66a3`에서 완료했다. worktree23→1, 로컬/원격 main만 유지, 복구 ZIP6개·2,142파일 복원 검증, Markdown216개·참조1,645건·끊김0. 정리용 PR 브랜치 삭제까지 완료했으며 그 기록을 새 작업으로 재실행하지 않는다. 상세 근거는 [통합 기록](../history/workspace-integration-20261116.md)에 있다. 위의 새 영수증 명세 브랜치는 현재 작업용이다.
 
 ## 별도 승인·차단 경계
 

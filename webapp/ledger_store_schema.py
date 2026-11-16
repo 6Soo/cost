@@ -394,6 +394,46 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
 """
 
 
+def _ensure_ledger_outbox_evidence(conn) -> None:
+    """Add evidence refs to existing outboxes without rewriting pending events."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(ledger_outbox)")}
+    if "evidence_refs_json" not in columns:
+        conn.execute("ALTER TABLE ledger_outbox ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT '[]'")
+
+
+def _ensure_receipt_apply_tables(conn) -> None:
+    """Create the receipt apply idempotency and evidence journal without rewriting SCHEMA_SQL."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS receipt_apply_requests (
+        request_id TEXT PRIMARY KEY,
+        request_hash TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS receipt_apply_sources (
+        candidate_id TEXT PRIMARY KEY,
+        source_identity TEXT NOT NULL UNIQUE,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('expense','evidence')),
+        ledger_id TEXT NOT NULL,
+        image_sha256 TEXT NOT NULL,
+        applied_revision INTEGER NOT NULL,
+        request_id TEXT NOT NULL,
+        source_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS receipt_evidence_links (
+        candidate_id TEXT PRIMARY KEY REFERENCES receipt_apply_sources(candidate_id),
+        transaction_id TEXT NOT NULL UNIQUE,
+        ledger_row_id TEXT NOT NULL,
+        image_sha256 TEXT NOT NULL,
+        applied_revision INTEGER NOT NULL,
+        request_id TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """)
+
+
 # Kept apart from SCHEMA_SQL, which a test pins to its base commit.
 INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_board_rows_display_tab ON board_rows(display_tab_id, row_id);

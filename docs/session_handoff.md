@@ -1,5 +1,44 @@
 # 현재 상태
 
+## 2026-11-16 — 영수증 Paseo 흐름 통합 검수 완료(운영 배포 전)
+
+- **통합 커밋:** `291c44a7` (`feat(receipts): add local Paseo SDK bridge`). 로컬 Paseo provider/model catalog, 승인된 사진 입력 모델 필터, 고정 프롬프트·스키마 해시, 사진 첨부, run-key 멱등·복구, timeline 결과 회수·도구 차단·archive를 `tools/receipt_paseo_bridge.mjs`로 연결했다. `webapp/receipt_workflow.py`의 trailing whitespace도 제거해 diff 게이트를 통과시켰다.
+- **직접 검사:** `node --check tools/receipt_paseo_bridge.mjs` 통과. 영수증 표적 검사 **42 passed**(runtime, HTTP acceptance, backend, UI). 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 통과: **1,253 passed, 107 subtests passed**, Rust `costcore` release build 성공. 문서 diff/link 검사도 통과했다.
+- **실제 Paseo 확인:** catalog가 연결됨을 확인했고 provider 11개와 승인 가능한 Claude 사진 모델 5개를 읽었다. 합성 PNG로 `start → inspect → archive`를 실행했으며 provider가 `PASEO_PROVIDER_ERROR`를 반환했다. 로컬 timeline의 원인은 Claude 구독 결제 미납/갱신 필요였고, 코드·입력 오류가 아니다. 재호출하지 않고 차단 상태로 남긴다. 고객 원본·운영 DB·운영 포트는 사용하지 않았다.
+- **브라우저 검수:** 이전 C 작업자의 TaskSpace 44 합성 검수에서 retry/revision/재분석 링크/입력 보존을 확인한 증거를 보존한다. 현재 TaskSpace 44는 사용자 제어 상태라 ego-browser가 takeover를 거부했으며, 이 세션에서 재검수하지 않았다. C 소유 합성 preview PID 27156은 종료하지 않았다.
+- **상태/남은 일:** 승인된 범위의 코드·검사는 완료했지만 실제 provider 결과 검증은 구독 결제 상태가 해결될 때까지 PARTIAL이다. 운영 배포·push·PR·고객 자료 변경은 하지 않았다. 다음 재개 명령은 구독 상태 확인 후 합성 PNG로 `python` start/inspect를 다시 실행하고, 사용자가 TaskSpace 44 제어를 넘긴 경우에만 브라우저 검수를 재개하는 것이다. 사용자 미추적 `.qwen/`, `review-size-attempt4.md`, `.codex/`, AGENTS.md 변경은 보존한다.
+
+## 2026-11-16 — Plush UI 전체 화면 설계 (문서 완료)
+
+- **현재 요청/답변:** 사용자가 Dominik Martin의 Plush UI를 특정한 뒤 COST 전체 UI 설계를 요청했다. 주 사용 환경은 PC 장부 업무, 모바일은 조회·영수증 등록이다. 시각 선택지의 차이를 설명한 뒤 Plush의 외형·탄성 조작과 촘촘한 장부 표를 결합하는 기본안을 작성했다. 사용자가 선택지 1을 명시 승인했다고 기록하지 않는다.
+- **산출물/완료 커밋:** `73bd96be` — [M4 Plush UI 설계](design/m4-plush-ui-20261116.md), SPEC §11.2와 문서 지도 연결. 정보구조·주소/권한 호환·PC/모바일 배치·두 테마 토큰·컴포넌트·모션·화면별 동선·API 요구·UI-0~6 이행·P-01~10 수락 기준을 포함했다. 이 절은 그 커밋 이후의 완료 기록이다.
+- **직접 근거:** upstream `125a22ce151b719077637da38ffe9ec06a1a08c5`의 registry·tokens·README와 COST 코드/수락 기준 대조. Plush는 라이트 전용이며 표·셸·서랍과 COST 다크 테마는 확장이 필요하다. 일부 색쌍 정적 대비 계산 완료. 변경 문서 3개의 로컬 링크 114건·끊김 0, 요구/수락 ID 존재·diff check 확인.
+- **범위/다음:** 설계 문서만 완료, 필수 미답 질문 없음. React 구현·패키지 설치·앱 검사·새 미리보기·push/PR·배포·고객 자료 변경은 미실행. 구현 요청 시 설계 §9의 UI-0(현 API/경로/권한/산출물 기능 지도)부터 시작한다. 기존 영수증 병렬 구현과 M3 운영 전환의 범위·상태는 아래 기록을 보존하며 이 문서로 변경하지 않는다.
+- **작업공간:** 기존 `C:/AX/cost`, `integration/receipt-paseo-20261116` 재사용. 설계 관련 파일만 커밋했고 사용자 `.qwen/`·`review-size-attempt4.md` 및 다른 세션의 코드 변경은 보존했다. 별도 workspace·브랜치·서버는 생성하지 않았다.
+
+## 2026-11-16 — 영수증 Paseo 병렬 구현·감독
+
+- **감독 승계:** Paseo `77abc586-a18e-4b57-94f7-c9c8c3fa210e`가 인계 기록과 실제 worktree를 대조했다. 아래 최초 A/B native 작업자는 사용 한도로 실패했다. 복구 native `/root/receipt_runtime_recovery`, `/root/receipt_backend_recovery`도 초기화 대기에 머물러 중단한 뒤, 동일 worktree를 실제 실행 중인 Paseo Luna xhigh A `985d6162-2527-489c-991a-8d3165fc3013`, B `59274ce4-4e19-450a-8bb1-e98f64b99163`에 넘겼다. UI의 현재 소유자는 이어진 Paseo `1c99e24a-c577-488a-a0d4-48f8bea45095`다. 원래 폴더와 B의 미커밋 6개를 보존했다. 통합 HEAD는 아래 후속 커밋을 따르며 아직 신규 구현을 통합하지 않았다. 완료 검수·PR·배포를 주장하지 않는다.
+- **후속 승계(17:17 KST):** Paseo A/B도 구독 한도로 중단돼 A `0d567726-1e72-41b0-bd75-3c67971a6cc9`, B `5a6024c1-248f-47a4-8ee5-e15ffa9fe7c1`로 자동 이어졌다. 실제 running·Luna xhigh·동일 worktree를 확인했다. 실패한 세션을 다시 실행하거나 새 작업자를 중복 배정하지 않는다.
+- **감독 추가 검사:** A의 Python API·관리 지시/스키마 해시·합성 단위검사 커밋 `4521c51d`를 통합 `2b2b292d`로 반영했고 감독 직접 **8 passed, skip0**를 확인했다. 실제 SDK bridge·사진 실호출은 아직 구현 중이다. HTTP 수락 검사는 현재 20건으로, 사진별 성공·실패·0건, 원본 불일치, 장부 커밋 후 workflow 응답 유실/GET 전 교정 차단, 법인카드 증빙·청구금액 불변, 두 번째 비용 쓰기 도중 오류 시 전체 rollback을 포함한다(`ee063e3f`). 실제 CardFlow 합성 원행·장부행 seed만 별도로 확인했고 HTTP 본 검사는 B/C 통합 전이다. UI 검수에서 revision 고정·저장 실패 무한 재전송·재분석 버튼 누락을 지적해 C가 수정 중이다. ego-browser TaskSpace `44`, C 합성 preview `8799`(C 소유 PID27156)를 유지한다. 감독의 통합 preview 스크립트는 `.local-archive/receipt-paseo-implementation-20261116/supervisor_preview.py`에 준비했다(미실행). 상세 다음 명령·소유자는 같은 폴더의 `SUPERVISOR_CHECKPOINT.md`에 남긴다.
+- **최신 승인:** 사용자가 작성 명세의 빠른 구현과 다수 Luna xhigh 병렬 위임을 지시했다. 이전의 문서까지만 범위는 갱신됐다. 이번에는 구현·합성 검사·PR 검수까지 진행하며 운영 배포·실제 고객 원본/운영 DB 변경은 하지 않는다.
+- **기준/통합:** 명세 완료 `7b0a37ef`, 병렬 계약 `33ef9112`, 통합 branch `integration/receipt-paseo-20261116`. 실행 명세는 [영수증 처리 변경](design/receipt-paseo-workflow-20261116.md), [파일/API 계약](agents/artifacts/receipt-paseo-implementation-contract-20261116.md)이다.
+- **A runtime:** native 협업 `/root/receipt_runtime_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_543d5980ddf9a7e5`, branch `feat/receipt-paseo-runtime-20261116`. 동적 목록·사진 첨부·제한 실행·결과 회수 담당.
+- **B backend:** native 협업 `/root/receipt_backend_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_74534362dd92d88a`, branch `feat/receipt-paseo-backend-20261116`. 영속 작업·revision·복구·장부 원자성/멱등·인증 API 담당.
+- **C UI:** Paseo agent `53231308-cb0e-419b-bdc9-10976f0ba7cb`, codex/gpt-6-luna/xhigh, 공식 workspace `wks_e6095e9982b526cd`, branch `feat/receipt-paseo-ui-20261116`. 모델 선택·사진/결과 검수·이탈/복귀·선택 반영 UI 담당. native 추가 thread 생성 한도에 따라 같은 계정 공식 Paseo 경로로 생성했다. 동시에 활동하는 구현자는 셋이다.
+- **감독:** 주 세션이 docs·영향 맵·직접 검증·통합과 별도 최종 SHA 검수를 맡는다. 현재 코드 통합/전체 수락/배포 완료를 주장하지 않는다. 고객 원문·운영 포트·운영 DB는 작업자에게 주지 않는다. 원본 `.qwen/`·미추적 사용자 파일을 보존한다.
+- **초기 확인:** runtime의 available는 사진/구독/격리 지원 증거가 아니어서 실제 제한·첨부·결과 회수 경로 검증이 필요하다. backend의 기존 manual expense API는 단건 트랜잭션이므로 선택 묶음/멱등 결과를 같은 장부 트랜잭션으로 묶어야 한다. 작업자들이 이 경계에 맞춰 구현 중이다.
+
+## 2026-11-16 — 영수증 Paseo 동적 선택·영속 처리 명세 작성
+
+- **현재 요청/범위:** 영수증 처리 변경의 명세 작성과 필요한 질문. 구현·실제 모델 호출·운영 변경은 요청하지 않았다. [설계 초안](design/receipt-paseo-workflow-20261116.md)을 작성하고 SPEC §7.1에 연결했다.
+- **확정된 사용자 답변:** 승인된 구독 모델 중 사진 입력 가능한 모델만 선택; 관리되는 기본 판독 지시만 사용; 원본과 결과를 나란히 검수한 뒤 선택 내역만 COST 장부에 한 번에 반영. RCPT-020·RCPT-022를 개정하고 RCPT-031로 결과 보존·사용자 검수 요구를 기록했다. 카드 P1/P2·분기 AI 검수·Google 수동 붙여넣기는 변경하지 않는다.
+- **설계:** 이 PC의 Paseo 모델 목록 조회 → 모델 선택과 동시에 실제 사진 첨부 → 서버 영속 작업·결과 → 다른 페이지/탭 이용 후 복귀 → 교정·선택 → 멱등·원자성을 갖춘 COST 장부 반영. 고정 프롬프트만 사용하며 미지원 모델의 OCR·다른 모델 대체는 새 흐름에 넣지 않는다.
+- **직접 확인:** 현재 코드의 고정 Qwen OCR 경로·메모리 큐/1시간 TTL·브라우저 draft 저장 의존·후보 파일/TSV 출력 경계를 읽었다. 로컬 CLI 0.16.0-beta.2의 run/send `--image`와 데몬 provider/model 목록을 조회했다. provider available만으로 사진 지원·인증·한도를 확정할 수 없었다.
+- **남은 기술 검증:** 운영 실행 계정의 같은 데몬 접속, 모델별 사진/도구 차단 지원, 비동기 종료 결과 회수, 기존 자료를 보존하는 영속 저장소, 실제 장부 쓰기 연결. 명세에 미검증으로 표시했으며 사용자에게 내부 구현 결정을 넘기지 않는다.
+- **검증/다음:** 문서 작성 완료 커밋 `4af855bb083bd03e6f0a34e3b652182081408353`, 이후 이 완료 인계만 추가했다. Markdown217개·로컬 참조1,657건·끊김0, diff check PASS 및 코드 인용 대조. 앱 테스트·브라우저·실제 모델·운영 DB·배포 미실행. 질문3건은 모두 반영했고 추가 필수 질문은 없다. 설계 전체는 사용자 검토 전 초안으로, 문서 브랜치를 로컬에 저장했으며 PR/push/병합은 하지 않았다. 다음 구현 요청 전 코드를 바꾸지 않는다. 새 요청은 이 설계 §6 기술 확인부터 시작한다.
+- **작업공간:** 기존 `C:/AX/cost` 재사용, `docs/receipt-paseo-workflow-20261116` 브랜치. 사용자 `.qwen/`·`review-size-attempt4.md` 및 기존 ignored 자료 보존. 이전 정리는 PR #969·main `9e2d66a3`에서 완료됐고 과거 절의 후속 병합·브랜치 삭제도 모두 끝났다. 아래는 이전 작업 근거다.
+
 ## 2026-11-16 — 임시 작업공간 정리 완료·주 작업 폴더 통합
 
 - **현재 사용자 요청:** 모든 임시 워크스페이스·브랜치 병합·정리와 전체 문서 정리. 반려·철회된 변경의 재구현, 운영 배포, Rust 전환은 이번 실행 범위에 추가하지 않는다.
