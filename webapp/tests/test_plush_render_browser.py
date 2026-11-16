@@ -115,6 +115,38 @@ def render_copy_browser(render_browser):
         cleanups.run()
 
 
+# 수락 #3 확인 방법: "scrollWidth > clientWidth인 셀마다 전체 값 접근 수단이 있는지 시험한다."
+# 페이지 수준 overflow가 아니라 실제 데이터 셀을 순회한다. 잘린(넘치는) 셀은 줄바꿈·펼침·title 중
+# 하나의 전체값 접근 수단이 있어야 한다. display:none 조상(폭별 데스크톱 표↔모바일 목록 전환)은
+# rect가 0이라 자동으로 건너뛴다.
+_CELL_ACCESS_JS = """() => {
+  const selector = '.cost-data-table td, .cost-ledger__row-open strong, .cost-ledger__row-open span, '
+    + '.cost-ledger__mobile-row > strong, .cost-ledger__mobile-bottom > span, .cost-ledger__mobile-amount';
+  const violations = [];
+  let checked = 0;
+  for (const cell of document.querySelectorAll(selector)) {
+    const rect = cell.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) continue;
+    const style = getComputedStyle(cell);
+    if (style.visibility === 'hidden') continue;
+    checked += 1;
+    if (cell.scrollWidth <= cell.clientWidth) continue;
+    const titled = cell.getAttribute('title') || cell.querySelector('[title]');
+    const wraps = style.overflowWrap === 'anywhere' || style.overflowWrap === 'break-word'
+      || style.wordBreak === 'break-all' || style.wordBreak === 'break-word';
+    const expand = cell.querySelector('details, [aria-expanded]');
+    if (!titled && !wraps && !expand) {
+      violations.push({ text: (cell.textContent || '').trim().slice(0, 40), scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth });
+    }
+  }
+  return { checked, violations };
+}"""
+
+
+def _cell_access(page):
+    return page.evaluate(_CELL_ACCESS_JS)
+
+
 def test_react_shell_boots_with_synthetic_seed(render_browser):
     port, trip, make_page, open_ledger = render_browser
     page = make_page(1440)
@@ -252,4 +284,74 @@ def test_ota_page_uses_pagination_not_expand(render_browser):
     page.wait_for_selector(".e-feature-pagination")
     assert page.locator(".e-feature-pagination nav[aria-label='페이지 이동']").count() == 1
     assert page.locator("form[role='search'], .e-feature-search").count() >= 1
+    page.close()
+
+
+def test_ledger_data_cells_offer_full_value_access(render_browser):
+    # 수락 #3: 셀별 잘림·전체값 접근 수단을 모바일 목록(≤767px)과 데스크톱 표(>767px) 모두 검사한다.
+    port, trip, make_page, open_ledger = render_browser
+    for width in (320, 390, 640, 720, 1440):
+        page = make_page(width)
+        open_ledger(page)
+        page.wait_for_selector(".cost-ledger__summary")
+        # 폭별로 실제 보이는 목록을 기다린다(≤767px은 모바일 목록, 초과은 데스크톱 표).
+        row_selector = ".cost-ledger__mobile-row" if width <= 767 else ".cost-ledger__desktop-table .cost-ledger__row-open"
+        page.wait_for_selector(row_selector)
+        report = _cell_access(page)
+        assert report["checked"] > 0, f"width {width}: 검사한 데이터 셀이 없음"
+        assert report["violations"] == [], f"width {width}: 잘린 셀에 전체값 접근 수단 없음 {report['violations']}"
+        if width <= 767:
+            assert page.locator(".cost-ledger__mobile-list").is_visible()
+            assert not page.locator(".cost-ledger__desktop-table").is_visible()
+        else:
+            assert page.locator(".cost-ledger__desktop-table").is_visible()
+            assert page.locator(".cost-ledger__desktop-table td").count() >= 1
+        page.close()
+
+
+def test_trips_data_cells_offer_full_value_access(render_browser):
+    # 수락 #3의 여행 목록(640~720px 포함)도 셀별로 검사한다.
+    port, trip, make_page, open_ledger = render_browser
+    for width in (320, 390, 640, 720, 1440):
+        page = make_page(width)
+        page.goto(f"http://127.0.0.1:{port}/ui/trips?state=all")
+        page.wait_for_selector(".cost-app-shell")
+        page.wait_for_selector(".cost-trips__table td")
+        report = _cell_access(page)
+        assert report["checked"] > 0, f"width {width}: 검사한 여행 셀이 없음"
+        assert report["violations"] == [], f"width {width}: 잘린 여행 셀에 전체값 접근 수단 없음 {report['violations']}"
+        page.close()
+
+
+def test_each_screen_has_unique_page_title(render_browser):
+    # 수락 #6: 화면마다 고유한 페이지 <title>. document.title이 화면 h1을 따라 서로 다른지 실측한다.
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    titles = {}
+
+    page.goto(f"http://127.0.0.1:{port}/ui/")
+    page.wait_for_selector(".cost-home h1")
+    page.wait_for_function("document.title.includes('정산 현황')")
+    titles["home"] = page.title()
+
+    page.goto(f"http://127.0.0.1:{port}/ui/trips?state=all")
+    page.wait_for_selector(".cost-trips h1")
+    page.wait_for_function("document.title.includes('여행')")
+    titles["trips"] = page.title()
+
+    page.goto(f"http://127.0.0.1:{port}/ui/board?tab={trip}")
+    page.wait_for_selector(".cost-ledger__title-row h1")
+    page.wait_for_function("document.title.includes('합성 렌더 여행')")
+    titles["ledger"] = page.title()
+
+    page.goto(f"http://127.0.0.1:{port}/ui/no-such-route")
+    page.wait_for_selector(".cost-app-shell h1")
+    page.wait_for_function("document.title.includes('화면을 찾을 수 없습니다')")
+    titles["missing"] = page.title()
+
+    assert len(set(titles.values())) == len(titles), f"화면별 제목이 고유하지 않음: {titles}"
+    assert "정산 현황" in titles["home"]
+    assert "여행" in titles["trips"]
+    assert "합성 렌더 여행" in titles["ledger"]
+    assert "화면을 찾을 수 없습니다" in titles["missing"]
     page.close()

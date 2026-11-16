@@ -1,7 +1,8 @@
 // 수락 기준 #3(표 잘림)·#7(글꼴 스택 하나)의 렌더 전제 자동 시험.
 // 잘림 기법(text-overflow:ellipsis·table-layout:fixed) 부재 + 셀 줄바꿈(overflow-wrap:anywhere),
 // 본문·Plush의 단일 Pretendard 글꼴 스택을 CSS에서 검증한다.
-// 실제 브라우저 렌더(셀 scrollWidth>clientWidth 전체값 접근·화면별 계산 글꼴/행간)는 UI-2/UI-6 합성 미리보기에서 별도 확인한다.
+// 셀 수준 전체값 접근(scrollWidth>clientWidth 셀마다 줄바꿈·펼침·title)·화면별 고유 제목의
+// 실제 브라우저 렌더 검증은 webapp/tests/test_plush_render_browser.py에서 합성 미리보기로 수행한다.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -27,12 +28,13 @@ const ledger = css.find((c) => c.file.endsWith("ledger.css"))?.text ?? "";
 const tokens = css.find((c) => c.file.endsWith("tokens.css"))?.text ?? "";
 
 describe("수락 #3 표 잘림 전제", () => {
-  it("장부 표에 잘림 기법(text-overflow:ellipsis·table-layout:fixed)을 쓰지 않는다", () => {
+  it("데이터 표에 잘림 기법(text-overflow:ellipsis·table-layout:fixed)을 쓰지 않는다", () => {
     // 수락 #3의 대상은 데이터 표 셀이다(요구사항: "표 셀이 잘리지 않거나 전체 값 볼 수단").
-    // 셸 상단바 위치 표시(.cost-topbar-location)의 모바일 ellipsis는 main이 도입한
-    // 내비게이션 크롬으로 표 셀이 아니며, 전체 제목은 페이지 h1에 그대로 있다.
-    // 따라서 ellipsis 금지는 장부 표 CSS에 적용하고, table-layout:fixed는 전역 금지한다.
-    expect(ledger).not.toMatch(/text-overflow\s*:\s*ellipsis/);
+    // 셸 상단바 위치 표시(.cost-topbar-location)의 모바일 ellipsis는 main이 도입한 내비게이션
+    // 크롬(표 셀 아님·전체 제목은 페이지 h1)이라 그 규칙만 예외로 두고, 나머지 모든 CSS
+    // (공용 표·여행 목록·장부 포함)에서 ellipsis를 금지한다. table-layout:fixed는 전역 금지.
+    const withoutTopbarLocation = allCss.replace(/\.cost-topbar-location\s*\{[^}]*\}/g, "");
+    expect(withoutTopbarLocation).not.toMatch(/text-overflow\s*:\s*ellipsis/);
     expect(allCss).not.toMatch(/table-layout\s*:\s*fixed/);
   });
 
