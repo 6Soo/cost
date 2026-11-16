@@ -274,6 +274,110 @@ def test_transactions_without_a_card_source_report_unavailable_not_fake_rows(bou
     assert body["status"]["code"] == "SOURCE_UNAVAILABLE"
 
 
+def test_ota_transactions_preserve_provider_reference_and_existing_detail_link(
+    bound_store, monkeypatch,
+):
+    store, _ = bound_store
+    monkeypatch.setattr(
+        "webapp.ota_catalog.catalog",
+        lambda *_args, **_kwargs: {
+            "rows": [{
+                "provider": "booking",
+                "booking_ref": "A/1 & B",
+                "starts_on": "2026-11-20",
+                "label": "합성 숙소 예약",
+                "period": "2026-11-20 ~ 2026-11-22",
+                "trips": [],
+                "status": "confirmed",
+                "card_count": 1,
+            }],
+            "total": 1,
+            "page": 1,
+            "warnings": [],
+        },
+    )
+
+    status, body = call("/api/plush/transactions?view=ota", "syn-owner", store)
+
+    assert status == 200
+    assert body["total_count"] == 1
+    row = body["rows"][0]
+    assert row["provider"] == "booking"
+    assert row["booking_ref"] == "A/1 & B"
+    assert row["source_href"] == "/ota/booking?provider=booking&ref=A%2F1+%26+B"
+    assert {column["key"]: column["label"] for column in body["columns"]}[
+        "source_href"
+    ] == "예약 상세·교정(기존 화면)"
+
+
+def test_refund_transactions_keep_canonical_groups_and_kind_filter(
+    bound_store, monkeypatch,
+):
+    store, _ = bound_store
+    groups = [
+        [
+            {"transaction_id": "original-100", "merchant": "항공사", "item": "항공권",
+             "occurred_on": "2026-11-01", "amount_krw": 1000,
+             "inferred": False, "refund_basis": "original_approval_number"},
+            {"transaction_id": "refund-40", "merchant": "항공사", "item": "부분 환급",
+             "occurred_on": "2026-11-05", "amount_krw": -400},
+            {"transaction_id": "refund-60", "merchant": "항공사", "item": "부분 취소",
+             "occurred_on": "2026-11-03", "amount_krw": -600},
+        ],
+        [
+            {"transaction_id": "original-other", "merchant": "호텔", "item": "숙박",
+             "occurred_on": "2026-11-08", "amount_krw": 2000,
+             "inferred": True, "refund_basis": "original_approval_number"},
+            {"transaction_id": "refund-other", "merchant": "호텔", "item": "취소",
+             "occurred_on": "2026-11-09", "amount_krw": -2000},
+        ],
+    ]
+    monkeypatch.setattr("webapp.refund_tab.groups", lambda _store: groups)
+    monkeypatch.setattr(
+        ledger_board, "_expense_rows",
+        lambda: [{"source_event_id": "refund-40", "row_id": "saved-row-40",
+                  "description": "needle saved memo"}],
+    )
+
+    status, body = call(
+        "/api/plush/transactions?view=refunds&q=needle+saved+memo&kind=ex",
+        "syn-owner", store,
+    )
+
+    assert status == 200
+    assert body["total_count"] == 3
+    assert [row["transaction_id"] for row in body["rows"]] == [
+        "original-100", "refund-60", "refund-40",
+    ]
+    assert {row["refund_group_key"] for row in body["rows"]} == {"original-100"}
+    assert [row["refund_role"] for row in body["rows"]] == [
+        "original", "refund", "refund",
+    ]
+    assert [row["refund_role_label"] for row in body["rows"]] == [
+        "원결제", "환불", "환불",
+    ]
+    assert {row["refund_basis"] for row in body["rows"]} == {
+        "original_approval_number",
+    }
+    assert body["rows"][0]["refund_relation"] == (
+        "원결제 · 원결제 original-100 · original_approval_number"
+    )
+    assert body["rows"][0]["source_href"] == "/cards/all"
+    assert body["rows"][2]["source_href"] == (
+        "/row?id=saved-row-40&back=%2Fboard%3Ftab%3Drefunds"
+    )
+    column_labels = {column["key"]: column["label"] for column in body["columns"]}
+    assert column_labels["source_href"] == "원결제·환불 상세(기존 화면)"
+    assert column_labels["refund_relation"] == "원결제·환불 관계"
+
+    status, no_income = call(
+        "/api/plush/transactions?view=refunds&kind=in", "syn-owner", store,
+    )
+    assert status == 200
+    assert no_income["rows"] == []
+    assert no_income["total_count"] == 0
+
+
 def test_card_query_period_filters_and_cursor_contract(bound_store, monkeypatch):
     store, _ = bound_store
     calls = {"summary": [], "year": [], "month": [], "undated": []}

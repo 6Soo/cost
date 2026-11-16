@@ -12,7 +12,7 @@ import re
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any
-from urllib.parse import parse_qs, unquote
+from urllib.parse import parse_qs, quote, unquote
 
 from . import plush_projection as projection
 
@@ -500,10 +500,15 @@ def _ota_transaction_page(board: Any, query: dict[str, list[str]], *,
     rows = []
     for item in data.get("rows") or []:
         provider = str(item.get("provider") or "")
+        booking_ref = str(item.get("booking_ref") or "")
         trip_names = [str(trip.get("name") or "") for trip in item.get("trips") or []
                       if isinstance(trip, dict) and trip.get("name")]
         rows.append({
-            "id": f"{provider}:{item.get('booking_ref') or ''}",
+            "id": f"{provider}:{booking_ref}",
+            "provider": provider,
+            "booking_ref": booking_ref,
+            "source_href": (ota_catalog.detail_url(provider, booking_ref)
+                            if provider and booking_ref else None),
             "date": str(item.get("starts_on") or ""),
             "merchant": str((ota_catalog.PROVIDERS.get(provider) or provider)),
             "description": str(item.get("label") or ""),
@@ -629,18 +634,52 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
             {"key": "description", "label": "예약"}, {"key": "period", "label": "기간"},
             {"key": "trip", "label": "여행"}, {"key": "status", "label": "상태"},
             {"key": "card_count", "label": "연결 카드"},
+            {"key": "source_href", "label": "예약 상세·교정(기존 화면)"},
         ]
     elif view == "refunds":
-        from . import refund_tab
+        from . import refund_tab, refund_tab_ui
 
+        kind = _first(query, "kind").strip()
+        saved = {row.get("source_event_id"): row
+                 for row in ledger_board._expense_rows()}
+        groups = refund_tab_ui.filter_refund_groups(
+            refund_tab.groups(board), query=q, kind=kind, saved=saved,
+        )
         all_rows = []
-        for group in refund_tab.groups(board):
-            for item in group:
-                text = " ".join(str(item.get(k) or "") for k in ("merchant", "item", "occurred_on"))
-                if q.casefold() not in text.casefold():
-                    continue
+        for group in groups:
+            if not group:
+                continue
+            original_id = str(group[0].get("transaction_id") or "")
+            refund_basis = group[0].get("refund_basis")
+            inferred = bool(group[0].get("inferred"))
+            ordered_group = [group[0]] + sorted(group[1:], key=lambda row: (
+                not bool(row.get("occurred_on")), row.get("occurred_on") or "",
+                row.get("transaction_id") or "",
+            ))
+            for index, item in enumerate(ordered_group):
+                transaction_id = str(item.get("transaction_id") or "")
+                role = "original" if index == 0 else "refund"
+                role_label = "원결제" if index == 0 else "환불"
+                relation = f"{role_label} · 원결제 {original_id}"
+                if refund_basis:
+                    relation += f" · {refund_basis}"
+                saved_row = saved.get(transaction_id)
+                source_href = (
+                    f"/row?id={quote(str(saved_row['row_id']), safe='')}"
+                    f"&back={quote('/board?tab=refunds', safe='')}"
+                    if isinstance(saved_row, dict) and saved_row.get("row_id")
+                    else "/cards/all"
+                )
                 all_rows.append({
-                    "id": item.get("transaction_id"), "date": item.get("occurred_on") or "",
+                    "id": transaction_id, "transaction_id": transaction_id,
+                    "refund_group_key": original_id,
+                    "refund_role": role, "refund_role_label": role_label,
+                    "refund_basis": refund_basis,
+                    "refund_group_inferred": inferred,
+                    "refund_group_size": len(group),
+                    "refund_relation": relation,
+                    "source_href": source_href,
+                    "date": item.get("occurred_on") or "",
                     "merchant": item.get("merchant") or "", "description": item.get("item") or "",
                     "amount": projection.money(item.get("amount_krw")), "status": "refund-group",
                 })
@@ -650,6 +689,11 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
         columns = [
             {"key": "date", "label": "날짜"}, {"key": "merchant", "label": "가맹점"},
             {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액"},
+            {"key": "refund_role_label", "label": "구분"},
+            {"key": "refund_group_key", "label": "원결제 ID"},
+            {"key": "refund_basis", "label": "연결 근거"},
+            {"key": "refund_relation", "label": "원결제·환불 관계"},
+            {"key": "source_href", "label": "원결제·환불 상세(기존 화면)"},
             {"key": "status", "label": "상태"},
         ]
     elif view == "flights":
