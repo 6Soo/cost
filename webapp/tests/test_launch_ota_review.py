@@ -27,6 +27,23 @@ def test_product_features_use_explicit_opt_in_and_durable_paths(tmp_path):
         assert not any(os.environ.get(key) for key in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR', 'WEBLEDGER_GOOGLE_LEDGER_ROWS'))
 
 
+@pytest.mark.parametrize('receipts,expected', [
+    ({}, None),
+    ({'enabled': False, 'workflow': True}, None),
+    ({'enabled': True}, None),
+    ({'enabled': True, 'workflow': 'true'}, None),
+    ({'enabled': True, 'workflow': True}, '1'),
+])
+def test_receipt_workflow_launch_requires_explicit_config_and_clears_inherited_flag(tmp_path, receipts, expected):
+    key = 'WEBLEDGER_RECEIPT_WORKFLOW_ENABLED'
+    with patch.dict(os.environ, {key: '1'}):
+        launcher.apply_product_features({'receipts': receipts}, tmp_path)
+        assert os.environ.get(key) == expected
+        assert not (tmp_path / 'receipts').exists()
+        launcher.apply_product_features({}, tmp_path)
+        assert key not in os.environ
+
+
 def test_passenger_feature_requires_explicit_opt_in_and_uses_durable_database(tmp_path):
     keys = ('WEBLEDGER_FLIGHT_PASSENGER_MATCHING', 'WEBLEDGER_FLIGHT_PASSENGER_DB')
     with patch.dict(os.environ, {key:'inherited' for key in keys}):
