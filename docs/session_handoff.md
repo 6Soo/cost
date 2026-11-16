@@ -1,5 +1,24 @@
 # 현재 상태
 
+## 2026-11-16 — 영수증 기본 Terra high·선택 모델 동적 표시
+
+- **최신 요청:** Claude 대신 `codex/gpt-6.1-terra` high를 기본으로 하고 선택 모델을 UI에 동적으로 표시한다. catalog의 기본값·모델별 실제 추론 수준으로 초기 선택과 버튼/상태를 표시하며, 기존 작업은 저장된 provider/model/thinking을 보존한다. 목록 로딩 경쟁·새로고침은 분석을 자동 실행하지 않는다.
+- **실제 판독:** 합성 사진으로 Terra high start→스키마 검증 완료→새 bridge에서 동일 handle 복구→archive 성공, tool event 0, 금융 apply 없음. Claude 로그인 차단은 새 기본 경로의 차단 사유가 아니다. 근거 `.local-archive/receipt-terra-20261116/live-summary.json`.
+- **실행 보호:** 일반 Codex 설정을 바꾸지 않는 영수증 전용 Paseo alias와 로컬 launcher를 추가했다. 구독 인증·OpenAI provider를 강제하고 파일/셸/웹/MCP/플러그인/다중 에이전트 도구를 끈다. native config/read 예행에서 기존 MCP 항목이 실제 비활성화됨을 확인했다. 단순 read-only를 도구 차단으로 취급하지 않는다.
+- **실행 결함 수정:** SDK의 workspaceId는 기존 작업공간 참조이므로, 임의 ID를 만들던 대신 daemon이 반환한 작업공간 ID와 경로를 검증해 보존한다. 기존 불확실 실행은 재전송하지 않는다. SDK config의 options 필드로 native 제약을 전달한다.
+- **현재 단계:** 표적 검사·영향 검사·최종 SHA 독립 검수와 운영 반영을 마무리한다. 운영은 아직 `11267cd0`이며 이번 변경 배포 완료를 주장하지 않는다. React 화면 변경은 별도 Plush 감독이 같은 DTO 계약으로 통합 중이다. 사용자·성능 세션 변경은 보존한다.
+
+## 2026-11-16 20:14 — 영수증 구현·운영 배포 완료, 실모델 판독은 로그인 차단
+
+- **최신 요청/범위:** “영수증 관련 작업은 끝난건가? 이쪽 먼저 구현하고 배포해”에 따라 영수증을 우선 구현·배포했다. 영속 작업·복귀·사진/결과 교정·선택 내역 원자적 반영·PDF 원본 조회·Paseo 연결·운영 workflow 활성화를 통합했다. 성능 개선·Plush·Rust 전환은 이번 배포에 포함하지 않았다.
+- **완료 코드/PR:** 최종 운영 SHA `11267cd012e074a0b89d28adb93a4dd736f64079`. 영수증 PR [#970](https://github.com/6Soo/cost/pull/970)(코드 `e977e235`, 병합 `921159ab`)와 보호 검사 수정 PR [#972](https://github.com/6Soo/cost/pull/972)(코드 `11267cd0`, 병합 `2a2ba33e`). 코드와 최종 SHA는 각각 독립 `gpt-6.1-sol medium` APPROVE. GitHub CI는 결제 한도로 작업 시작 전 실패했음을 정확 SHA의 annotation으로 확인했다.
+- **검사:** 광범위 기준 `85ac8bcc` **1,443 passed +107 subtests**, 최종 영수증 변경분 `e977e235` **217 passed**, 배포 검사 수정 `11267cd0` **32 passed**, 전부 skip0·실패0. Rust costcore release build 통과. 별도 검수자는 보호 검사 표적11건과 추가 합성 불변조건29건 통과. 중복 집계하지 않는다.
+- **첫 배포 실패와 복구:** `e977e235` 첫 배포는 새 빈 `receipt_evidence_links`가 추가돼 보호 표가 13→14개가 되자 개수 고정 검사가 실패했다. 공식 도구는 이전 `77865bfa`/8751로 롤백했고 health/ready200을 확인했다. 원래13표 변경0·삭제0, 추가표0행이었다. `11267cd0`는 원래 필수 표의 이름과 기존 모든 표의 내용·스키마를 검증하며, 명시 승인된 빈 추가 표만 허용한다.
+- **운영 완료 근거:** 공식 `tools/deploy_verified_release.ps1` exit0. `77865bfa`→`11267cd0`, Board8752·Worker 전환 및 core writers 정합성 확인, Gateway8790. 릴리스1,764파일 Git blob 불일치0, 보호14표 불변, financial apply NOT_RUN. 별도 재점검 health200(0.423초)·ready200(0.045초), 비인증 `/receipts`·모델목록·workflow API401. 설정 workflow=true와 신규3표 존재 확인. 상세는 [운영 기록](operations.md) 맨 위 절이다.
+- **백업/복원:** 첫 시도 전과 롤백 후 재시도 전 모두 board/core 범위 백업·복원 확인. 최신 `D:/WebLedgerHost/data/backups/receipt-deploy-retry-20261116-restore-evidence.json`(live/out-of-scope unchanged, binding equal). 사본 스키마 예행에서 기존78표 불변·빈3표 추가 확인. 연속 배포 도구의 `fresh_backup_restore=false`는 도구 내부 full-backup 옵션을 사용하지 않았다는 뜻이며, 위 별도 범위 백업/복원은 실제 수행했다.
+- **남은 외부 차단:** 실제 사진 판독 성공만 PARTIAL/BLOCKED. 마지막 실제 Paseo 진단에서 Claude loggedIn=false·subscriptionAuth=false, 목록은 연결되지만 선택 차단. 사용자 로그인 복구 후 합성 사진의 start→완료→저장·복귀만 재검증한다. 실제 판독 성공을 주장하지 않으며 자동 유료 전환은 없다. 브라우저 TaskSpace44는 사용자 제어 중이라 takeover/대체공간을 만들지 않았고 기존 합성 검수 근거를 보존했다.
+- **보존/후속:** 사용자 AGENTS.md·.codex/·.qwen/·review-size-attempt4.md와 성능 세션 변경 보존. 성능 후속 `0a1e359f`/`fix/ledger-first-load-20261116`는 운영 미반영(기록 당시 SQL48.307→0.187초, 로컬home57.405→1.874초, 표적158건); 후속 검수·배포·공개 재측정은 해당 세션 범위다. `graphify update .`는 CLI 미설치로 실패했으며 graph.json도 없어 갱신하지 못했다. 검증 worktree의 증거는 `.local-archive/receipt-deploy-20261116/`에 보존하고 공식 archive로 정리한다.
+
 ## 2026-11-16 — 영수증 Paseo 흐름 통합 검수 완료(운영 배포 전)
 
 - **통합 커밋:** `291c44a7` (`feat(receipts): add local Paseo SDK bridge`). 로컬 Paseo provider/model catalog, 승인된 사진 입력 모델 필터, 고정 프롬프트·스키마 해시, 사진 첨부, run-key 멱등·복구, timeline 결과 회수·도구 차단·archive를 `tools/receipt_paseo_bridge.mjs`로 연결했다. `webapp/receipt_workflow.py`의 trailing whitespace도 제거해 diff 게이트를 통과시켰다.

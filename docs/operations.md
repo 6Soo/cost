@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-16 20:14 창 — 영수증 `11267cd0` 운영 배포
+
+- **전환:** PR [#970](https://github.com/6Soo/cost/pull/970)·[#972](https://github.com/6Soo/cost/pull/972). 검수된 코드 SHA `11267cd012e074a0b89d28adb93a4dd736f64079`를 공식 `tools/deploy_verified_release.ps1`로 배포, exit0. PreviousSha `77865bfadce7cc96336cf751d1dbd41964549388`. Board8752·Worker 같은 릴리스, Gateway8790, core writers VERIFIED. workflow=true를 원본 설정 백업 후 명시 활성화했다.
+- **안전:** 릴리스1,764파일 blob불일치0, 보호14표 배포 전후 불변, financial apply NOT_RUN. 별도 board/core 신선 범위 백업·복원 확인(최신11:10:57 UTC), 기존78표 불변/빈3표 추가 사본 예행 통과. 연속배포 도구 자체의 full-backup 플래그는 사용하지 않아 deploy evidence의 fresh_backup_restore는 false이며, 별도 백업/복원 근거를 함께 사용한다.
+- **점검:** 공식 health/ready200, 비인증 기존API401. 추가 영수증 smoke health200(0.423초), ready200(0.045초), `/receipts`·`/api/receipts/paseo/models`·`/api/receipts/workflow`401. workflow 활성화·새 영수증3표 존재 확인. 합성 검사 broad1443+107subtests, 최종영수증delta217, 배포검사delta32 모두 실패0/skip0. 독립 최종SHA 검수 gpt-6.1-sol medium APPROVE. GitHub CI는 결제 한도로 job/step 미시작.
+- **실패 이력:** 먼저 배포한 `e977e235`는 빈 receipt_evidence_links로 보호 표 수가13→14가 되면서 고정 개수 검사에 실패했다. 도구는 이전77865bfa/8751로 공식 rollback했고 health/ready200, 원래13표 동일/추가표0행을 확인했다. 11267cd0에서 필수 identity·기존 표 해시를 유지하고 명시 승인된 빈 추가만 허용하도록 수정해 재배포했다. 첫 전환 중 별도 health/ready8초 점검은 시간초과였으며 첫 시도를 성공으로 기록하지 않는다.
+- **기능 제한:** Claude 구독 로그아웃으로 실제 모델 판독 성공은 미검증. catalog 연결은 확인됐지만 실행 선택은 차단된다. 로그인 복구 후 합성 사진으로 재검증한다. 사용자 제어 중 TaskSpace44는 조작하지 않았다. 운영 원본·수동 교정·Google 최종 장부 변경 및 Rust 전환은 수행하지 않았다.
+- **근거:** `D:/WebLedgerHost/releases/deploy-evidence-11267cd012e074a0b89d28adb93a4dd736f64079.json`, `continuous-switch-11267cd012e074a0b89d28adb93a4dd736f64079.json`; `D:/WebLedgerHost/data/backups/receipt-deploy-retry-20261116-restore-evidence.json`; 로컬 `.local-archive/receipt-deploy-20261116/`의 broad-quality·delta-quality·guard-quality·독립검수2개·deploy-first-failed.log·deploy-retry.log·production-smoke.json. 다음 배포 PreviousSha는 다른 배포가 없으면11267cd0다.
+
 ## 2026-11-16 04:38·05:14 창 — `25966b21`·`77865bfa` 배포, 1차 전환 재측정 C1·C2 통과
 
 - **배포 1단계(#963):** `e2164607` → `25966b217e243b5896a007453bd613594eefdb2d`(OTA 대사 시간 제한 1,800초 상향·동일 입력 실행 공유로 재판정 차단 해소), Board 8752, 보호 13표 불변, readyz 200, 릴리스 1,730파일 blob 불일치 0, 런타임 SHA 검증. 독립 검수 antigravity Claude Opus 4.6 Thinking(high) APPROVE — CI 결제 한도 미시작 예외, 표적 130건 재실행·영향 게이트 765건 확인.

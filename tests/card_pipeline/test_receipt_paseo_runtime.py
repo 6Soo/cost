@@ -223,7 +223,7 @@ const api={
  providers:{snapshot:async()=>({entries:[{provider:'claude',status:'ready'}]}),
  diagnostic:async()=>({diagnostic:'Auth: '+JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',subscriptionType:'max'})}),
  listModels:async()=>({models:[{id:'claude-fable-5-2'}]})},
- workspaces:{create:async()=>({agents:{create:async request=>{
+ workspaces:{create:async request=>({id:'wks_synthetic',directory:request.source.path,agents:{create:async request=>{
   created++;
   createdAgent={id:request.agentId,workspaceId:null,cwd:null,provider:'claude',model:'claude-fable-5-2',labels:request.labels};
   throw new Error('synthetic lost acknowledgement');
@@ -233,9 +233,9 @@ const api={
 // Preserve the workspace identity returned by the actual create request.
 const create=api.workspaces.create;
 api.workspaces.create=async request=>{
- const w=await create(request);
+  const w=await create(request);
  const start=w.agents.create;
- w.agents.create=async r=>{try{return await start(r)}finally{createdAgent.workspaceId=request.workspaceId;createdAgent.cwd=request.source.path}};
+ w.agents.create=async r=>{try{return await start(r)}finally{createdAgent.workspaceId=w.id;createdAgent.cwd=request.source.path}};
  return w;
 };
 const dispatch=await createBridge(api,process.argv[2]);
