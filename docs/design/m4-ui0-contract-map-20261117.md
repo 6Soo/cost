@@ -10,10 +10,11 @@
 | 기준 SHA | `7ec9d3ae98198b02c89dc7efc4c6fbd4b7179b6b` (Merge PR #978) |
 | Node / npm | v24.22.1 / 11.19.1 |
 | 의존성 설치 | `npm ci` — 179개 패키지 |
-| 단위·통합 시험 | `vitest run` — **18개 파일 / 121개 시험 통과, 실패 0** |
+| 단위·통합 시험 | `vitest run --no-file-parallelism` — **20개 파일 / 126개 시험 통과, 실패 0** |
 | 타입 검사 | `tsc --noEmit` — **오류 0** |
-| 프로덕션 빌드 | `vite build` — **성공**(2.74s, 6228 모듈, `dist/` 산출) |
-| 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건) |
+| 프로덕션 빌드 | `vite build` — **성공**(6228 모듈, `dist/` 산출) |
+| 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건), `glossary.test.ts`(3건·#12), `ledger-not-found.test.tsx`(2건·#10) |
+| 백엔드 수락 시험 | `webapp/tests/test_plush_api.py::test_unknown_trip_and_row_answer_404`(#10 서버 404), 전체 22건 통과 |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
 
@@ -75,9 +76,9 @@ npm run typecheck
 | 7 글꼴 스택 하나 | 🔎 코드 | tokens.css `--font-sans`·`--plush-font` 단일 Pretendard 스택. | 화면별 계산 글꼴·본문 크기·행간 동일 렌더 시험(🖥). 폰트 woff2는 `webapp/static/fonts/`에 있고 CSS는 `/assets/fonts/` 참조 — 호스트 정적 경로 매핑 런타임 확인(🗄), 미로드 시 폴백 스택 |
 | 8 입력 테두리·높이·닫기 | ✅ 대비 + 🔎 코드 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. | 입력 높이 계산 렌더 시험(🖥) |
 | 9 건너뛰기 첫 초점 | ✅ 시험 | shell-accessibility: 건너뛰기 링크가 DOM 순서 첫 초점, `#cost-main`(tabIndex -1)이 본문 포함. | 실제 Tab 순서 브라우저 확인(🖥, jsdom은 Tab 이동 미구현) |
-| 10 없는 여행 404 | 🔎 부분 + ⚠ 서버 | 클라이언트: 없는 주소→"화면을 찾을 수 없습니다" h1(main.tsx). routes.test.ts unknown→missing. | **없는 여행 id의 404 상태 코드는 서버 책임 — 백엔드 시험 필요**(🗄). 제목 문구 '찾을 수 없음' 정합 확인 |
+| 10 없는 여행 404 | ✅ 시험 | 서버: `plush_api._trip_for_query`가 없는 여행 id에 **404 RESOURCE_NOT_FOUND**("없는 여행이에요") 반환 — `test_plush_api.py::test_unknown_trip_and_row_answer_404` 검증(없는 행도 404). 클라이언트: ledger가 404 시 h1 **'여행을 찾을 수 없음'** — `ledger-not-found.test.tsx` 검증(404 아닌 오류는 일반 제목 유지). 없는 주소→"화면을 찾을 수 없습니다"(main.tsx). | 브라우저 404 화면 렌더는 UI-6(🖥) |
 | 11 menu 역할·Esc | 🔎 코드 | Drawer 네이티브 `<dialog>`+`showModal`, `onCancel`→Esc 닫기, Tab 초점 가둠, `role=menu` 없음, 단일 h2+닫기. | 실제 Esc·역할 브라우저 시험(🖥, jsdom `showModal` 미구현으로 단위 시험 fragile) |
-| 12 용어집 통일 | ⚠ 간극 | 코드는 분류 등 일관 용어를 쓰나 **용어집 대조 시험이 없음**. | 용어집 한 벌 수립 + 대조 시험(분류·구분·항목, XLSX 출력/내보내기), 폐지 링크·책임 전가 문구 제거 |
+| 12 용어집 통일 | ✅ 시험 | 용어집 정본 [m4-glossary-20261117.md](m4-glossary-20261117.md) 수립(item=항목·kind=구분·category=분류·XLSX=내보내기). 장부 '출력 작업'→'내보내기 작업' 통일. `glossary.test.ts`가 금지 문구(XLSX 출력 혼용·'관리자가 설정' 책임 전가) 0건 + 표준 라벨 대조. | 폐지 링크·책임 전가 문구 금지 시험 유지 |
 | 13 주 행동 1개 | ✅ 시험 | ledger-primary-action: 소유자 기본 강조 1개(수기 지출 추가), 복사=secondary·XLSX=ghost. **viewer는 동작 그룹 전체 없음**(owner 전용, P-01). 빈 탭 없음. | 빈 상태 문장 수 렌더 확인(🖥) |
 
 ## 4. LOW 대조
@@ -125,10 +126,10 @@ npm run typecheck
 | UI-2 셸·장부 대표 | 건너뛰기·관리 링크·주 행동 수(#13) 시험 완료. 잘림(#3)·글꼴(#7)·모바일 입력(LOW) 렌더 시험(🖥) |
 | UI-3 장부·여행·산출물 | 서버 합계·복사·내보내기 일치(P-03) 백엔드 대조(🗄), 사본 안내 문구(#2) 렌더 |
 | UI-4 영수증 | 기존 영속 계약 연결(P-04) 서버 확인(🗄) |
-| UI-5 거래·관리·보조 | **없는 여행 404(#10) 서버 시험**, **용어집(#12) 수립+대조 시험**, viewer 거부(P-01), OTA 단서(#5) 렌더 |
+| UI-5 거래·관리·보조 | 없는 여행 404(#10) 서버+프런트 시험 **완료**, 용어집(#12) 수립+대조 시험 **완료**. viewer 거부(P-01) 서버 확인, OTA 단서(#5) 렌더 남음 |
 | UI-6 최종 검증 | Esc·Tab·역할(#9·#11) 브라우저 시험, 스크린리더·실기기, 되돌림 절차 |
 
-우선 간극(⚠): **#10 서버 404**, **#12 용어집**. 나머지는 렌더(🖥)·서버(🗄) 확인으로 검증 상태를 올리는 일이다.
+우선 간극(⚠) **해소**: #10 서버 404(서버+프런트 시험 완료), #12 용어집(정본 수립+대조 시험 완료). 13결함 중 8건(#1·#4·#6브랜드·#8·#9·#10·#12·#13) 자동시험 검증. 나머지는 렌더(🖥)·서버(🗄) 확인으로 검증 상태를 올리는 일이다.
 
 ## 8. 경계
 
