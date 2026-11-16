@@ -9,12 +9,14 @@
 .cost-trips__trip-link strong { overflow-wrap: anywhere; }
 .cost-trips__trip-link span { color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-trips__trip-link:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 2px; }
+.cost-trips__edit-link { display: inline-flex; min-height: 44px; align-items: center; color: var(--cost-text-secondary); font-size: .875rem; text-decoration: underline; text-underline-offset: 3px; }
+.cost-trips__edit-link:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 2px; }
 .cost-trips__status { display: inline-flex; min-height: 32px; align-items: center; padding: 0 10px; border: 1px solid var(--cost-border); border-radius: 999px; white-space: nowrap; }
 .cost-trips__pagination { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .cost-trips__pagination span { min-width: 100px; text-align: center; font-variant-numeric: tabular-nums; }
 .cost-trips__source-note { margin: 0; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-trips button { min-height: 44px; }
-.cost-button { min-width: 72px; padding: 0 14px; border: 1px solid var(--cost-border); border-radius: 999px; background: var(--cost-surface); color: var(--cost-text); font: inherit; cursor: pointer; }
+.cost-button { display: inline-flex; min-width: 72px; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 1px solid var(--cost-border); border-radius: 999px; background: var(--cost-surface); color: var(--cost-text); font: inherit; line-height: 1.35; text-align: center; text-decoration: none; cursor: pointer; }
 @media (hover: hover) {
   .cost-button:hover:not(:disabled) { border-color: var(--cost-selection-start); }
 }
