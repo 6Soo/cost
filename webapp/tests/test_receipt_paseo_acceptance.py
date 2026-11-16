@@ -178,6 +178,17 @@ def test_recreated_worker_reconnects_to_saved_run_without_resubmission(receipt_h
     assert len(runtime.calls) == 1
 
 
+def test_two_tabs_with_distinct_request_ids_reuse_one_ordinary_analysis(receipt_http):
+    fixture, runtime = receipt_http
+    image = _upload(fixture)
+    first = _enqueue(fixture, image, request_id="1" * 32)
+    second = _enqueue(fixture, image, request_id="2" * 32)
+    assert second["batch_id"] == first["batch_id"]
+    runtime.release.set()
+    _wait_until(lambda: _persisted_result(fixture))
+    assert len(runtime.calls) == 1
+
+
 def test_stale_selection_rolls_back_whole_batch_and_replayed_apply_is_one_expense(receipt_http):
     fixture, runtime = receipt_http
     batch = _enqueue(fixture, _upload(fixture))

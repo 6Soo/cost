@@ -3,7 +3,7 @@
   "audit_groups": [
     "core-safety-net", "financial-core", "google-readonly", "ota-reconciliation",
     "card-flow", "ledger-store-boundaries", "shared-shell-assets", "shared-ui-browser-contracts",
-    "autonomous-workflow-journeys", "async-upload-idempotency", "receipt-review",
+    "autonomous-workflow-journeys", "async-upload-idempotency", "receipt-review", "receipt-paseo-workflow",
     "core-business-acceptance"
   ],
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
@@ -471,6 +471,18 @@
       "name": "receipt-review",
       "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py", "app/local_receipt_ocr.py", "app/receipt_vision.py", "app/paseo_receipt_vision.py", "app/receipt_reading.schema.json", "docs/playbooks/receipt-reading.md", "app/receipt_trip_match.py", "app/receipt_image.py", "app/receipt_learning.py", "webapp/receipt_vision_jobs.py", "tools/windows_receipt_ocr.ps1", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_receipt_vision.py", "tests/card_pipeline/test_paseo_receipt_vision.py", "webapp/tests/test_receipt_trip_header.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py"],
       "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_receipt_vision.py", "tests/card_pipeline/test_paseo_receipt_vision.py", "webapp/tests/test_receipt_trip_header.py", "webapp/tests/test_receipt_vision_jobs.py", "webapp/tests/test_receipt_mobile_photo.py"]
+    },
+    {
+      "name": "receipt-paseo-workflow",
+      "paths": ["app/receipt_paseo.py", "tools/receipt_paseo_bridge*", "tools/receipt_paseo_plugin/**",
+                "webapp/receipt_workflow*.py", "webapp/receipt_ledger.py",
+                "webapp/static/js/receipt_workflow.js", "webapp/static/css/receipt_workflow.css",
+                "tests/card_pipeline/test_receipt_paseo_runtime.py", "webapp/tests/test_receipt_paseo_acceptance.py",
+                "webapp/tests/test_receipt_workflow*.py", "webapp/tests/test_receipt_ledger*.py"],
+      "tests": ["tests/card_pipeline/test_receipt_paseo_runtime.py", "webapp/tests/test_receipt_workflow_ui.py",
+                "webapp/tests/test_receipt_paseo_acceptance.py", "tests/card_pipeline/test_receipt_candidates.py",
+                "webapp/tests/test_receipt_drafts.py", "webapp/tests/test_receipt_integrity.py",
+                "webapp/tests/test_receipt_partial.py"]
     },
     {
       "name": "core-business-acceptance",

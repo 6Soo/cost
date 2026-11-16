@@ -15,7 +15,9 @@
 
 `start(image_path, provider, model, *, run_key)` → 영속 가능한 handle `{agent_id,workspace_id,provider,model,...}`. 고정 관리 프롬프트와 실제 사진을 전송하고 신속 반환한다. `inspect_run(handle)` → `{status:'running'|'done'|'failed',result?:<기존 validate_response 호환 결과>,code?}`. `find_run(run_key)` → handle 또는 None(실제 없음); 통신 실패는 None 대신 예외. `archive_run(handle)`은 해당 작업 자원만 공식 정리한다. 이미지를 모르는 모델/OCR·자동 모델 대체·프롬프트 자유 편집 없음. 사진 hash는 런타임이 계산해 결과 원본 대응을 검증한다. 필요하면 handle에 원본 hash를 보존한다.
 
-감독 검수 후 추가 계약: `prompt_metadata()`는 `{prompt_version,prompt_sha256,schema_version,schema_sha256}`를 반환한다. `start`는 `expected_prompt_metadata=None,thinking=None` 키워드를 추가로 받는다. B는 배치 생성 시 관리 지시·스키마 해시와 목록의 기본 추론 옵션을 고정하고 재시도에도 보존한다. A는 실행 직전 실제 관리 파일 해시·실제 추론 옵션을 검증하며, 변경된 지시를 조용히 보내지 않고 `PASEO_PROMPT_CHANGED`로 종료한다. handle에 실제 해시·추론 옵션을 기록한다. 이미 시작된 실행의 재조회에는 최신 파일과의 불일치를 이유로 원래 결과를 버리지 않는다. 프롬프트가 변경돼 접수 작업을 실행할 수 없으면 명시적인 새 분석으로 처리한다.
+감독 검수 후 추가 계약: `prompt_metadata()`는 `{prompt_version,prompt_sha256,schema_version,schema_sha256}`를 반환한다. `managed_prompt()`는 실제 전송하는 `SYSTEM_PROMPT + '\n\n' + managed_user_prompt()` 문자열을 반환한다. 새 관리 wrapper는 단일 JSON 객체 출력을 지시하며, user prompt는 관리 playbook의 StructuredOutput 지시를 JSON 객체 지시로 바꾸고 원본 스키마 텍스트를 포함한다. prompt 해시는 이 결합 문자열의 UTF-8 SHA-256, schema 해시는 원본 schema 파일 바이트의 SHA-256이다. 기존 단독 CLI의 system prompt는 변경하지 않는다.
+
+`start`는 `expected_prompt_metadata=None,thinking=None` 키워드를 추가로 받는다. B는 배치 생성 시 관리 지시·스키마 해시와 목록의 기본 추론 옵션을 고정하고 재시도에도 보존한다. A는 실행 직전 실제 관리 파일 해시·실제 추론 옵션을 검증하며, 변경된 지시를 조용히 보내지 않고 `PASEO_PROMPT_CHANGED`로 종료한다. handle에 실제 해시·추론 옵션을 기록한다. 이미 시작된 실행의 재조회에는 최신 파일과의 불일치를 이유로 원래 결과를 버리지 않는다. 프롬프트가 변경돼 접수 작업을 실행할 수 없으면 명시적인 새 분석으로 처리한다.
 
 ## 인증 HTTP 계약(B→C)
 
