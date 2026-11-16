@@ -60,7 +60,7 @@ export function AdminPage(props: PageProps) {
       pageTitle={view === "google" ? "Google 장부 비교·복사" : view === "review" ? "AI 분기 검수 결과" : view === "profile" ? "기본 정보" : "계정·권한"}
       nav={ADMIN_NAV}
       currentNav={view}
-      readOnly={view === "review" || props.bootstrap.role === "viewer"}
+      readOnly={view === "review"}
       hideReviewWrites={view === "review"}
     />
   );

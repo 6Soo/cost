@@ -266,6 +266,12 @@ function actionMessage(reply: ActionReply) {
   return reply.message || reply.status?.message || "요청이 완료되었습니다.";
 }
 
+function clientRequestId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 function ActionForm({
   action,
   bootstrap,
