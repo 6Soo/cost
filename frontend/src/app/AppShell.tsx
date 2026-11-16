@@ -128,12 +128,27 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
 
   useLayoutEffect(() => {
     const root = document.documentElement;
+    const suppression = document.createElement("style");
+    suppression.dataset.costThemeSwap = "";
+    suppression.textContent = "*,*::before,*::after{transition:none!important}";
+    document.head.append(suppression);
     root.classList.toggle("dark", theme === "dark");
+    // Resolve the new theme while transitions are suppressed, including portals.
+    void window.getComputedStyle(root).color;
+    let restoreFrame = 0;
+    const paintFrame = window.requestAnimationFrame(() => {
+      restoreFrame = window.requestAnimationFrame(() => suppression.remove());
+    });
     try {
       window.localStorage.setItem("cost-theme", theme);
     } catch {
       // Theme changes still work for this tab when browser storage is unavailable.
     }
+    return () => {
+      window.cancelAnimationFrame(paintFrame);
+      window.cancelAnimationFrame(restoreFrame);
+      suppression.remove();
+    };
   }, [theme]);
 
   const toggleTheme = () => setTheme((previous) => previous === "dark" ? "light" : "dark");

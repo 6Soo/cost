@@ -15,7 +15,9 @@
 .cost-trips__source-note { margin: 0; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-trips button { min-height: 44px; }
 .cost-button { min-width: 72px; padding: 0 14px; border: 1px solid var(--cost-border); border-radius: 999px; background: var(--cost-surface); color: var(--cost-text); font: inherit; cursor: pointer; }
-.cost-button:hover:not(:disabled) { border-color: var(--cost-selection); }
+@media (hover: hover) {
+  .cost-button:hover:not(:disabled) { border-color: var(--cost-selection-start); }
+}
 .cost-button:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
 .cost-button:disabled { opacity: .55; cursor: not-allowed; }
 @media (max-width: 720px) {

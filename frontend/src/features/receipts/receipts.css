@@ -62,13 +62,14 @@
 .receipt-section-heading > div { min-width: 0; }
 .receipt-section-heading--small { margin-bottom: 8px; }
 .receipt-count { color: var(--receipt-muted); white-space: nowrap; font-size: 13px; }
-.receipt-button { border: 1px solid var(--receipt-border); border-radius: 999px; padding: 8px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; cursor: pointer; transition: transform .16s ease, background-color .16s ease, border-color .16s ease; }
-.receipt-button:active { transform: scale(.98); }
+.receipt-button { border: 1px solid var(--receipt-border); border-radius: 999px; padding: 8px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; cursor: pointer; }
 .receipt-button:disabled { cursor: not-allowed; opacity: .55; transform: none; }
 .receipt-button--primary { border-color: var(--receipt-action); background: var(--receipt-action); color: var(--receipt-on-action) !important; font-weight: 700; }
 .receipt-button--quiet { background: var(--receipt-surface); color: var(--receipt-text); }
 .receipt-link-button { border: 0; background: none; color: inherit; min-height: 44px; padding: 4px 8px; border-radius: 8px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.receipt-link-button:hover { background: var(--receipt-panel); }
+@media (hover: hover) {
+  .receipt-link-button:hover { background: var(--receipt-panel); }
+}
 .receipt-upload__controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .receipt-file-picker { position: relative; overflow: hidden; min-height: 44px; border: 1px dashed var(--receipt-border); border-radius: 12px; background: var(--receipt-panel); padding: 9px 14px; display: inline-flex; align-items: center; font-weight: 650; cursor: pointer; }
 .receipt-file-picker input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
@@ -114,7 +115,7 @@
 .receipt-workspace { display: grid; grid-template-columns: minmax(0, var(--receipt-source-width, 45%)) minmax(0, 1fr); align-items: start; gap: 16px; max-width: 1760px; margin: 0 auto; }
 .receipt-workspace > .receipt-card { width: 100%; margin-bottom: 16px; }
 .receipt-source-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; scrollbar-width: thin; }
-.receipt-source-tile { flex: 0 0 118px; display: grid; gap: 5px; min-width: 0; padding: 6px; background: var(--receipt-bg); border: 1px solid color-mix(in srgb, var(--receipt-border) 45%, transparent); border-radius: 12px; }
+.receipt-source-tile { flex: 0 0 118px; display: grid; gap: 5px; min-width: 0; padding: 6px; background: var(--receipt-bg); border: 1px solid color-mix(in srgb, var(--receipt-border) 45%, transparent); border-radius: 15px; }
 .receipt-source-tile.is-active { border-color: var(--receipt-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--receipt-green) 40%, transparent); }
 .receipt-source-tile__open { padding: 0; border: 0; background: transparent; min-width: 0; display: grid; gap: 5px; text-align: left; cursor: pointer; }
 .receipt-source-tile__open img { width: 100%; height: 94px; object-fit: cover; border-radius: 8px; background: var(--receipt-panel); }
@@ -123,7 +124,7 @@
 .receipt-source-select input,
 .receipt-select input,
 .receipt-checkbox-field input { width: 20px; height: 20px; accent-color: var(--receipt-green); }
-.receipt-original { margin-top: 8px; border-radius: 16px; background: var(--receipt-panel); padding: 12px; min-width: 0; }
+.receipt-original { margin-top: 8px; border-radius: 22px; background: var(--receipt-panel); padding: 12px; min-width: 0; }
 .receipt-original__topline { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--receipt-muted); font-size: 12px; }
 .receipt-original__image-button { --receipt-source-max-height: min(68vh, 760px); display: block; position: relative; overflow: hidden; width: 100%; aspect-ratio: 4 / 3; max-height: var(--receipt-source-max-height); padding: 0; border: 0; border-radius: 10px; background: var(--receipt-bg); cursor: zoom-in; }
 .receipt-original__image-button img { display: block; width: 100%; height: 100%; object-fit: contain; }
@@ -179,7 +180,7 @@
 .receipt-zoom__toolbar h2 { min-width: 0; margin: 0; font-size: 15px; font-weight: 600; }
 .receipt-zoom__toolbar > div { display: flex; align-items: center; gap: 8px; }
 .receipt-zoom__viewport { display: grid; place-items: center; overflow: auto; min-height: 0; }
-.receipt-zoom__viewport img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .12s ease; transform-origin: center; }
+.receipt-zoom__viewport img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; }
 .receipt-zoom > p { color: #ddd; text-align: center; margin: 0; font-size: 12px; }
 
 @media (max-width: 1100px) {
@@ -219,7 +220,7 @@
   .receipt-workspace > .receipt-card.is-mobile-active { display: block; }
   .receipt-source-tile { flex-basis: 104px; }
   .receipt-source-tile__open img { height: 82px; }
-  .receipt-original { padding: 8px; }
+  .receipt-original { padding: 8px; border-radius: 18px; }
   .receipt-original__image-button { --receipt-source-max-height: 58vh; aspect-ratio: 3 / 4; max-height: var(--receipt-source-max-height); }
   .receipt-original__topline { align-items: flex-start; }
   .receipt-original__actions > * { flex: 1; }
@@ -253,8 +254,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .receipt-page *,
-  .receipt-zoom * { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
+  .receipt-zoom__viewport img { transition: opacity 150ms ease-out; }
 }
 
 /* Leave room for the sticky selection bar when moving to a form control. */
@@ -264,3 +264,7 @@
 .receipt-split-controls input { width: min(240px, 30vw); accent-color: var(--receipt-action); }
 .receipt-split-controls output { color: var(--receipt-muted); }
 @media (max-width: 767px) { .receipt-split-controls { display: none; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .receipt-zoom__viewport img { transition: transform 120ms ease-out; }
+}
