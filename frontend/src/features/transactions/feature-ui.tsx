@@ -405,6 +405,17 @@ function isMoneyColumn(column: Column) {
   return /(amount|money|total|income|expense|profit|금액|합계|수입|지출|차액)/i.test(`${column.key} ${column.label}`);
 }
 
+function DataCell({ row, column }: { row: Record<string, unknown>; column: Column }) {
+  if (column.key !== "source_href") return <>{displayValue(row[column.key])}</>;
+  const value = row[column.key];
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return <>—</>;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin || !["/ota/booking", "/board"].includes(url.pathname) || url.username || url.password || url.hash) return <>—</>;
+    return <a href={`${url.pathname}${url.search}`}>{column.label}</a>;
+  } catch { return <>—</>; }
+}
+
 export function DataRows({ payload }: { payload: FeaturePayload }) {
   const columns = payload.columns ?? [];
   const rows = payload.rows ?? [];
@@ -420,7 +431,7 @@ export function DataRows({ payload }: { payload: FeaturePayload }) {
                 <tr key={String(row.id ?? row.row_id ?? row.transaction_id ?? index)}>
                   {columns.map((column) => (
                     <td key={column.key} className={isMoneyColumn(column) ? "e-feature-money" : undefined}>
-                      {displayValue(row[column.key])}
+                      <DataCell row={row} column={column} />
                     </td>
                   ))}
                 </tr>
@@ -435,7 +446,7 @@ export function DataRows({ payload }: { payload: FeaturePayload }) {
                 <div className="e-feature-mobile-line" key={column.key}>
                   <span>{column.label}</span>
                   <strong className={isMoneyColumn(column) ? "e-feature-money" : undefined}>
-                    {displayValue(row[column.key])}
+                    <DataCell row={row} column={column} />
                   </strong>
                 </div>
               ))}
