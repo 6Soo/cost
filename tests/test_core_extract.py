@@ -133,7 +133,9 @@ def test_rust_extract_rejects_outside_output_and_invalid_stages_without_creating
 @pytest.mark.costcore_bin
 def test_rust_extract_refuses_output_in_the_repo_even_with_a_synthetic_host_override(tmp_path):
     import tempfile
-    with tempfile.TemporaryDirectory(prefix='m6-output-guard-', dir=ROOT / '.local-archive') as work:
+    archive = ROOT / '.local-archive'
+    archive.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='m6-output-guard-', dir=archive) as work:
         host = Path(work)
         (host / 'data/backups').mkdir(parents=True)
         out = host / 'data/backups/never-created.json'
