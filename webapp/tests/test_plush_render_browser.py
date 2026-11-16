@@ -116,12 +116,21 @@ def render_copy_browser(render_browser):
 
 
 # 수락 #3 확인 방법: "scrollWidth > clientWidth인 셀마다 전체 값 접근 수단이 있는지 시험한다."
-# 페이지 수준 overflow가 아니라 실제 데이터 셀을 순회한다. 잘린(넘치는) 셀은 줄바꿈·펼침·title 중
-# 하나의 전체값 접근 수단이 있어야 한다. display:none 조상(폭별 데스크톱 표↔모바일 목록 전환)은
-# rect가 0이라 자동으로 건너뛴다.
+# 페이지 수준 overflow가 아니라 실제 데이터 셀을 순회한다. 넘치는 셀은 전체값 접근 수단(줄바꿈·펼침·
+# title·스크롤 공개)이 있어야 한다. **overflow-wrap 속성만으로 줄바꿈을 인정하지 않는다** —
+# white-space:nowrap이면 overflow-wrap:anywhere가 있어도 실제로 줄바꿈하지 않고, overflow:hidden이면
+# 잘린다(검수 반례). 실제 줄바꿈 가능 여부·클리핑·스크롤 공개를 따져 판정한다. display:none 조상
+# (폭별 데스크톱 표↔모바일 목록 전환)은 rect가 0이라 자동으로 건너뛴다.
 _CELL_ACCESS_JS = """() => {
   const selector = '.cost-data-table td, .cost-ledger__row-open strong, .cost-ledger__row-open span, '
     + '.cost-ledger__mobile-row > strong, .cost-ledger__mobile-bottom > span, .cost-ledger__mobile-amount';
+  const scrollReveals = (el) => {
+    for (let node = el; node; node = node.parentElement) {
+      const ox = getComputedStyle(node).overflowX;
+      if (ox === 'auto' || ox === 'scroll') return true;
+    }
+    return false;
+  };
   const violations = [];
   let checked = 0;
   for (const cell of document.querySelectorAll(selector)) {
@@ -132,11 +141,16 @@ _CELL_ACCESS_JS = """() => {
     checked += 1;
     if (cell.scrollWidth <= cell.clientWidth) continue;
     const titled = cell.getAttribute('title') || cell.querySelector('[title]');
-    const wraps = style.overflowWrap === 'anywhere' || style.overflowWrap === 'break-word'
-      || style.wordBreak === 'break-all' || style.wordBreak === 'break-word';
     const expand = cell.querySelector('details, [aria-expanded]');
-    if (!titled && !wraps && !expand) {
-      violations.push({ text: (cell.textContent || '').trim().slice(0, 40), scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth });
+    const wsAllows = style.whiteSpace === 'normal' || style.whiteSpace === 'pre-wrap'
+      || style.whiteSpace === 'pre-line' || style.whiteSpace === 'break-spaces';
+    const breaks = style.overflowWrap === 'anywhere' || style.overflowWrap === 'break-word'
+      || style.wordBreak === 'break-all' || style.wordBreak === 'break-word';
+    const clips = style.overflowX === 'hidden' || style.overflowY === 'hidden';
+    const actuallyWraps = wsAllows && breaks && !clips;
+    const scrollAccess = scrollReveals(cell);
+    if (!titled && !expand && !actuallyWraps && !scrollAccess) {
+      violations.push({ text: (cell.textContent || '').trim().slice(0, 40), scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth, whiteSpace: style.whiteSpace, overflowX: style.overflowX });
     }
   }
   return { checked, violations };
@@ -323,35 +337,60 @@ def test_trips_data_cells_offer_full_value_access(render_browser):
         page.close()
 
 
-def test_each_screen_has_unique_page_title(render_browser):
-    # 수락 #6: 화면마다 고유한 페이지 <title>. document.title이 화면 h1을 따라 서로 다른지 실측한다.
+def test_cell_access_check_rejects_clipped_nowrap_counterexample(render_browser):
+    # 검수 반례 회귀: white-space:nowrap + overflow:hidden이라 실제로 잘리는데 overflow-wrap:anywhere
+    # 속성만으로 전체값 접근을 인정하면 안 된다. 합성 잘림 셀을 주입해 검사가 위반으로 잡는지,
+    # title이 있는 잘림 셀은 전체값 접근 수단으로 인정하는지(변별력) 확인한다.
     port, trip, make_page, open_ledger = render_browser
     page = make_page(1440)
+    open_ledger(page)
+    page.wait_for_selector(".cost-ledger__summary")
+    injected = page.evaluate("""() => {
+      const makeCell = (id) => {
+        const table = document.createElement('table');
+        table.className = 'cost-data-table';
+        const tbody = document.createElement('tbody');
+        const tr = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.id = id;
+        cell.style.cssText = 'white-space:nowrap;overflow:hidden;overflow-wrap:anywhere;width:40px;max-width:40px;display:block;';
+        cell.textContent = '합성 잘림 반례 '.repeat(30);
+        tr.appendChild(cell); tbody.appendChild(tr); table.appendChild(tbody);
+        document.body.appendChild(table);
+        return { scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth };
+      };
+      const clipped = makeCell('cost-synthetic-clipped');
+      makeCell('cost-synthetic-titled');
+      document.getElementById('cost-synthetic-titled').setAttribute('title', '합성 잘림 반례 전체 값');
+      return { clipped };
+    }""")
+    assert injected["clipped"]["scrollWidth"] > injected["clipped"]["clientWidth"]
+    report = _cell_access(page)
+    flagged = [v for v in report["violations"] if "합성 잘림 반례" in v["text"]]
+    # title 없는 잘림 셀 하나만 위반이어야 한다(title 있는 잘림 셀은 접근 수단으로 인정).
+    assert len(flagged) == 1, f"잘림 반례 변별 실패(통과시키거나 title 셀까지 위반): {report}"
+    page.close()
+
+
+def test_each_screen_has_unique_page_title(render_browser):
+    # 수락 #6: 화면마다 고유한 페이지 <title>. document.title이 화면 h1을 따라 서로 다른지 실측한다.
+    # 안정적 고유 h1을 가진 주요 화면(홈·여행·장부·영수증·규칙·없는 주소)을 대조한다.
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    screens = [
+        ("home", "/ui/", "정산 현황"),
+        ("trips", "/ui/trips?state=all", "여행"),
+        ("ledger", f"/ui/board?tab={trip}", "합성 렌더 여행"),
+        ("receipts", "/ui/receipts", "영수증 작업공간"),
+        ("rules", "/ui/rules", "규칙 보조"),
+        ("missing", "/ui/no-such-route", "화면을 찾을 수 없습니다"),
+    ]
     titles = {}
-
-    page.goto(f"http://127.0.0.1:{port}/ui/")
-    page.wait_for_selector(".cost-home h1")
-    page.wait_for_function("document.title.includes('정산 현황')")
-    titles["home"] = page.title()
-
-    page.goto(f"http://127.0.0.1:{port}/ui/trips?state=all")
-    page.wait_for_selector(".cost-trips h1")
-    page.wait_for_function("document.title.includes('여행')")
-    titles["trips"] = page.title()
-
-    page.goto(f"http://127.0.0.1:{port}/ui/board?tab={trip}")
-    page.wait_for_selector(".cost-ledger__title-row h1")
-    page.wait_for_function("document.title.includes('합성 렌더 여행')")
-    titles["ledger"] = page.title()
-
-    page.goto(f"http://127.0.0.1:{port}/ui/no-such-route")
-    page.wait_for_selector(".cost-app-shell h1")
-    page.wait_for_function("document.title.includes('화면을 찾을 수 없습니다')")
-    titles["missing"] = page.title()
-
+    for name, path, heading in screens:
+        page.goto(f"http://127.0.0.1:{port}{path}")
+        page.wait_for_selector(".cost-app-shell h1")
+        page.wait_for_function(f"document.title.includes({heading!r})")
+        titles[name] = page.title()
+        assert heading in titles[name], f"{name}: 제목이 h1을 따르지 않음 {titles[name]}"
     assert len(set(titles.values())) == len(titles), f"화면별 제목이 고유하지 않음: {titles}"
-    assert "정산 현황" in titles["home"]
-    assert "여행" in titles["trips"]
-    assert "합성 렌더 여행" in titles["ledger"]
-    assert "화면을 찾을 수 없습니다" in titles["missing"]
     page.close()
