@@ -316,3 +316,38 @@ def test_candidate_and_request_reads_are_scoped_to_owner(backend):
             owner_id="different-owner", receipts_path=backend["fixture"].store)
     assert error.value.code == "REQUEST_ID_REUSED"
     assert batch["batch_id"] == saved["batch_id"]
+
+
+@pytest.mark.parametrize('code,terminal', [('PASEO_RUN_MISSING', True), ('PASEO_UNAVAILABLE', False)])
+def test_inspect_distinguishes_missing_remote_run_from_disconnected_daemon(backend, code, terminal):
+    from app.receipt_paseo import PaseoError
+    runtime = backend['runtime']
+    runtime.inspect_run = lambda handle: (_ for _ in ()).throw(PaseoError(code))
+    _batch, saved = _start_batch(backend)
+    job = saved['jobs'][0]
+    assert job['status'] == ('failed' if terminal else 'running')
+    if terminal:
+        assert job['code'] == code
+    assert len(runtime.calls) == 1
+    assert not saved['candidates']
+
+
+def test_retry_rechecks_late_remote_run_after_starting_recovery_reported_missing(backend):
+    runtime = backend['runtime']
+    original_inspect = runtime.inspect_run
+    runtime.inspect_run = lambda handle: {'status': 'running'}
+    _batch, saved = _start_batch(backend)
+    job = saved['jobs'][0]
+    store = receipt_workflow_store.ReceiptWorkflowStore(backend['workflow_path'])
+    store.read(lambda conn: conn.execute(
+        "UPDATE receipt_workflow_jobs SET status='starting',handle_json=NULL WHERE job_id=?", (job['job_id'],)))
+    handles = dict(runtime.handles)
+    runtime.handles.clear()
+    assert backend['worker'].process_once() is True
+    runtime.handles.update(handles)
+    with pytest.raises(receipt_workflow.WorkflowError) as error:
+        receipt_workflow.retry_job(backend['fixture'].server.card_store,
+            {'job_id': job['job_id'], 'request_id': 'f' * 32}, receipts_path=backend['fixture'].store)
+    assert error.value.code == 'JOB_STILL_ACTIVE'
+    assert len(runtime.calls) == 1
+    runtime.inspect_run = original_inspect

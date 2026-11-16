@@ -398,7 +398,7 @@ def retry_job(board, payload: dict, *, owner_id="owner", receipts_path=None) -> 
             raise WorkflowError("JOB_STILL_ACTIVE", 409)
         runtime = _runtime()
         if old["status"] == "failed" and old["code"] in {
-                "RUN_START_UNCERTAIN", "RUNTIME_HANDLE_INVALID"}:
+                "RUN_START_UNCERTAIN", "RUNTIME_HANDLE_INVALID", "RUN_NOT_FOUND_AFTER_RESTART"}:
             try:
                 found = runtime.find_run(old["run_key"])
             except Exception:
@@ -846,7 +846,12 @@ class ReceiptWorkflowWorker:
         try:
             handle = json.loads(task["handle_json"] or "{}")
             state = runtime.inspect_run(handle)
-        except Exception:
+        except Exception as error:
+            code = getattr(error, "code", None)
+            if code in {"PASEO_RUN_MISSING", "PASEO_HANDLE_INVALID", "PASEO_RECORD_INVALID",
+                        "PASEO_OWNERSHIP_MISMATCH"}:
+                self._fail(task, store, code)
+                return self._archive_task(runtime, store, task)
             # A disconnected daemon is not proof that a running agent failed.
             return False
         if not isinstance(state, dict) or state.get("status") not in ("running", "done", "failed"):

@@ -167,3 +167,44 @@ def test_receipt_dispatch_hands_workflow_routes_to_backend_contract(monkeypatch)
         "is_owner": True,
         "query": {"source": ["synthetic"]},
     })]
+
+
+def test_apply_keeps_clicked_revisions_and_only_accepts_own_saved_revision():
+    import json
+    import subprocess
+
+    script = receipt_workflow_ui.WORKFLOW_SCRIPT
+    apply_function = script[script.index('  async function applySelected()'):script.index('  async function digest(')]
+    harness = r'''
+const source = JSON.parse(process.argv[1]);
+async function exercise(localEdit) {
+  let candidateById = new Map([['seen', {candidate_id:'seen', revision:1, selected:true}]]);
+  const ownDraft = {baseRevision:1};
+  const drafts = new Map(localEdit ? [['seen', ownDraft]] : []);
+  let submitted;
+  const byId = () => ({}), pageStatus = () => {}, updateControls = () => {};
+  const flushAllReviews = async () => {
+    // A background poll observes another tab's revision while our click awaits saves.
+    candidateById = new Map([
+      ['seen', {candidate_id:'seen', revision:99, selected:true}],
+      ['unseen', {candidate_id:'unseen', revision:1, selected:true}],
+    ]);
+    if(localEdit) ownDraft.baseRevision = 2;
+    return true;
+  };
+  const refreshState = async () => {};
+  const applyRequestId = () => ({request_id:'a'.repeat(32),key:''});
+  const post = async (url, payload) => {submitted = payload;};
+  const errorFeedback = String;
+  const apply = eval('(' + source + ')');
+  await apply();
+  return submitted.selections;
+}
+console.log(JSON.stringify([await exercise(false), await exercise(true)]));
+'''
+    result = subprocess.run(['node', '--input-type=module', '-e', harness, json.dumps(apply_function)],
+                            capture_output=True, text=True, check=True, encoding='utf8')
+    assert json.loads(result.stdout) == [
+        [{'candidate_id': 'seen', 'expected_revision': 1}],
+        [{'candidate_id': 'seen', 'expected_revision': 2}],
+    ]

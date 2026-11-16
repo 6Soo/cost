@@ -693,6 +693,11 @@
   }
 
   async function applySelected() {
+    // Pin what the user has actually reviewed before any asynchronous save or poll.
+    const reviewed = [...candidateById.values()]
+      .filter((candidate) => (drafts.get(candidate.candidate_id)?.selected ?? candidate.selected) === true && candidate.applied !== true)
+      .map((candidate) => ({ candidate_id: candidate.candidate_id,
+        expected_revision: candidate.revision, draft: drafts.get(candidate.candidate_id) }));
     byId('rw-apply').disabled = true;
     pageStatus('수정 내용을 저장하고 선택 항목을 검증하고 있습니다.');
     if (!await flushAllReviews()) {
@@ -700,11 +705,9 @@
       updateControls();
       return;
     }
-    await refreshState({ quiet: true });
-    candidatesInData();
-    const selections = [...candidateById.values()]
-      .filter((candidate) => candidate.selected === true && candidate.applied !== true)
-      .map((candidate) => ({ candidate_id: candidate.candidate_id, expected_revision: candidate.revision }));
+    // Only our own successful review saves can advance a pinned revision.
+    const selections = reviewed.map((candidate) => ({ candidate_id: candidate.candidate_id,
+      expected_revision: candidate.draft?.baseRevision ?? candidate.expected_revision }));
     if (!selections.length) {
       pageStatus('장부에 반영할 선택 항목이 없습니다.');
       updateControls();
