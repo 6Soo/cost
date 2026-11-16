@@ -66,6 +66,20 @@ def test_bootstrap_and_ledger_are_structured_and_use_string_amounts(bound_store)
     assert "operator_note" not in json.dumps(ledger, ensure_ascii=False)
 
 
+def test_unknown_trip_and_row_answer_404(bound_store):
+    """수락 #10: 없는 여행 id·행은 200 빈 장부가 아니라 404 RESOURCE_NOT_FOUND여야 한다."""
+    store, _ = bound_store
+    status, body = call("/api/plush/ledger?tab=trip-does-not-exist", "syn-owner", store)
+    assert status == 404
+    assert body["code"] == "RESOURCE_NOT_FOUND"
+    assert body["message"] == "없는 여행이에요"
+
+    status, body = call("/api/plush/row?id=row-does-not-exist", "syn-owner", store)
+    assert status == 404
+    assert body["code"] == "RESOURCE_NOT_FOUND"
+    assert body["message"] == "없는 행이에요"
+
+
 def test_row_detail_has_owner_actions_but_no_legacy_html_href(bound_store):
     store, _ = bound_store
     status, detail = call("/api/plush/row?id=expense-demo-c1", "syn-owner", store)

@@ -111,6 +111,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   const quarterTab = tab.startsWith('quarter:');
   const [data, setData] = useState<LedgerPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadNotFound, setLoadNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [draftQuery, setDraftQuery] = useState(q);
@@ -145,10 +146,12 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
+    setLoadNotFound(false);
     getJSON<LedgerPayload>(requestUrl, controller.signal)
       .then((payload) => setData(payload))
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
+        setLoadNotFound(reason instanceof ApiError && reason.status === 404);
         setLoadError(safeMessage(reason, '장부를 불러오지 못했습니다. 연결 상태를 확인해 주세요.'));
       })
       .finally(() => {
@@ -224,7 +227,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         client_request_id: requestId(),
       }, bootstrap.csrf);
       const jobId = response.job_id || response.id;
-      if (!jobId) throw new Error('출력 작업 ID를 확인하지 못했습니다. 장부를 다시 조회해 주세요.');
+      if (!jobId) throw new Error('내보내기 작업 ID를 확인하지 못했습니다. 장부를 다시 조회해 주세요.');
       let job = response;
       if (response.status !== 'ready') {
         job = await getJSON<ExportJob>(`/api/exports/${encodeURIComponent(jobId)}`);
@@ -233,7 +236,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         setExportHref(`/api/exports/${encodeURIComponent(jobId)}/download`);
         setExportNotice({ tone: 'success', text: '현재 필터와 관계없이 이 여행 전체를 기준으로 XLSX를 만들었습니다.' });
       } else {
-        setExportNotice({ tone: 'warning', text: job.message || '출력 작업이 접수됐지만 다운로드 준비 상태를 확인하지 못했습니다. 다시 조회해 주세요.' });
+        setExportNotice({ tone: 'warning', text: job.message || '내보내기 작업이 접수됐지만 다운로드 준비 상태를 확인하지 못했습니다. 다시 조회해 주세요.' });
       }
     } catch (reason: unknown) {
       setExportNotice({ tone: 'error', text: safeMessage(reason, 'XLSX를 만들지 못했습니다.') });
@@ -248,7 +251,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         <div className="cost-ledger__breadcrumbs"><a href="/trips">여행</a><span aria-hidden="true">/</span><span>장부</span></div>
         <div className="cost-ledger__title-row">
           <div>
-            <h1>{currentTrip ? tripLabel(currentTrip) : '여행 장부'}</h1>
+            <h1>{loadNotFound ? '여행을 찾을 수 없음' : currentTrip ? tripLabel(currentTrip) : '여행 장부'}</h1>
             {currentTrip && <p>{humanDate(currentTrip.starts_on)}–{humanDate(currentTrip.ends_on)}</p>}
           </div>
           <div className="cost-ledger__trip-select">
