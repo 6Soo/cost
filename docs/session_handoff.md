@@ -5,6 +5,14 @@
 - **검증/커밋:** `50823317` 구현, `fa2c2962` 영향 매핑, `8888230d` Rust 포맷 보완. 최종 공식 영향 Python1015+2subtests/Rust191·fmt/clippy/release build, 프런트78·타입·빌드 통과(skip0/known0). 독립 gpt-6.1-sol medium이 정확 배포 SHA를 APPROVE했다. CI 두 job은 해당 SHA의 결제 한도로 시작 전 차단됨을 annotation으로 확인했다. 기존 기준선 비교2건은 main과 동일 실패로 구분했으며 테스트를 완화하지 않았다.
 - **데이터/완료:** 금융 apply·스키마 변경·Google 쓰기 없음. 읽기 전용 대사 database_changes=0. 코드 배포 시 card-flow.json 해시와 기존 바이너리 경로를 보존한 뒤 Rust 감독 `4dedee2e`에게 배포 소유권을 넘겼다. 감독이 같은 SHA의 `costcore-8888230d.exe`로 전환했고 Board/Worker 모두 rust writer/rust links·health/ready200을 재확인했다. 새 planner의 전환 후 대조는 원문7336건·Python/Rust대상4/4·목록밖차이0·PASS다. 연결 첫 창도 OTA7965/7965·환불486/486·목록밖차이0·PASS를 확인했고 감독이 소유권을 해제했다. 이번 회계 코드 운영 활성화와 검증은 완료다. 이후 배포는 두 Rust flags와 새 바이너리 경로를 보존한다. PR978에 코드·배포 결과를 함께 기록하며 문서 때문에 재배포하지 않는다. [검증 기록](agents/artifacts/accounting-release-20261117.md).
 
+## 2026-11-17 00:26 — Rust 2차 연결 운영 전환·첫 창 대조 완료
+
+- **요청/결과:** “전환 수행해”, “모두 진행해”의 남은 2차 전환 COMPLETE. 운영 코드 `8888230deb1a5bd09d826da7e66034e2091ba0a1`에서 Board·Worker 모두 `classification_writer=rust`, `links_producer=rust`를 적용했다. 회계 대사 수정까지 포함한 같은 SHA에서 빌드한 `D:/WebLedgerHost/bin/costcore/costcore-8888230d.exe`를 사용한다(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`). 코드 공식 배포는 회계 감독이 수행했고, 이 세션은 게이트 검증과 스위치 전환을 맡았다.
+- **실제 검증:** 전환 전 최종 C1 판정·연결 PASS, C2 185사례에서 Python plan+Rust 연결 및 Rust plan+Rust 연결 모두 Python 기준과 차이 0. C3 4DB 신선 백업·복원과 Python→Rust→Python 왕복의 연결 해시 동일 PASS. 전환 후 새 사본의 첫 창도 분류 7,336행·OTA 7,965/7,965·환불 연결 486/486, 두 그림자 exit0/PASS·목록 밖 차이 0. 두 역할 적용 기록·살아 있는 PID·릴리스 확인, health/ready 200·보호 API 401.
+- **과거 차이/복구:** 과거 OTA 1,648건은 `individual_payment_evidence=false`가 빠진 수정 전 바이너리의 측정분이었다. `e2a43e10`의 원본 필드 덮어쓰기 보존이 이미 반영돼 새 패치는 하지 않았다. ExaOne low 작업자 조사·합성 검사를 재사용했다. 첫 관리 재시작은 종료 중 CIM 명령행이 null인 경합으로 실패해 원설정·Python 연결로 복구했고, 종료 확인 보완 후 같은 게이트로 재시도해 성공했다.
+- **근거/경계:** `D:/WebLedgerHost/data/backups/links-rust-20261116/`의 `final-links.out.json`, `final-classification.out.json`, `final-fa2/c2-final.json`, `final-fa2/c3-final.json`, `switch-evidence.json`, `switch-first-failed.json`, `first-window/evidence.json`. `final-fa2/`는 보관 폴더명이며 그 안의 C2·C3 최종 결과는 내부 release_sha가 `8888230d`다. 백업 근거는 `c3-links-rust-20261116.json`. 추가 운영 스크립트는 독립 gpt-6.1-sol medium APPROVE. 고객 원문은 보호 호스트 경로에만 보관했고 config 변경은 `costcore_bin`·`links_producer` 두 키뿐이다. 금융 apply·Google 장부 직접 쓰기는 실행하지 않았다. 이번 승인 범위의 남은 전환·검사·차단은 없으며 배포 소유권을 해제했다.
+
+
 ## 2026-11-16 — Rust 미결 구현·합성 검사 완료
 
 - **요청/범위:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. SPEC M3 / `design/m3-core.md` U12~14를 기준으로 완료된 과제를 재구현하지 않았다. 별도 `integration/rust-exaone-20261116`에서 최신 main `ee118935`를 보존했고 원래 root 사용자 변경·UI 라우팅·운영 서비스는 수정하지 않았다.

@@ -1,5 +1,13 @@
 # 운영 기록
 
+## 2026-11-17 00:26 — Rust 2차 연결 전환 및 최종 바이너리 활성화
+
+- **실행:** 회계 감독의 공식 코드 배포 `8888230deb1a5bd09d826da7e66034e2091ba0a1` 완료·소유권 해제 후, 같은 릴리스에서 costcore release 빌드. `costcore_bin`을 `D:/WebLedgerHost/bin/costcore/costcore-8888230d.exe`(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`)로 고정하고 `links_producer=rust` 적용. 기존 `classification_writer=rust` 유지. 공식 배포와 같은 배타 잠금 아래 사전 `--check` 통과 후 Board·Worker 관리 재시작, 두 역할 release888·Rust/Rust 적용 및 `--verify-applied --require-worker` 확인. 운영 backend8752/gateway8790, health/ready200·비인증 보호API401.
+- **게이트:** 전환 전 최종 C1 판정·환불·OTA PASS/목록 밖0. C2 185사례에서 Python plan+Rust 연결 및 Rust plan+Rust 연결 모두 Python 기준과 차이0. C3 `c3-links-rust-20261116.json`은 board/core/OTA evidence/review 4DB 백업·복원·live/out-of-scope unchanged PASS. 사본의 Python→Rust→Python 왕복도 환불·OTA 해시가 모두 같았다. 추가 harness/전환 스크립트는 독립 gpt-6.1-sol medium 검수 APPROVE.
+- **첫 창:** 전환 후 신선4DB 사본·OTA 입력 포착 뒤 분류 `shadow` 7,336행 PASS/unlisted0, `shadow-links` OTA7965/7965·환불486/486·private_details0·types[]·unlisted0, 두 명령 exit0. 회계 planner Rust 변경도 새 바이너리로 활성화됐다.
+- **실패/복구:** 첫 재시작은 종료 중 CIM 프로세스의 null 명령행 조회로 실패했다. 원설정 복귀·Board/Worker Python 연결 적용·health/ready200을 확인했고, null 프로세스 종료 대기를 보완해 재시도 성공했다. 첫 실패를 성공으로 집계하지 않았다. 과거 OTA1648건은 `e2a43e10` 수정 전 측정분으로 확인돼 새 소스 패치·추가 PR은 만들지 않았다.
+- **근거/보존:** `D:/WebLedgerHost/data/backups/links-rust-20261116/`의 `final-classification.out.json`, `final-links.out.json`, `final-fa2/c2-final.json`, `final-fa2/c3-final.json`, `switch-evidence.json`, `switch-first-failed.json`, `first-window/evidence.json` 및 상세 파일. `final-fa2/`는 보관 폴더명이고 최종 검사 내부 release_sha는888이다. 추가 검수·실행 스크립트는 `.local-archive/rust-links-cutover-20261116/`에 보존. 카드 원문·금액·부호·ID·수동 교정 보호 유지, 금융 apply·Google 장부 직접 쓰기 없음. 운영 소유권 해제. 이후 PreviousSha는 다른 배포가 없으면 `8888230deb1a5bd09d826da7e66034e2091ba0a1`이며 두 Rust 스위치·바이너리 경로를 보존한다.
+
 ## 2026-11-17 00:14 — 회계 대사 보강 코드 운영 배포 완료
 
 - **상태/실제 SHA:** 회계 대사·완료기간 예약 복구·메일 수집·Google 수입 검증 보강을 `8888230deb1a5bd09d826da7e66034e2091ba0a1`로 공식 배포했다. PreviousSha는 직전 실제 `41d8e8efde542b9611a1f8a83eea3861bcfaaa4e`, backend8752·gateway8790. `tools/deploy_verified_release.ps1 -Apply` exit0, 기록 시각 `2026-11-16T15:13:59Z`.

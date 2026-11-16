@@ -5,7 +5,7 @@
 - 주기: 전환 1회. 전환 뒤 배포 창(하루 1~2회)마다 대조.
 - 개정 이력: 2026-11-14 · 1차 부분 신설(U11) · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U11. 2026-11-14 · 2차(연결) 부분 신설(그림자 `costcore shadow-links`와 절차, 쓰기 전환 코드는 아직 없음).
 
-- 상태(2026-11-16): 11/15 첫 시도는 Python으로 되돌렸고, 전환 차단 수정 배포 후 운영 사본 C1·C2 재측정을 통과했다. 현재 Python 작성자를 유지하며 재전환 승인 ①을 기다린다. 신선 백업·사본 예행·승인 ②·실제 전환은 아직이다. 최신 수치와 실행 경계는 [현재 상태](../session_handoff.md), 과거 실행 근거는 [운영 기록](../operations.md)을 따른다.
+- 상태(2026-11-17): 사용자 전환 승인에 따라 1차 분류 작성자와 2차 연결 생산자의 운영 전환·첫 창 대조를 완료했다. 운영8888230d에서 두 스위치 모두 Rust이며 같은 SHA의 고정 바이너리를 사용한다. C1·C2·C3 및 전환 후 신선 사본 대조가 통과했다. 최신 수치와 실행 경계는 [현재 상태](../session_handoff.md), 실제 실행·복구 근거는 [운영 기록](../operations.md)을 따른다.
 
 읽기 전용 사전검사는 `python tools/core_cutover_preflight.py --host-root H --db COPY --ota-input FILE --costcore-bin EXE --expected-binary-sha256 HASH --repo-root R`로 실행한다. 보호 경로의 명시 사본·입력·바이너리·설정을 묶어 실제 그림자 결과를 검증하며, `READY`는 운영 승인·C2·백업/복원 확인이나 전환 완료를 대체하지 않는다. Python 다리 자식은 부모의 생산자 설정과 관계없이 Python 기준선을 사용한다.
 
@@ -115,7 +115,7 @@
 - 목적: 환불 짝 도출(`app.partial_refund`)과 OTA↔카드 연결 풀이(`app.ota_payments.match_ota_payment_events`)의 계산 주체를 Python에서 Rust(`cost-core::links`)로 바꾼다. 같은 결과를 두 곳에서 만들지 않는다.
 - 실행 주체: 운영 담당 세션(한 세션). 소유자 승인 지점은 아래 표시. 전환 1회, 이후 배포 창마다 대조.
 - 개정 이력: 2026-11-14 · 2차 부분 신설 · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U12~U14. 2026-11-14 · 환불 짝 쓰기 전환 코드와 스위치 이름 확정.
-- 상태: **환불 짝 스위치 코드가 있다(기본 Python, opus 검수 대상). OTA 연결 스위치 부분도 구현돼 있다 — `app/core_ota_links.py`·`app/core_links.py`의 단일 `WEBLEDGER_LINKS_PRODUCER` 스위치(기본 Python, `rust`만 Rust, 미설정·그 밖의 값은 Python)와 `costcore links ota`·`costcore shadow-links --ota-input`, 입력 포착 `tools/core_bridge/ota_input.py`. `ledger.py` 묶음 판정도 단일 스위치에 연결됐다. Rust 모드에서 `links refund-entries`·`links refund-check`를 소비하고 기존 Python 트랜잭션이 기록하며, 묶음의 마지막 권한 검사 실패는 전체 롤백한다.** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
+- 상태(2026-11-17): **환불 짝·OTA 연결 스위치와 `ledger.py` 묶음 판정 배선 구현·검수·운영 전환 완료.** 사용자 승인 후 1차 전환을 마치고 C1/C2/C3를 통과해 운영 `links_producer=rust`를 적용했다. 전환 후 첫 창도 OTA7965/7965·환불486/486·목록 밖0/PASS다. 구체적인 릴리스·바이너리·실패 복구·보호 근거는 [운영 기록](../operations.md) 상단을 따른다. 아래 절차는 향후 전환·되돌림 때의 보호 기준으로 유지한다.
 
 ## 전환이 바꾸는 것과 바꾸지 않는 것
 
