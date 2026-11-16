@@ -1,10 +1,13 @@
-## 2026-11-16 — Rust 미결 구현: ExaOne 3명 병렬 진행
+## 2026-11-16 — Rust 미결 구현 통합·최종 검증 중
 
-- **현재 요청:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. 실행 기준은 SPEC M3와 `design/m3-core.md` U12~14이며, 완료된 U1~11과 후속 M5 큐/P2 재작성은 새 과제로 실행하지 않는다.
-- **기준/통합:** main `dd1d005d`, 통합 `integration/rust-exaone-20261116`. 기존 깨끗한 Rust/OTA worktree를 fast-forward해 재사용하고 환불 게시 worktree 하나를 추가했다. 원래 root 사용자 변경과 Plush 소유 파일은 보존한다.
-- **실행 중:** `opencode/exaone/k-exaone_v2.5`, build/high 3명. OTA 계산 `c6e4ab68-3165-460e-a9b8-8f9a25c3b054`(Rust OTA 모듈), 환불 묶음 게시 `eabc5c03-3d11-4f0e-8228-f5e264be5e70`(refund 모듈/CLI·Python ledger), 전환 사전검사 `ed9455b5-a12d-45f7-96c1-ccf383896535`(core_bridge·offline preflight). 소유 파일을 분리했고 재귀 위임·고객 원문/운영 폴더 접근을 금지했다.
-- **확인된 상태:** OTA Rust 어댑터/스위치는 실제 코드에 이미 있다. 과거 절차서의 ‘아직 없음’은 재구현 근거가 아니다. 기존 OTA 실자료 차이 1,648건은 미해소 상태이며, 합성 차이 수정만으로 실자료 해소를 주장하지 않는다.
-- **남은 일:** 작업자 실제 diff·표적 검사 확인 → 통합 → 영향 검사 및 정확 SHA 독립 검수. 현재 구현 완료/검사 통과를 주장하지 않는다. 운영 Rust 전환·배포는 하지 않았고 기존 승인①/②와 실자료 비교 게이트를 유지한다.
+- **요청/범위:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. SPEC M3 / `design/m3-core.md` U12~14를 기준으로 완료된 과제를 재구현하지 않았다. 별도 `integration/rust-exaone-20261116`에서 최신 main `ee118935`를 보존했고 원래 root 사용자 변경·UI 라우팅·운영 서비스는 수정하지 않았다.
+- **위임:** `opencode/exaone/k-exaone_v2.5` 3명, build/medium(high 조사 반복 후 조정), 합성 자료만 사용. 사전검사와 기준선 결함 수정은 작업자 완료물을 통합했다. 환불 작업자는 초안을 작성했으나 컴파일/검증이 지연되어 쓰기 소유권을 회수하고 감독이 완성했다. 중복 위임·유료 모델 전환은 없었다.
+- **환불 배선:** 감독 Python `a55de0c6` + Rust CLI `056253df`. 실제 `apply_pairs`·`check_groups`·`scope_group`·비공개 `issue_group`을 소비한다. 금액/ID/원문은 응답 수정 대상이 아니며, 기존 Python 트랜잭션에서 묶음의 최종 권한 상실은 전부 롤백한다. 실바이너리 기존 골든53+게시/멱등/권한상실3 = **56 passed**, CLI4/core1 passed. Python 환불·기존 검사25 passed.
+- **사전검사:** ExaOne `31feca83` → 통합 `a360f055`, 감독 경계 보완 `c391d415`. 표적25 passed/skip0. 실제 합성 fixture의 WAL 거부를 확인하고 원본 보존 후 별도 DELETE-mode 사본에서 최종 바이너리 READY(환불1=1·OTA1=1, 입력/설정 불변)를 확인했다. 운영 승인·실자료 비교·백업/복원 증거를 대신하지 않는다.
+- **Python 기준선:** ExaOne `60492d7d` → `437125da`. Rust 부모 설정 상속으로 Python 기준까지 Rust를 호출하던 결함을 child 환경 고정으로 수정했다. 감독 실제 회귀1 passed, 작업자 shadow CLI8/fmt/clippy 통과. 부모 환경은 바꾸지 않는다.
+- **OTA:** 기존 `e2a43e10`·`f5c91d95`가 과거 1,648건 측정 뒤 main에 반영된 사실을 확인했다. 감독 Rust 골든7 passed, 작업자 합성 differential9/9. 새 OTA 계산 코드 변경 없이 검증했으며 **실자료 1,648건의 최신 재측정은 미완**이다.
+- **최종 검사 중 발견/보완:** 공식 영향 검사에서 기존 `manual_rows`의 row_id-only 구형 스키마 계약 2실패가 나왔다. origin/main과 성능 이전 코드에도 동일한 문제가 있어 성능 회귀가 아님을 확인했다. 담당과 소유권을 조정해 `8fbf60f0`로 원행 ID만 읽도록 보완했고, 새 red→기존 포함8 passed. 기존 테스트를 완화하지 않았다. 공식 최종 재검사와 정확 SHA 독립 sol medium 검수는 아직 진행 중이다.
+- **운영/남은 일:** Rust 전환·배포 없음. 다른 세션이 UI 기존 URL 연결/배포를 맡으며 현재 전달받은 운영 SHA는 `a7fc0a1c0496b74c4f3bd954af3c8faffc00849f`. 최종 영향 검사·독립 검수·PR 통합 후 완료를 기록한다. C1/C2/승인①②·운영 전환은 별도 미완이다. graphify update는 CLI 미설치로 실행 불가했다.
 
 # 현재 상태
 

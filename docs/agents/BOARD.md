@@ -6,9 +6,10 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
-| RUST-OTA | RUNNING | ExaOne 2.5 high, `c6e4ab68`: U13/U14 합성 의미 차이 재현·Rust OTA 수정. 실자료 차이 해소는 별도 검증 |
-| RUST-REFUND | RUNNING | ExaOne 2.5 high, `eabc5c03`: U12/U14 환불 묶음 판정·게시 경로 연결, 원본·수동 교정 보호 |
-| RUST-PREFLIGHT | RUNNING | ExaOne 2.5 high, `ed9455b5`: offline 전환 게이트·core_bridge 안전성, 오래된 절차 설명 정정 |
+| RUST-OTA | VERIFIED (합성) | ExaOne 2.5 medium: 기존 e2a43e10/f5c91d95 확인, 새 red 없음·변경0. 감독 재실행 Rust 회귀7 통과. 실제 사본 재측정 미완 |
+| RUST-REFUND | VERIFIED (합성, 최종검사 중) | ExaOne 초안 후 감독 완성056253df, Python a55de0c6. 실제 바이너리56/CLI4/core1·Python25 통과, 최종영향/독립검수 대기 |
+| RUST-PREFLIGHT | VERIFIED (합성) | ExaOne 31feca83 → 통합 a360f055, 감독 보완 c391d415. 표적25 passed/skip0, 실제 CLI READY(환불1=1·OTA1=1); 원래 fixture WAL은 BLOCKED로 거부 |
+| RUST-BRIDGE | VERIFIED (합성) | ExaOne60492d7d → 통합437125da. child 환경만 Python으로 고정. 작업자shadow CLI8/fmt/clippy 통과, 감독 환경회귀1통과/skip0 |
 | RUST-INTEGRATION | RUNNING | 감독 별도 worktree, 실제 diff·표적 검사·영향 검사·최종 SHA 독립 검수 대기. 운영 전환 없음 |
 | PLUSH UI-0~6 | COMPLETE (운영 배포) | eacc3bc7/8752 공식배포 exit0,1858파일 blob불일치0·보호14표불변·health/ready200. 독립 sol medium 정확SHA APPROVE. 운영4화면 오류/넘침0·자산3해시일치. 프런트72·최종영향45/skip0. 결과문서는 동일PR971 검수/통합. [검증 현황](artifacts/plush-ui-validation-20261116.md) |
 | RCP-A: Paseo runtime | COMPLETE (Terra high 운영 기본값·실제 합성 판독 검증) | 1f436426 배포. 운영 catalog Codex/Terra/high/selectable=true. 합성 사진 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 일반 Codex/기존 Claude 이력 보존 |
