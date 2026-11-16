@@ -32,6 +32,9 @@ impl PythonBridge {
             .arg("-I")
             .arg(&script)
             .arg(command)
+            // 기준선은 이 프로세스의 생산자 선택과 무관하게 항상 Python이다. 부모 환경은 건드리지 않는다.
+            .env("WEBLEDGER_LINKS_PRODUCER", "python")
+            .env("WEBLEDGER_CLASSIFICATION_WRITER", "python")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

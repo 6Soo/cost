@@ -135,6 +135,65 @@ fn ota_links_from_a_solver_input_file_match_the_python_bridge() {
     let _ = std::fs::remove_dir_all(&host);
 }
 
+// 회귀: 부모 환경이 링크 생산자를 `rust`로 지정해도 다리 기준선(Python 쪽)은 Python이어야 한다.
+// 자식 `costcore`가 `WEBLEDGER_LINKS_PRODUCER=rust`를 상속하면 Python 다리 자신이 `costcore links
+// refund`를 호출해 Rust-대-Rust 비교가 되거나, `WEBLEDGER_COSTCORE_BIN`이 없거나 잘못되면 기준선이
+// 아예 성립하지 않는다(조용한 폴백 없음). 기준선은 프로세스 경계에서 고정한다: bridge 자식 Command에만
+// `python`을 명시하고 부모 환경은 건드리지 않는다.
+#[test]
+fn reference_side_stays_python_even_if_parent_env_selects_rust() {
+    let host = scratch("refs-env");
+    let refund_cases = golden("refund_pairing.jsonl");
+    let with_links = refund_cases
+        .iter()
+        .find(|c| {
+            c["expected"]["links"]
+                .as_object()
+                .is_some_and(|l| !l.is_empty())
+        })
+        .expect("a refund pairing case with verified links");
+    let scenarios: Vec<&Value> = vec![&with_links["input"]["scenario"]];
+    let dbs = build_dbs(&host, &scenarios, false);
+    let (db, _) = &dbs[0];
+
+    let ota_cases = golden("ota_links.jsonl");
+    let ota_case = ota_cases.first().expect("ota golden");
+    let input = host.join("ota-input.json");
+    std::fs::write(&input, ota_case["input"].to_string()).unwrap();
+
+    // 존재하지 않는 합성 경로: 스위치 상속이 실제로 강철화됐다면 기준선 호출이 여기서 실패한다.
+    let missing_bin = host.join("missing-costcore-does-not-exist");
+
+    let known = host.join("known.txt");
+    std::fs::write(&known, "classify-176  # synthetic placeholder\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
+        .arg("shadow-links")
+        .args(["--db", db.to_str().unwrap()])
+        .args(["--ota-input", input.to_str().unwrap()])
+        .args(["--host-root", host.to_str().unwrap()])
+        .args(["--known-diffs", known.to_str().unwrap()])
+        .args(["--repo-root", repo_root().to_str().unwrap()])
+        .args(["--python", &python()])
+        .env("WEBLEDGER_LINKS_PRODUCER", "rust")
+        .env("WEBLEDGER_CLASSIFICATION_WRITER", "rust")
+        .env("WEBLEDGER_COSTCORE_BIN", &missing_bin)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: Value =
+        serde_json::from_str(text.lines().next().unwrap_or("")).unwrap_or(Value::Null);
+    assert_eq!(value["status"], "PASS", "{value}");
+    assert!(value["refund"]["python"].as_u64().unwrap() > 0, "{value}");
+    assert_eq!(
+        value["refund"]["python"], value["refund"]["rust"],
+        "{value}"
+    );
+    assert!(value["ota"]["python"].as_u64().unwrap() > 0, "{value}");
+    assert_eq!(value["ota"]["python"], value["ota"]["rust"], "{value}");
+    let _ = std::fs::remove_dir_all(&host);
+}
+
 #[test]
 fn without_any_input_the_command_ends_with_a_usage_code() {
     let host = scratch("usage");
