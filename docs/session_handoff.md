@@ -1,3 +1,11 @@
+## 2026-11-16 — Rust 미결 구현: ExaOne 3명 병렬 진행
+
+- **현재 요청:** “rust관령 미결작업 exaone 다수에게 위임하여 구현”. 실행 기준은 SPEC M3와 `design/m3-core.md` U12~14이며, 완료된 U1~11과 후속 M5 큐/P2 재작성은 새 과제로 실행하지 않는다.
+- **기준/통합:** main `dd1d005d`, 통합 `integration/rust-exaone-20261116`. 기존 깨끗한 Rust/OTA worktree를 fast-forward해 재사용하고 환불 게시 worktree 하나를 추가했다. 원래 root 사용자 변경과 Plush 소유 파일은 보존한다.
+- **실행 중:** `opencode/exaone/k-exaone_v2.5`, build/high 3명. OTA 계산 `c6e4ab68-3165-460e-a9b8-8f9a25c3b054`(Rust OTA 모듈), 환불 묶음 게시 `eabc5c03-3d11-4f0e-8228-f5e264be5e70`(refund 모듈/CLI·Python ledger), 전환 사전검사 `ed9455b5-a12d-45f7-96c1-ccf383896535`(core_bridge·offline preflight). 소유 파일을 분리했고 재귀 위임·고객 원문/운영 폴더 접근을 금지했다.
+- **확인된 상태:** OTA Rust 어댑터/스위치는 실제 코드에 이미 있다. 과거 절차서의 ‘아직 없음’은 재구현 근거가 아니다. 기존 OTA 실자료 차이 1,648건은 미해소 상태이며, 합성 차이 수정만으로 실자료 해소를 주장하지 않는다.
+- **남은 일:** 작업자 실제 diff·표적 검사 확인 → 통합 → 영향 검사 및 정확 SHA 독립 검수. 현재 구현 완료/검사 통과를 주장하지 않는다. 운영 Rust 전환·배포는 하지 않았고 기존 승인①/②와 실자료 비교 게이트를 유지한다.
+
 # 현재 상태
 
 ## 2026-11-16 21:05 — 영수증 기본 Terra high·선택 모델 동적 표시 운영 완료
