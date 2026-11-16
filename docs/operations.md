@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-17 — M3 추출기 기준 출력 생산 (읽기 전용, 운영 배포 없음)
+
+- **실행:** M3 마지막 산출물(설계 §3.4 facts 기준 출력)을 origin/main `750e4a65aea5f5603fc04199046d5e64e8a7e45c`(PR980) detached worktree `C:/AX/cost-m3-baseline`에서 `python -I tools/core_bridge/cli.py extract-baseline`으로 생산했다. `ok=true`·python_sha `750e4a65…`·input_digest `1e9613ebe30aacde13a647de81d9f662d03939d2909764f9621b273f45539f7b`·**events 7,965건**·**baseline sha256 `a26d446510faabe4cbdfd5d8cf114b0903e6b87b8453fdb3380d529e605cbaf6`**. events.json 28,637,104B·stderr 0B. 디스크 해시==보고 해시·건수 7,965 일치 독립 검증.
+- **보호/원본 불변:** 고객 기준 출력은 `D:/WebLedgerHost/data/backups/extractor-baseline-main-20261117/events.json` 보호 경로에만. 입력은 라이브 아닌 완전 스냅샷 사본(1,761,828,864B)이며 `is_live=false`로 라이브 무접근. 라이브 `D:/WebLedgerHost/data/ota-evidence.sqlite`는 같은 크기·2026-11-15 23:20 불변 → 스냅샷==보존 원본. 운영 DB·금융·Google 장부 쓰기 없음, 운영 포트(8751/8752/8790) 접근 없음. 이전 시도 `extractor-baseline-20261117/`는 response 0B(중단)로 성공 생산은 main 디렉터리뿐.
+- **canonical/검사:** `app/ota_payments.py` root·main·worktree 바이트 동일, 의존 16모듈은 PR980 변경 9파일 밖. 표적 `tests/test_core_bridge_extract_baseline.py` 8 passed. 도구 4파일+기록을 main 기반 브랜치 커밋(병합·배포는 별도 게이트, 읽기 전용 생산이라 운영 반영 불필요).
+- **근거/인수:** [생산 기록](agents/artifacts/m3-extractor-baseline-20261117.md), 보호 디렉터리 `request.json`·`response.json`·`events.json`·`stderr.log`. 이 고정값이 M6 Rust 추출기 병합 수락 기준표. 매일 Python 대조는 M6까지 회귀 안전망(주기 축소 소유자 결정 전 유지). 고객 원문은 Git·보고서에 넣지 않았다.
+
 ## 2026-11-17 02:31 — 몽골 항공료 실제 기장·수입 표시 완료
 
 - **배포:** 공식 도구 exit0, actual9af204148b1b6450f7bb9c6ec1185c5f2f3aa852, Previous8888230deb1a5bd09d826da7e66034e2091ba0a1, backend8751/gateway8790. 1883파일 blob불일치0·코드배포 보호14표 불변·health/ready200·보호API401. Board/Worker Rust/rust·기존costcore-8888230d.exe·card-flow.json 해시 보존. 배포 도구의 financial_apply=NOT_RUN은 코드 배포 단계만 가리킨다.
