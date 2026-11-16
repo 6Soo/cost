@@ -17,7 +17,8 @@ export default defineConfig({
     strictPort: true,
   },
   test: {
-    environment: "jsdom",
+    environment: "node",
+    setupFiles: ["./tests/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
     restoreMocks: true,
     clearMocks: true,

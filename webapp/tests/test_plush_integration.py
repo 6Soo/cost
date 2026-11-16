@@ -7,7 +7,7 @@ import urllib.request
 import pytest
 
 from webapp import access_control, ledger_board
-from webapp.tests.test_plush_ui import http_ui  # noqa: F401 - shared real HTTP fixture
+from webapp.tests.test_plush_ui import dist, http_ui  # noqa: F401 - shared real HTTP fixtures
 
 
 @pytest.fixture
@@ -20,6 +20,18 @@ def plush_api(http_ui):
             starts_on="2026-11-10", ends_on="2026-11-20",
             destination=f"합성 API 여행 {index}",
             client_request_id=f"plush-api-trip-{index}")["tab_id"])
+    # Assignments grant access only after the real application approval creates
+    # an active connection. Keep the production authorization path intact.
+    access.register_reservation_person(
+        reservation_person_id="plush-synthetic-person", display_name="합성 담당자")
+    application = access.create_application(
+        user_id="synthetic-ui-viewer", requested_name="합성 담당자",
+        client_request_id="plush-synthetic-application")
+    access.approve_application(
+        application_id=application["application_id"], owner_id="synthetic-ui-owner",
+        expected_revision=application["revision"],
+        reservation_person_id="plush-synthetic-person",
+        client_request_id="plush-synthetic-approval")
     access.apply_assignment_snapshot(
         user_id="synthetic-ui-viewer",
         items=[{"tab_id": trips[0], "snapshot_revision": 1, "state": "active"}],

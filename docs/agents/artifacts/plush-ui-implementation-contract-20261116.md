@@ -40,6 +40,7 @@ D는 `frontend/src/api/types.ts`/`client.ts`를 구현하고 초기 인터페이
 - `ActionDescriptor`: `{id,label,method:'GET'|'POST',href,fields?:FieldDescriptor[],disabled?:boolean,reason?:string}`. `FieldDescriptor`: `{name,label,type:'text'|'number'|'date'|'select'|'checkbox'|'file'|'hidden',value?,options?:{value,label}[],required?,read_only?}`. href는 동일 origin의 허용 기존 경로만; 임의 사용자가 입력한 URL로 요청 금지. 실행 payload/업로드 방식은 기존 handler 계약을 유지한다. destructive 동작을 새로운 범용 프록시에 통과시키지 않는다.
 - 기존 복사·XLSX·교정·수기·계정·연결 API를 재사용한다. 새 쓰기가 필요하면 감독이 계약·기존 보호를 확인한 뒤 담당 소유권을 정한다. 백엔드와 UI 모두 단순 링크를 완성된 편집 기능으로 주장하지 않는다.
 - `client.ts`: `getJSON<T>(path:string, signal?:AbortSignal):Promise<T>`, `postJSON<T>(path:string,payload:unknown,csrf:string):Promise<T>`, `ApiError`의 `code`, `status`, `message`. 민감 응답은 캐시하지 않고 오류 시 원문을 로그에 찍지 않는다.
+- 실제 계정 JSON POST인 `/access/applications`, `/access/decision`, `/access/logout` 세 경로는 D가 기존 `_phase7_write` 처리임을 확인했다. 이 세 경로만 exact allowlist로 기존 인증·CSRF·응답을 재사용한다. `/api/` prefix 제한을 이유로 계정 기능을 누락하거나 새 범용 프록시를 만들지 않으며 다른 `/access/*`는 허용하지 않는다.
 
 ## 4. 영수증
 
