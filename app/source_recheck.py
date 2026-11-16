@@ -89,6 +89,8 @@ def load(conn, trips, directory):
             paid = mail_facts.get('payment_confirmation', [])
             cancelled = mail_facts.get('cancellation_confirmation', [])
             if (len(paid) != 1 or len(cancelled) != 1
+                    or not paid[0].get('provider')
+                    or paid[0].get('provider') != cancelled[0].get('provider')
                     or paid[0].get('booking_ref') != review['booking_ref']
                     or cancelled[0].get('booking_ref') != review['booking_ref']
                     or paid[0].get('reservation_status') not in ('confirmed', 'completed')

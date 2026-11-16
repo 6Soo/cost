@@ -129,7 +129,7 @@ def test_cancelled_booking_identity_must_match(setup,tmp_path):
     with pytest.raises(ValueError,match='CANCELLATION_INVALID'):source_recheck.load(c,TRIPS,directory)
 
 
-@pytest.mark.parametrize('wrong',['opaque_bytes','policy_only','different_booking','different_amount','different_date'])
+@pytest.mark.parametrize('wrong',['opaque_bytes','policy_only','different_booking','different_amount','different_date','different_provider'])
 def test_role_and_hash_alone_cannot_assert_cancellation(setup,tmp_path,wrong):
     c,_,directory,doc,_,_=reviewed(setup,tmp_path,kind='cancelled_booking_payment')
     review=doc['reviews'][0]
@@ -141,6 +141,9 @@ def test_role_and_hash_alone_cannot_assert_cancellation(setup,tmp_path,wrong):
         mail=json.loads(data)
         if wrong=='policy_only':mail['payload']['headers'][1]['value']='예약 취소 정책 안내'
         if wrong=='different_booking':mail['payload']['body']['content']=mail['payload']['body']['content'].replace('1234567890','9999999999')
+        if wrong=='different_provider':
+            mail['payload']['headers'][0]['value']='noreply@klook.com'
+            mail['payload']['headers'][3]['value']='mx.google.com; dkim=pass header.i=@klook.com'
         if wrong=='different_amount':mail['payload']['body']['content']=hotel(ref='1234567890')
         if wrong=='different_date':mail=message(mail['payload']['body']['content'],sent='2026-01-01')
         data=json.dumps(mail).encode()
@@ -149,13 +152,14 @@ def test_role_and_hash_alone_cannot_assert_cancellation(setup,tmp_path,wrong):
     with pytest.raises(ValueError,match='CANCELLATION_INVALID'):source_recheck.load(c,TRIPS,directory)
 
 
-def test_offline_cli_checks_the_explicit_backend_while_gateway_is_paused(setup,tmp_path,monkeypatch):
+@pytest.mark.parametrize('port,expected_gate',[(8752,True),(9999,False)])
+def test_offline_cli_checks_the_explicit_backend_while_gateway_is_paused(setup,tmp_path,monkeypatch,capsys,port,expected_gate):
     import sqlite3
     from tools import apply_ai_quarter_review as cli
     c,_,_,_,_,manifest=reviewed(setup,tmp_path)
     host=tmp_path/'host';(host/'data').mkdir(parents=True);(host/'config').mkdir()
     with sqlite3.connect(host/'data/board.sqlite') as copy:c.backup(copy)
-    (host/'config/ledger-route.json').write_text(json.dumps(dict(port=8752,paused=True,generation='synthetic')),encoding='utf-8')
+    (host/'config/ledger-route.json').write_text(json.dumps(dict(port=port,paused=True,generation='synthetic')),encoding='utf-8')
     path=tmp_path/'corrections.json';path.write_text(json.dumps(manifest),encoding='utf-8')
     observed={}
     def writer_gate(*args,**kwargs):
@@ -164,4 +168,8 @@ def test_offline_cli_checks_the_explicit_backend_while_gateway_is_paused(setup,t
     monkeypatch.setattr(cli,'require_offline_backup',writer_gate)
     assert cli.main(['--host-root',str(host),'--manifest',str(path),'--request-id','synthetic',
         '--apply','--expected-digest','synthetic','--backup-evidence',str(tmp_path/'backup.json')])==1
-    assert observed['board_port']==8752 and observed['isolated_copy'] is False
+    if expected_gate:
+        assert observed['board_port']==8752 and observed['isolated_copy'] is False
+    else:
+        assert observed=={}
+        assert 'ROUTE_PORT_INVALID' in capsys.readouterr().out

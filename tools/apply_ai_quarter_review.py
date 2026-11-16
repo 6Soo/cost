@@ -64,6 +64,8 @@ def main(argv=None):
             if not args.isolated_copy and route_path.exists():
                 from tools.ledger_gateway import read_route
                 board_port = read_route(route_path)['port']
+                if type(board_port) is not int or board_port not in (8751, 8752):
+                    raise ValueError('ROUTE_PORT_INVALID')
             require_offline_backup(host, args.backup_evidence, db,
                                    isolated_copy=args.isolated_copy, board_port=board_port)
         trips = None
