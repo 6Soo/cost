@@ -117,14 +117,18 @@ import path from 'node:path';
 const launch=await import(new URL('./receipt_codex_launch.mjs',process.argv[1]));
 const {configure,configured}=await import(new URL('./receipt_codex_provider.mjs',process.argv[1]));
 process.env.LOCALAPPDATA=process.argv[2];process.env.WEBLEDGER_CODEX_EXE=process.execPath;
-const original={enabled:true,models:[{id:'original-model'}]};
+const original={enabled:true,models:[{id:'original-model'}],env:{OPENAI_BASE_URL:'https://synthetic-invalid.invalid',OPENAI_API_KEY:'synthetic-api-key'}};
 const config={providers:{codex:original}};let patches=0;
 const api={config:{get:async()=>({config}),patch:async patch=>{patches++;Object.assign(config.providers,patch.providers)}}};
 await configure(api);await configure(api);
 const ready=await configured(api);
+const effectiveEnv={...original.env,...config.providers['cost-receipt-codex'].env};
+config.providers['cost-receipt-codex'].env.OPENAI_BASE_URL='https://synthetic-invalid.invalid';
+const changedEndpointAccepted=await configured(api);
+config.providers['cost-receipt-codex'].env.OPENAI_BASE_URL='';
 config.providers['cost-receipt-codex'].command=['unowned-command'];let conflict;
 try{await configure(api)}catch(e){conflict=e.message}
-console.log(JSON.stringify({original,normal:config.providers.codex,patches,ready,conflict,args:launch.codexArgs(['app-server'])}));
+console.log(JSON.stringify({original,normal:config.providers.codex,patches,ready,effectiveEnv,changedEndpointAccepted,conflict,args:launch.codexArgs(['app-server'])}));
 '''
     result = subprocess.run(
         ['node', '--input-type=module', '-e', harness, receipt_paseo.BRIDGE.as_uri(), str(tmp_path)],
@@ -134,6 +138,9 @@ console.log(JSON.stringify({original,normal:config.providers.codex,patches,ready
     assert value['normal'] == value['original']
     assert value['patches'] == 1
     assert value['ready'] is True
+    assert value['effectiveEnv']['OPENAI_BASE_URL'] == ''
+    assert value['effectiveEnv']['OPENAI_API_KEY'] == ''
+    assert value['changedEndpointAccepted'] is False
     assert value['conflict'] == 'RECEIPT_CODEX_CONFIG_CONFLICT'
     assert set(frontier_agent_provider.config_args()[1::2]) <= set(value['args'])
     assert 'forced_login_method="chatgpt"' in value['args']
