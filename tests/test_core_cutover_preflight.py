@@ -283,3 +283,40 @@ def test_main_prints_aggregate_json_only(tmp_path, capsys):
     assert out.count('\n') == 1 and out.strip().startswith('{')
     payload = json.loads(out)
     assert payload['status'] == 'BLOCKED' and payload['code'] == 'BINARY_VERSION_FAILED'
+
+
+def test_removed_repo_evidence_during_run_is_a_json_block(tmp_path):
+    fake = FakeRunner(shadow=(0, shadow_json(), ''))
+    def runner(argv):
+        if argv[1] == 'shadow-links':
+            (tmp_path / 'repo/config/refund-pairing.json').unlink()
+        return fake(argv)
+    result, _ = run(tmp_path, runner)
+    assert result['status'] == 'BLOCKED' and result['code'] == 'REPO_FILE_CHANGED'
+
+
+def test_unlisted_scope_never_leaks_untrusted_source_text(tmp_path):
+    secret = 'synthetic_private_booking_ref'
+    result, _ = run(tmp_path, FakeRunner(shadow=(0, shadow_json(unlisted=[f'B-C|ota_link|{secret}|differs']), '')))
+    assert result['status'] == 'BLOCKED'
+    assert secret not in json.dumps(result)
+
+
+def test_costcore_name_without_semver_is_not_version_evidence(tmp_path):
+    result, _ = run(tmp_path, FakeRunner(version=(0, 'costcore not-a-version', ''),
+                                        shadow=(0, shadow_json(), '')))
+    assert result['status'] == 'BLOCKED' and result['code'] == 'BINARY_VERSION_INVALID'
+
+
+@pytest.mark.parametrize('stage', ['version', 'shadow'])
+def test_undecodable_subprocess_output_is_a_sanitized_block(tmp_path, stage):
+    def decode_error(_):
+        raise UnicodeDecodeError('utf-8', b'\xffsynthetic-private', 0, 1, 'invalid')
+    fake = FakeRunner(shadow=(0, shadow_json(), ''))
+    def runner(argv):
+        if (argv[1] == '--version') == (stage == 'version'):
+            return decode_error(argv)
+        return fake(argv)
+    result, _ = run(tmp_path, runner)
+    assert result['status'] == 'BLOCKED'
+    assert 'synthetic-private' not in json.dumps(result)

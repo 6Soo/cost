@@ -20,7 +20,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 _HEX = re.compile(r'^[0-9a-fA-F]{64}$')
-_VERSION = re.compile(r'^costcore \S+$')
+_VERSION = re.compile(r'costcore [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?')
 _LIVE_FILES = ('board.sqlite', 'ota-evidence.sqlite', 'ota-review/ota-review.sqlite')
 _KNOWN_UNLISTED = re.compile(r'^B-C\|[A-Za-z_][A-Za-z0-9_]*\|[^|\s]+\|(added|removed|differs)$')
 _SIDECARS = ('-wal', '-shm', '-journal')
@@ -169,7 +169,7 @@ def check(host_root, db, ota_input, costcore_bin, expected_binary_sha256, repo_r
     run = runner if runner is not None else _real_runner()
     try:
         code, out, _ = run([str(bin_path), '--version'])
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return _blocked('BINARY_VERSION_FAILED')
     version_ok = code == 0 and _VERSION.fullmatch((out or '').strip()) is not None
     if not version_ok:
@@ -183,7 +183,7 @@ def check(host_root, db, ota_input, costcore_bin, expected_binary_sha256, repo_r
             '--ota-input', str(ota_path), '--repo-root', str(repo)]
     try:
         code, out, _ = run(argv)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return _blocked('SHADOW_RUN_FAILED')
     try:
         if _sha256(bin_path) != binary_hash:
@@ -201,6 +201,8 @@ def check(host_root, db, ota_input, costcore_bin, expected_binary_sha256, repo_r
     for sidecar in _sidecar_paths(db_path):
         if os.path.exists(sidecar):
             return _blocked('DB_SIDECAR_PRESENT', changed=['db' + sidecar[-4:]])
+    if missing:
+        return _blocked('REPO_FILE_CHANGED', changed=[missing])
     if repo_after != repo_hashes:
         key = next((rel for rel in _REPO_FILES if repo_after.get(rel) != repo_hashes.get(rel)), None)
         return _blocked('REPO_FILE_CHANGED', changed=[key] if key else [])
@@ -235,7 +237,7 @@ def _shadow_result(code, out, db_hash, ota_hash, binary_hash, repo_hashes) -> di
     if bad:
         return _blocked('SHADOW_RESULT_INVALID', inputs={'db_sha256': db_hash, 'ota_input_sha256': ota_hash})
     if unlisted:
-        return _blocked('SHADOW_UNLISTED', unlisted=unlisted, unlisted_count=len(unlisted),
+        return _blocked('SHADOW_UNLISTED', unlisted_count=len(unlisted),
                         inputs={'db_sha256': db_hash, 'ota_input_sha256': ota_hash})
     shadow = {'exit': code, 'status': 'PASS'}
     for key in ('refund', 'ota'):
