@@ -7,10 +7,16 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote
 
 
 DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+PRIMARY_ROUTES = frozenset({
+    "/", "/trips", "/board", "/cards/all", "/ota", "/flight-passengers",
+    "/receipts", "/access", "/access/admin", "/access/admin/profile",
+    "/google-ledger", "/review", "/participants", "/participants/insurance-match",
+    "/reserve-links", "/export", "/expense", "/expense/new", "/income", "/income/new", "/rules",
+})
 _ASSET_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -27,6 +33,30 @@ _ASSET_TYPES = {
 
 def owns_route(path: str) -> bool:
     return path == "/ui" or path.startswith("/ui/")
+
+
+def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> bool:
+    """Serve browser pages at their established URLs, preserving non-page clients.
+
+    Old form/detail links explicitly request legacy=1; their original handlers
+    still enforce the same login, role and financial protections.
+    """
+    if parsed.path not in PRIMARY_ROUTES:
+        return False
+    if "text/html" not in handler.headers.get("Accept", "").lower():
+        return False
+    query = parse_qs(parsed.query)
+    if query.get("legacy") == ["1"]:
+        return False
+    # Existing participant-name/alias/trip correction links must keep their
+    # full form. The new participant linking tab uses view=links explicitly.
+    if parsed.path == "/participants" and "trip" in query and "view" not in query:
+        return False
+    # Unauthenticated development-mode fixtures keep their original renderer.
+    # Production sessions and their refusal handling use the same gate as /ui/.
+    if not board.ACCESS_ENFORCEMENT:
+        return False
+    return dispatch(handler, parsed._replace(path="/ui/"), board=board, dist=dist)
 
 
 def dispatch(handler, parsed, *, board, dist: Path | None = None) -> bool:

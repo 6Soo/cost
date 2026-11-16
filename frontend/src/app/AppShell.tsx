@@ -14,15 +14,15 @@ export type AppShellProps = {
 type ThemeMode = "light" | "dark";
 
 const ownerNavigation = [
-  { label: "홈", href: "/ui/", match: ["/"] },
-  { label: "여행", href: "/ui/trips", match: ["/trips", "/board", "/participants", "/reserve-links", "/export", "/expense", "/income"] },
-  { label: "거래", href: "/ui/cards/all", match: ["/cards", "/ota", "/flight-passengers"] },
-  { label: "영수증", href: "/ui/receipts", match: ["/receipts"] },
+  { label: "홈", href: "/", match: ["/"] },
+  { label: "여행", href: "/trips", match: ["/trips", "/board", "/participants", "/reserve-links", "/export", "/expense", "/income"] },
+  { label: "거래", href: "/cards/all", match: ["/cards", "/ota", "/flight-passengers"] },
+  { label: "영수증", href: "/receipts", match: ["/receipts"] },
 ];
 const ownerManagement = [
-  { label: "계정·권한", href: "/ui/access/admin", match: ["/access"] },
-  { label: "Google 장부", href: "/ui/google-ledger", match: ["/google-ledger"] },
-  { label: "검수 결과", href: "/ui/review", match: ["/review"] },
+  { label: "계정·권한", href: "/access/admin", match: ["/access"] },
+  { label: "Google 장부", href: "/google-ledger", match: ["/google-ledger"] },
+  { label: "검수 결과", href: "/review", match: ["/review"] },
 ];
 
 function normalizedPath(path: string): string {
@@ -76,7 +76,7 @@ function TripLinks({ trips, onTripSelect, currentPath, className }: {
   return (
     <ul className={cn("cost-trip-links", className)}>
       {trips.slice(0, 8).map((trip) => {
-        const href = trip.href ?? `/ui/board?tab=${encodeURIComponent(trip.id)}`;
+        const href = trip.href ?? `/board?tab=${encodeURIComponent(trip.id)}`;
         const selected = currentPath.includes(encodeURIComponent(trip.id));
         return (
           <li key={trip.id}>
@@ -123,7 +123,7 @@ function NavigationLinks({ items, path, className }: {
 export function AppShell({ role, trips, path, children, onTripSelect, className }: AppShellProps) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const currentPath = normalizedPath(path);
-  const mainItems = role === "owner" ? ownerNavigation : [{ label: "여행", href: "/ui/trips", match: ["/trips", "/board"] }];
+  const mainItems = role === "owner" ? ownerNavigation : [{ label: "여행", href: "/trips", match: ["/trips", "/board"] }];
   const managementItems = role === "owner" ? ownerManagement : [];
 
   useLayoutEffect(() => {
@@ -143,7 +143,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
       <a className="cost-skip-link" href="#cost-main">본문으로 건너뛰기</a>
       <div className="cost-workspace">
         <aside className="cost-sidebar" aria-label="기본 탐색">
-          <a className="cost-brand" href="/ui/" aria-label="COST 홈">
+          <a className="cost-brand" href="/" aria-label="COST 홈">
             <span className="cost-brand-mark" aria-hidden="true">C</span>
             <span className="cost-brand-name">COST</span>
           </a>
@@ -197,7 +197,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
           <div className="cost-main" id="cost-main" tabIndex={-1}>{children}</div>
 
           <nav className="cost-bottom-nav" aria-label="주요 탐색" style={{ "--cost-nav-count": role === "owner" ? 5 : 1 } as CSSProperties}>
-            {(role === "owner" ? ownerNavigation : [{ label: "여행", href: "/ui/trips", match: ["/trips", "/board"] }]).map((item) => (
+            {(role === "owner" ? ownerNavigation : [{ label: "여행", href: "/trips", match: ["/trips", "/board"] }]).map((item) => (
               <a key={item.href} className="cost-bottom-link" href={item.href} aria-current={isActive(currentPath, item.match) ? "page" : undefined}>
                 <span className="cost-nav-mark" aria-hidden="true" />
                 <span>{item.label}</span>

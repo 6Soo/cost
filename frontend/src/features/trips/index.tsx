@@ -45,7 +45,7 @@ function compareIntegerStrings(left: string, right: string): number {
 }
 
 function ledgerHref(id: string): string {
-  return `/ui/board?${new URLSearchParams({ tab: id }).toString()}`;
+  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
 }
 
 export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {

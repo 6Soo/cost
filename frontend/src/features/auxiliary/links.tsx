@@ -133,7 +133,7 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
   const navItems = navWithTrip(nav, tripId);
   const legacyWorkflowHref = tripId
     ? `/participants?${new URLSearchParams({ trip: tripId }).toString()}`
-    : "/participants";
+    : "/participants?legacy=1";
 
   async function write(path: string, payload: Record<string, unknown>, success: string) {
     if (busy) return;

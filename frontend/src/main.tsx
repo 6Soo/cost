@@ -23,7 +23,7 @@ function pageFor(path: string, bootstrap: Bootstrap, search: URLSearchParams) {
     case "receipts": return <ReceiptsPage {...props} />;
     case "admin": return <AdminPage {...props} />;
     case "auxiliary": return <AuxiliaryPage {...props} />;
-    default: return <main className="cost-panel"><h1>화면을 찾을 수 없습니다</h1><p><a href="/ui/trips">여행 목록으로 이동</a></p></main>;
+    default: return <main className="cost-panel"><h1>화면을 찾을 수 없습니다</h1><p><a href="/trips">여행 목록으로 이동</a></p></main>;
   }
 }
 
