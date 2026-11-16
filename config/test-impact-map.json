@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "reviewed-booking-completion-and-google-income",
+      "paths": ["app/reviewed_booking_evidence.py", "webapp/card_classification_completion.py", "webapp/card_completion_worker.py", "webapp/card_flow.py", "webapp/plush*.py", "webapp/tests/test_reviewed_booking_completion.py", "webapp/tests/test_plush_google_income.py"],
+      "tests": ["webapp/tests/test_reviewed_booking_completion.py", "webapp/tests/test_unposted_booking_recovery.py", "webapp/tests/test_auto_record_completed_period.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_trip_google_income.py"]
+    },
+    {
       "name": "accounting-consistency-audit",
       "paths": ["app/accounting_audit.py", "tools/audit_accounting_consistency.py", "tests/test_accounting_audit.py", "tests/card_pipeline/test_google_income_components.py", "tests/card_pipeline/test_mail_evidence_coverage.py", "webapp/tests/test_unposted_booking_recovery.py"],
       "tests": ["tests/test_accounting_audit.py", "tests/card_pipeline/test_google_income_components.py", "tests/card_pipeline/test_mail_evidence_coverage.py", "webapp/tests/test_unposted_booking_recovery.py"]

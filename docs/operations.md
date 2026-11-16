@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-17 02:31 — 몽골 항공료 실제 기장·수입 표시 완료
+
+- **배포:** 공식 도구 exit0, actual9af204148b1b6450f7bb9c6ec1185c5f2f3aa852, Previous8888230deb1a5bd09d826da7e66034e2091ba0a1, backend8751/gateway8790. 1883파일 blob불일치0·코드배포 보호14표 불변·health/ready200·보호API401. Board/Worker Rust/rust·기존costcore-8888230d.exe·card-flow.json 해시 보존. 배포 도구의 financial_apply=NOT_RUN은 코드 배포 단계만 가리킨다.
+- **안전 게이트:** 신선4DB 백업/복원 exit0·원본/범위 밖 불변·복원 binding 동일. 첫 설치가 프로세스 임대 기록 변경(rule_process_leases2351→2354)을 감지해 원문/큐 설치 전에 중단됐다. 게이트를 완화하지 않고 postdeploy board/core 백업/복원을 새로 통과했다. 범위 밖 OTA/원본 폴더 불변. 독립 승인된 설치 스크립트를 배타 lock 아래 실행해 보호 원문과 정확8건의 기존 queue_batch만 등록했다. 직접 금융 SQL 없음.
+- **금융/화면:** 기존 worker가 전체 근거 대조 후 항공료8건6500202원을 표준 기장(recorded8/failures0/pending0). ledger/board 각각 정확1회·귀속/이용기간/원문 해시 일치. 유효 몽골 보드14건6767151원. 원본·수동·대상 밖 금융/core 결정·나머지 보호표 불변. 같은8건 큐 재처리 후 모든 보호 금융표와 core 전체 상태 동일. 실제 인증 브라우저 지출14건/항공료8건과 수입14행17337200원·미확인1·잠정 안내 확인. 수입390/1440px 가로넘침0. 차액10570049원은 잠정이며 Google 최종 장부 쓰기0.
+- **검사/근거:** 정확코드9af 공식1101+30subtests/skip0·frontend79/type/build PASS, gpt-6.1-sol medium 독립 APPROVE. CI 결제 한도 차단은 실제 annotation 확인. 보호 호스트 data/backups/reviewed-mongolia-20261117/의 백업·기장·재처리·실제 화면 증거와 releases/deploy-evidence-9af204148b1b6450f7bb9c6ec1185c5f2f3aa852.json에 저장했다. 고객 원문/화면은 Git에 넣지 않았다. [상세 기록](agents/artifacts/reviewed-booking-income-20261117.md), PR980. 문서 후속 때문에 재배포하지 않는다.
+
 ## 2026-11-17 00:26 — Rust 2차 연결 전환 및 최종 바이너리 활성화
 
 - **실행:** 회계 감독의 공식 코드 배포 `8888230deb1a5bd09d826da7e66034e2091ba0a1` 완료·소유권 해제 후, 같은 릴리스에서 costcore release 빌드. `costcore_bin`을 `D:/WebLedgerHost/bin/costcore/costcore-8888230d.exe`(SHA-256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4`)로 고정하고 `links_producer=rust` 적용. 기존 `classification_writer=rust` 유지. 공식 배포와 같은 배타 잠금 아래 사전 `--check` 통과 후 Board·Worker 관리 재시작, 두 역할 release888·Rust/Rust 적용 및 `--verify-applied --require-worker` 확인. 운영 backend8752/gateway8790, health/ready200·비인증 보호API401.

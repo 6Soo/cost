@@ -89,6 +89,8 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any
         "read_only": bool(read_only),
     }
     source_amount = row.get("foreign_amount", row.get("amount"))
+    if row.get('google_income') and row.get('amount_missing'):
+        result['amount'] = '미확인'
     source_currency = (row.get("foreign_currency") or row.get("source_currency")
                        or row.get("currency"))
     if source_amount is not None and source_currency:
