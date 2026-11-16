@@ -1038,6 +1038,12 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       {zoomOpen && activeSha && <dialog ref={zoomDialog} className="receipt-zoom" aria-labelledby="receipt-zoom-title" aria-describedby="receipt-zoom-description"
         onClose={onZoomClose} onClick={(event) => { if (event.target === event.currentTarget) closeZoom(); }}
         onKeyDown={(event) => {
+          if (event.key === 'Tab') {
+            const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not([disabled])')];
+            const first = buttons[0], last = buttons.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }
           if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoom((value) => Math.min(3, value + 0.25)); }
           else if (event.key === '-') { event.preventDefault(); setZoom((value) => Math.max(1, value - 0.25)); }
         }}>
