@@ -70,6 +70,8 @@ pub enum Write {
     LedgerFill,
     /// 예약 이용기간 교정: 장부 행 귀속을 덮어쓴다. `WHERE transaction_id=?`
     LedgerCorrect,
+    /// Google 수기 귀속 교정: 파생 분기 항목도 같은 투영에 반영한다.
+    LedgerGoogleCorrect,
     /// 화면 행 payload·귀속 동기화. `WHERE row_id=?`
     Board,
 }
@@ -110,6 +112,10 @@ impl Write {
                     set_clause(&cols)
                 )
             }
+            Self::LedgerGoogleCorrect => format!(
+                "UPDATE ledger_entries SET {} WHERE transaction_id=?",
+                set_clause(LEDGER_ENTRIES_WRITE)
+            ),
             Self::Board => {
                 let set: Vec<String> = BOARD_ROWS_WRITE.iter().map(|c| bump_or_set(c)).collect();
                 format!("UPDATE board_rows SET {} WHERE row_id=?", set.join(","))
