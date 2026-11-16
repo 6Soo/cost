@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PageProps } from "../transactions/feature-ui";
 import { AuxiliaryPage } from "./index";
@@ -225,5 +225,114 @@ describe("auxiliary link screens", () => {
       apply_digest: "apply-digest-synthetic-2",
     });
     expect(applyRequests[0].init?.headers).toMatchObject({ "X-CSRF-Token": "csrf-synthetic" });
+  });
+
+  it("keeps the saved reservation assignment visible and blocks apply while a different draft is unsaved", async () => {
+    const sourceEventKey = "reservation:event:already-linked";
+    const applyRequests: RequestInit[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/reserve-link/plan") {
+        return jsonResponse({
+          configured: true,
+          readable: true,
+          binding: { source_revision: 7, source_digest: "source-digest-current" },
+          link_revision: 8,
+          apply_digest: "apply-digest-current",
+          applicable: true,
+          counts: { source_identifiers: 1, resolved_transactions: 1, unlinked_identifiers: 0, persons: 1 },
+          persons: [{ reservation_person_id: "person-syn", display_name: "예약자 합성", assignments: [sourceEventKey] }],
+          per_identifier: { [sourceEventKey]: ["trip-target-a"] },
+          choices: [
+            { tab_id: "trip-target-a", label: "알파 여행", destination: "합성 목적지 A" },
+            { tab_id: "trip-target-b", label: "베타 여행", destination: "합성 목적지 B" },
+          ],
+        });
+      }
+      if (url.pathname === "/api/reserve-link/apply") {
+        applyRequests.push(init || {});
+        return jsonResponse({ outcome: "applied", counts: { linked: 1, disconnected: 0, unchanged: 0 } });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("reserve-links");
+
+    const targets = await screen.findByRole("listbox", { name: `대상 선택 · ${sourceEventKey}` }) as HTMLSelectElement;
+    const alpha = screen.getByRole("option", { name: "알파 여행" }) as HTMLOptionElement;
+    const beta = screen.getByRole("option", { name: "베타 여행" }) as HTMLOptionElement;
+    alpha.selected = false;
+    beta.selected = true;
+    fireEvent.change(targets);
+
+    expect(screen.getByRole("button", { name: "현재 연결 반영" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("저장되지 않은 연결 변경이 있습니다. 현재 연결 반영 전에 연결을 먼저 저장해 주세요.")).toBeTruthy();
+
+    const row = within(screen.getByRole("table", { name: "예약 식별자 연결" })).getAllByRole("row")[1];
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[1].textContent).toContain("알파 여행");
+    expect(cells[1].textContent).not.toContain("베타 여행");
+    expect(targets.value).toBe("trip-target-b");
+
+    fireEvent.click(screen.getByRole("button", { name: "현재 연결 반영" }));
+    expect(applyRequests).toHaveLength(0);
+  });
+
+  it("counts unique linked income refs from participant links when server summary counts are absent", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        return jsonResponse({
+          trip_id: "trip-a",
+          configured: true,
+          input_fingerprint: "participant-fingerprint-synthetic",
+          participants: [
+            {
+              participant_id: "participant-syn-1", display_name: "가람 합성", active: true,
+              participant_state: "confirmed", state: "manual",
+              links: [{ income_ref: "income-ref-shared", row: { ref: "income-ref-shared", row: 4, name: "공동 합성", amount: 15000 } }],
+            },
+            {
+              participant_id: "participant-syn-2", display_name: "나래 합성", active: true,
+              participant_state: "confirmed", state: "manual",
+              links: [
+                { income_ref: "income-ref-shared", row: { ref: "income-ref-shared", row: 4, name: "공동 합성", amount: 15000 } },
+                { income_ref: "income-ref-second", row: { ref: "income-ref-second", row: 5, name: "나래 합성", amount: 9000 } },
+              ],
+            },
+          ],
+          income_rows: [],
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+
+    const summaryHeading = await screen.findByRole("heading", { name: "현재 대조 상태" });
+    const summary = summaryHeading.closest("section");
+    expect(summary).toBeTruthy();
+    expect(within(summary as HTMLElement).getByText("2건")).toBeTruthy();
+  });
+
+  it("links to the existing participant correction and income review workflow for the selected trip", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") return jsonResponse({
+        trip_id: "trip-a", configured: true, input_fingerprint: "participant-fp-synthetic",
+        counts: { participants: 0, unlinked_income_rows: 0 }, participants: [], income_rows: [],
+      });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+
+    const legacyWorkflow = await screen.findByRole("link", {
+      name: "참가자 이름·별칭·여행 교정 및 미연결 수입 검토 (기존 화면)",
+    });
+    expect(legacyWorkflow.getAttribute("href")).toBe("/participants?trip=trip-a");
   });
 });

@@ -125,9 +125,15 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
   const state = resource.kind === "ready" ? resource.value : {};
   const participants = records(state.participants);
   const incomeRows = records(state.income_rows);
+  const linkedIncomeRefCount = new Set(participants.flatMap((participant) =>
+    records(participant.links).map((link) => text(link.income_ref)).filter(Boolean),
+  )).size;
   const fingerprint = text(state.input_fingerprint);
   const configured = state.configured === true;
   const navItems = navWithTrip(nav, tripId);
+  const legacyWorkflowHref = tripId
+    ? `/participants?${new URLSearchParams({ trip: tripId }).toString()}`
+    : "/participants";
 
   async function write(path: string, payload: Record<string, unknown>, success: string) {
     if (busy) return;
@@ -189,7 +195,7 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
             <h2>현재 대조 상태</h2>
             <dl className="e-feature-record-list">
               <div className="e-feature-record-line"><dt>참가자</dt><dd>{text(record(state.counts).participants) || participants.length}명</dd></div>
-              <div className="e-feature-record-line"><dt>연결된 수입 행</dt><dd>{text(record(state.counts).linked_income_rows) || "0"}건</dd></div>
+              <div className="e-feature-record-line"><dt>연결된 수입 행</dt><dd>{linkedIncomeRefCount}건</dd></div>
               <div className="e-feature-record-line"><dt>미연결 수입 행</dt><dd>{text(record(state.counts).unlinked_income_rows) || "0"}건</dd></div>
             </dl>
             {!configured ? <p className="e-feature-hint">참가 명단 저장소가 준비되지 않아 연결을 저장할 수 없습니다.</p> : null}
@@ -198,6 +204,9 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
           <section className="cost-panel">
             <h2>참가자별 수입 연결</h2>
             <p className="e-feature-hint">연결 선택지는 현재 여행의 서버 조회 결과에서 가져옵니다. 참가자를 새로 만들지 않습니다.</p>
+            <p className="e-feature-hint">
+              <a href={legacyWorkflowHref}>참가자 이름·별칭·여행 교정 및 미연결 수입 검토 (기존 화면)</a>
+            </p>
             {participants.length ? (
               <div className="e-feature-table-wrap" role="region" aria-label="참가자별 수입 연결 표" tabIndex={0}>
                 <table className="e-feature-table" aria-label="참가자별 수입 연결">
@@ -343,7 +352,8 @@ function ReserveLinksPage({ bootstrap, nav }: Omit<LinksPageProps, "view" | "sea
   const binding = record(plan.binding);
   const linkRevision = typeof plan.link_revision === "number" && Number.isInteger(plan.link_revision) ? plan.link_revision : null;
   const canEdit = plan.configured === true && plan.readable === true && Object.keys(binding).length > 0 && linkRevision !== null;
-  const canApply = canEdit && plan.applicable === true && !!text(plan.apply_digest);
+  const hasPendingChanges = links.length > 0 || unlinks.length > 0;
+  const canApply = canEdit && plan.applicable === true && !!text(plan.apply_digest) && !hasPendingChanges;
 
   async function saveLinks() {
     if (busy || !canEdit || (!links.length && !unlinks.length) || linkRevision === null) return;
@@ -444,21 +454,22 @@ function ReserveLinksPage({ bootstrap, nav }: Omit<LinksPageProps, "view" | "sea
                 <table className="e-feature-table" aria-label="예약 식별자 연결">
                   <thead><tr><th scope="col">예약자·예약 정보</th><th scope="col">현재 연결</th><th scope="col">연결할 COST 여행</th></tr></thead>
                   <tbody>{sourceCodes.map((code) => {
-                    const selected = draft[code] ?? strings(perIdentifier[code]);
+                    const currentTargets = strings(perIdentifier[code]);
+                    const selectedTargets = draft[code] ?? currentTargets;
                     const displayedNames = sourceNames[code] || [];
                     const knownTargets = choices.map((choice) => text(choice.tab_id)).filter(Boolean);
-                    const missingTargets = selected.filter((target) => !knownTargets.includes(target));
+                    const missingTargets = selectedTargets.filter((target) => !knownTargets.includes(target));
                     return (
                       <tr key={code}>
                         <td><strong>{displayedNames.join(", ") || "예약자 정보 없음"}</strong><br /><small>{code}</small></td>
-                        <td>{selected.length ? selected.map((target) => {
+                        <td>{currentTargets.length ? currentTargets.map((target) => {
                           const choice = choices.find((item) => text(item.tab_id) === target);
                           return <span className="e-feature-status" key={target}>{text(choice?.label) || target}</span>;
                         }) : <span>아직 연결되지 않음</span>}</td>
                         <td>
                           <label className="e-feature-field"><span>여행 선택</span>
                             <select multiple size={Math.min(4, Math.max(2, choices.length + missingTargets.length))}
-                              aria-label={`대상 선택 · ${code}`} value={selected}
+                              aria-label={`대상 선택 · ${code}`} value={selectedTargets}
                               disabled={busy || !canEdit || !choices.length}
                               onChange={(event) => {
                                 const selectedTargets = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
@@ -472,7 +483,7 @@ function ReserveLinksPage({ bootstrap, nav }: Omit<LinksPageProps, "view" | "sea
                               {missingTargets.map((target) => <option key={target} value={target}>{target} · 현재 연결</option>)}
                             </select>
                           </label>
-                          {selected.length ? <button type="button" className="cost-button cost-button-quiet" disabled={busy || !canEdit}
+                          {selectedTargets.length ? <button type="button" className="cost-button cost-button-quiet" disabled={busy || !canEdit}
                             aria-label={`이 예약 연결 해제 · ${displayedNames.join(", ") || code}`}
                             onClick={() => setDraft((current) => ({ ...current, [code]: [] }))}>이 예약 연결 해제</button> : null}
                         </td>
@@ -490,6 +501,7 @@ function ReserveLinksPage({ bootstrap, nav }: Omit<LinksPageProps, "view" | "sea
                 현재 연결 반영
               </button>
             </div>
+            {hasPendingChanges ? <p className="e-feature-hint" role="status">저장되지 않은 연결 변경이 있습니다. 현재 연결 반영 전에 연결을 먼저 저장해 주세요.</p> : null}
           </section>
 
           {applyResult ? (
