@@ -19,4 +19,3 @@ describe("transaction source query contracts", () => {
     expect(new URL(urls[2], "http://localhost").searchParams.get("q")).toBe("new");
   });
 });
-

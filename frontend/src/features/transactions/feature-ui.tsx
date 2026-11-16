@@ -411,8 +411,8 @@ function DataCell({ row, column }: { row: Record<string, unknown>; column: Colum
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return <>—</>;
   try {
     const url = new URL(value, window.location.origin);
-    if (url.origin !== window.location.origin || !["/ota/booking", "/board"].includes(url.pathname) || url.username || url.password || url.hash) return <>—</>;
-    return <a href={`${url.pathname}${url.search}`}>{column.label}</a>;
+    if (url.origin !== window.location.origin || !["/ota/booking", "/board", "/row", "/cards/all"].includes(url.pathname) || url.username || url.password || url.hash) return <>—</>;
+    return <a className="cost-button cost-button-quiet" href={`${url.pathname}${url.search}`}>{column.label}</a>;
   } catch { return <>—</>; }
 }
 
@@ -604,6 +604,22 @@ export function StructuredFeaturePage({
             </section>
           ) : null}
           <DataRows payload={payload} />
+          {Array.isArray(payload.data?.pending_applications) ? (
+            <section className="cost-panel e-feature-action-result">
+              <h2>접근 신청</h2>
+              {payload.data.pending_applications.length ? <DataRows payload={{
+                title: "접근 신청",
+                columns: [
+                  { key: "requested_name", label: "신청 이름" },
+                  { key: "nickname", label: "별명" },
+                  { key: "user_id", label: "계정" },
+                ],
+                rows: payload.data.pending_applications.filter((item): item is Record<string, unknown> =>
+                  item !== null && typeof item === "object" && !Array.isArray(item)),
+                actions: [],
+              }} /> : <p>대기 중인 접근 신청이 없습니다.</p>}
+            </section>
+          ) : null}
           {!isUnavailable(payload) && !(payload.rows?.length) && !(payload.data && Object.keys(payload.data).length) && !(payload.fields?.length) ? (
             <section className="cost-panel e-feature-state">
               <h2>표시할 자료가 없습니다</h2>
