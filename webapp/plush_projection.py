@@ -120,4 +120,3 @@ def search_text(row: dict[str, Any]) -> str:
     return " ".join(str(projected.get(key) or "") for key in (
         "date", "merchant", "description", "category", "payment", "period", "evidence_summary"
     )).casefold()
-
