@@ -1,5 +1,15 @@
 # 현재 상태
 
+## 2026-11-16 — 영수증 Paseo 병렬 구현·감독
+
+- **최신 승인:** 사용자가 작성 명세의 빠른 구현과 다수 Luna xhigh 병렬 위임을 지시했다. 이전의 문서까지만 범위는 갱신됐다. 이번에는 구현·합성 검사·PR 검수까지 진행하며 운영 배포·실제 고객 원본/운영 DB 변경은 하지 않는다.
+- **기준/통합:** 명세 완료 `7b0a37ef`, 병렬 계약 `33ef9112`, 통합 branch `integration/receipt-paseo-20261116`. 실행 명세는 [영수증 처리 변경](design/receipt-paseo-workflow-20261116.md), [파일/API 계약](agents/artifacts/receipt-paseo-implementation-contract-20261116.md)이다.
+- **A runtime:** native 협업 `/root/receipt_runtime_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_543d5980ddf9a7e5`, branch `feat/receipt-paseo-runtime-20261116`. 동적 목록·사진 첨부·제한 실행·결과 회수 담당.
+- **B backend:** native 협업 `/root/receipt_backend_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_74534362dd92d88a`, branch `feat/receipt-paseo-backend-20261116`. 영속 작업·revision·복구·장부 원자성/멱등·인증 API 담당.
+- **C UI:** Paseo agent `53231308-cb0e-419b-bdc9-10976f0ba7cb`, codex/gpt-6-luna/xhigh, 공식 workspace `wks_e6095e9982b526cd`, branch `feat/receipt-paseo-ui-20261116`. 모델 선택·사진/결과 검수·이탈/복귀·선택 반영 UI 담당. native 추가 thread 생성 한도에 따라 같은 계정 공식 Paseo 경로로 생성했다. 동시에 활동하는 구현자는 셋이다.
+- **감독:** 주 세션이 docs·영향 맵·직접 검증·통합과 별도 최종 SHA 검수를 맡는다. 현재 코드 통합/전체 수락/배포 완료를 주장하지 않는다. 고객 원문·운영 포트·운영 DB는 작업자에게 주지 않는다. 원본 `.qwen/`·미추적 사용자 파일을 보존한다.
+- **초기 확인:** runtime의 available는 사진/구독/격리 지원 증거가 아니어서 실제 제한·첨부·결과 회수 경로 검증이 필요하다. backend의 기존 manual expense API는 단건 트랜잭션이므로 선택 묶음/멱등 결과를 같은 장부 트랜잭션으로 묶어야 한다. 작업자들이 이 경계에 맞춰 구현 중이다.
+
 ## 2026-11-16 — 영수증 Paseo 동적 선택·영속 처리 명세 작성
 
 - **현재 요청/범위:** 영수증 처리 변경의 명세 작성과 필요한 질문. 구현·실제 모델 호출·운영 변경은 요청하지 않았다. [설계 초안](design/receipt-paseo-workflow-20261116.md)을 작성하고 SPEC §7.1에 연결했다.
