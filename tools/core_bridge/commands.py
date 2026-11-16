@@ -264,9 +264,15 @@ def ota_input(request):
     return capture.capture(request, BridgeError)
 
 
+def extract_baseline(request):
+    """추출기 기준 출력(설계 §3.4): 보존 원본의 읽기 전용 사본에서 Python 추출기 이벤트를 보호 경로 파일로 쓴다."""
+    from . import extract_baseline as capture
+    return capture.capture(request, BridgeError)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'candidates': candidates, 'plan': plan,
             'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods,
-            'ota-input': ota_input}
+            'ota-input': ota_input, 'extract-baseline': extract_baseline}
 
 
 def canonical(value):

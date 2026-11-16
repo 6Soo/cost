@@ -61,7 +61,7 @@ def handle(command, request, sha=None):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
-        sys.stderr.write('usage: cli.py <snapshot|facts|links|candidates|plan|classify|extract|trips|periods|ota-input>\n')
+        sys.stderr.write('usage: cli.py <snapshot|facts|links|candidates|plan|classify|extract|trips|periods|ota-input|extract-baseline>\n')
         return 2
     sys.stdout.reconfigure(encoding='utf-8')
     exit_code = 0
