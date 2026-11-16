@@ -378,6 +378,10 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
     its own; a conflicting classification, an over-refund or any other block on
     either row holds both. Source amounts are untouched; the net is derived.
     """
+    from . import core_links
+    if core_links.selected() == 'rust':
+        return core_links.ledger_pairs(store.conn, rows, ready, unresolved,
+                                       trip_validator=trip_validator, tab_validator=tab_validator)
     from .partial_refund import refund_links
     by_id = {r["transaction_id"]: r for r in rows}
     refund_ids = [r[0] for r in store.conn.execute(
@@ -561,8 +565,11 @@ def _already_booked(store, transaction_id: str) -> bool:
         (transaction_id,)).fetchone() is not None
 
 
-def _check_refund_groups(store, rows) -> None:
+def _check_refund_groups(store, rows) -> frozenset[str] | None:
     """Refuse a commit that would leave a refund group half booked. Writes nothing."""
+    from . import core_links
+    if core_links.selected() == 'rust':
+        return core_links.check_ledger_groups(store.conn, rows)
     from .partial_refund import refund_group, refund_links
     ready = {r["transaction_id"] for r in rows if not r.get("blocked") and not r.get("already_booked")}
     links = refund_links(store.conn, [r["transaction_id"] for r in rows])
@@ -743,7 +750,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
         nested = store.conn.in_transaction
         store.conn.execute('SAVEPOINT cost_ledger_commit' if nested else 'BEGIN IMMEDIATE')
         try:
-            _check_refund_groups(store, recordable_rows(current["rows"]) if automatic_record else current["rows"])
+            sealed_members = _check_refund_groups(
+                store, recordable_rows(current["rows"]) if automatic_record else current["rows"]) or frozenset()
             for entry in current["rows"]:
                 if entry.get("blocked"):
                     continue
@@ -752,6 +760,9 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                 # the money moves.
                 block = _authority_block(entry, trip_validator, tab_validator)
                 if block:
+                    if transaction_id in sealed_members:
+                        raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                                         '환불 묶음의 기록 권한이 바뀌어 함께 기록하지 않았습니다.')
                     lost_authority.append(transaction_id)
                     store.log_change("ledger.blocked", transaction_id,
                                      {"batch_id": batch_id, "reason": block[1]})
