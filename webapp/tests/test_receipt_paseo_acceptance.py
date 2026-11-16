@@ -236,6 +236,36 @@ def test_missing_csrf_or_unknown_original_cannot_start_a_model(receipt_http):
     assert runtime.calls == []
 
 
+def test_committed_ledger_recovers_when_workflow_acknowledgement_is_lost(receipt_http):
+    fixture, runtime = receipt_http
+    batch = _enqueue(fixture, _upload(fixture))
+    runtime.release.set()
+    _wait_until(lambda: _persisted_result(fixture))
+    candidate = _review(fixture, _candidates(fixture, batch["batch_id"])[0])
+    payload = {"request_id": "8" * 32, "selections": [{
+        "candidate_id": candidate["candidate_id"], "expected_revision": candidate["revision"]}]}
+    board = fixture.server.card_store
+    original_apply = board.apply_receipt_batch
+
+    def committed_without_workflow_ack(**kwargs):
+        original_apply(**kwargs)
+        raise RuntimeError("synthetic failure after authoritative ledger commit")
+
+    with patch.object(board, "apply_receipt_batch", side_effect=committed_without_workflow_ack):
+        status, body = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
+    assert status == 503, body
+    assert _ledger_count(fixture) == 1
+    # A newly read workflow must reconcile from the ledger's committed source,
+    # even though its own update rolled back after the injected failure.
+    saved = next(item for item in _candidates(fixture, batch["batch_id"])
+                 if item["candidate_id"] == candidate["candidate_id"])
+    assert saved["applied"] is True
+    status, result = fixture.request("/api/receipts/workflow/apply", payload, token=fixture.csrf())
+    assert status == 200, result
+    assert result["results"][0]["ledger_id"] == saved["ledger_id"]
+    assert _ledger_count(fixture) == 1
+
+
 def test_mixed_photo_batch_preserves_success_failure_and_empty_result(receipt_http, monkeypatch):
     fixture, runtime = receipt_http
     images = []
