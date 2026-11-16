@@ -59,6 +59,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "hana-ibk-card-collection-synthetic",
+      "paths": ["tools/site_card_collection.*", "tools/verify_site_card_file.py", "tools/hana_card_collection/**", "tools/ibk_card_collection/**", "tools/import_kb_card_download.py", "tools/kb_card_collection/policy.mjs", "tools/kb_card_collection/ego_context.mjs", "tools/kb_card_collection/validation.mjs", "tools/kb_card_collection/verify_python.mjs", "docs/playbooks/card-downloads.md", "tests/card_collection_fixtures.py", "tests/site_card_collection/**", "tests/test_site_card_collection.py", "tests/test_site_card_collection_script.py", "tests/test_hana_ibk_card_import.py"],
+      "tests": ["tests/test_site_card_collection.py", "tests/test_site_card_collection_script.py", "tests/test_hana_ibk_card_import.py", "tests/test_import_kb_card_download.py", "tests/card_pipeline/test_export_downloads.py"]
+    },
+    {
       "name": "pytest-temp-session-cleanup",
       "paths": ["conftest.py", "tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py"],
       "tests": ["tests/test_pytest_temp_cleanup.py", "webapp/tests/test_migration_phase8.py", "webapp/tests/test_google_oidc.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_card_import.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_cards_all.py"]

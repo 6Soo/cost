@@ -199,6 +199,21 @@ function buildCapture(space, page, selectorMap, operation, args) {
     }
   };
 
+  const origin = async () => {
+    capability("evaluate");
+    const value = await page.evaluate(() => location.origin);
+    if (typeof value !== "string" || value === "null") {
+      throw protocolFailure("Page origin is not available");
+    }
+    return value;
+  };
+
+  const navigate = async (url) => {
+    capability("goto");
+    await page.goto(url);
+    invalidateSnapshot();
+  };
+
   const cssRoleMap = (() => {
     const css = context.selectors.css ?? Object.fromEntries(Object.entries(context.selectors)
       .filter(([, value]) => typeof value === "string" && /^(?:loc=css:|css=)/.test(value))
@@ -306,6 +321,8 @@ function buildCapture(space, page, selectorMap, operation, args) {
   const bound = {
     space,
     pageLabel: "p1",
+    origin,
+    navigate,
     snapshot,
     fill,
     query,
@@ -318,6 +335,8 @@ function buildCapture(space, page, selectorMap, operation, args) {
     return {
       space,
       pageLabel: "p1",
+      origin,
+      navigate,
       snapshot: async (roles) => {
         await ensureSource(args.source);
         const result = await snapshot(roles);
@@ -325,8 +344,14 @@ function buildCapture(space, page, selectorMap, operation, args) {
           for (const [role, expected] of [["periodEchoStart", args.startDate], ["periodEchoEnd", args.endDate]]) {
             if (result[role]?.text !== expected) throw contextRequired("query period does not match the requested ISO dates");
           }
-          const label = args.source === SOURCES.DOMESTIC ? "국내" : "해외";
-          if (!result.periodEchoSource?.text?.includes(label)) throw contextRequired("query source summary does not match domestic/overseas");
+          // This context is shared with issuer collectors, which validate their exact source echo
+          // against the verified provider profile in their own boundary.
+          const sourceLabel = args.source === SOURCES.DOMESTIC
+            ? "국내"
+            : args.source === SOURCES.OVERSEAS ? "해외" : null;
+          if (sourceLabel !== null && !result.periodEchoSource?.text?.includes(sourceLabel)) {
+            throw contextRequired("query source summary does not match domestic/overseas");
+          }
         }
         return result;
       },

@@ -88,9 +88,12 @@ function resolveCeiling({ allowedCeiling }) {
 
 // 종료일 = 화면 실제 허용일(상한)과 실행일 중 이른 날짜. 화면 허용일을 못 읽으면 실행일로
 // 대신하지 않고 ENV_PROBE_UNVERIFIED로 멈춘다.
-export function buildPeriod({ lastUseDate, executionDate, allowedCeiling, maxLookbackDays = MAX_LOOKBACK_DAYS } = {}) {
+export function buildPeriod({ lastUseDate, executionDate, allowedCeiling, maxLookbackDays = MAX_LOOKBACK_DAYS, postingAxis = POSTING_AXIS } = {}) {
   const start = resolveStartDate({ lastUseDate });
   const exec = parseIsoDate(executionDate, "executionDate");
+  if (typeof postingAxis !== "string" || postingAxis.trim() === "") {
+    throw new PolicyError("postingAxis must be an explicit non-empty string");
+  }
   const resolved = resolveCeiling({ allowedCeiling });
   if (resolved.status !== "OK") {
     return {
@@ -122,7 +125,7 @@ export function buildPeriod({ lastUseDate, executionDate, allowedCeiling, maxLoo
     screenCeiling: toIsoDate(ceiling),
     maxLookbackDays,
     clampedByLookback,
-    postingAxis: POSTING_AXIS,
+    postingAxis: postingAxis.trim(),
   };
 }
 
