@@ -191,7 +191,7 @@ def test_card_transactions_keep_krw_amount_and_follow_all_cursor_pages(
     )
     monkeypatch.setattr(
         "webapp.card_transactions.year_summary",
-        lambda **_kwargs: {"months": {"11": 550}},
+        lambda **_kwargs: {"months": {11: 550}},
     )
 
     def list_for_month(*, cursor, per_page, **_kwargs):
@@ -281,7 +281,7 @@ def test_card_query_period_filters_and_cursor_contract(bound_store, monkeypatch)
 
     def summary(*, year, **filters):
         calls["summary"].append((year, filters))
-        return {"months": {"05": 4, "06": 2}, "undated_count": 3}
+        return {"months": {5: 4, 6: 2}, "undated_count": 3}
 
     monkeypatch.setattr("webapp.card_transactions.year_summary", summary)
 
@@ -416,10 +416,13 @@ def test_row_save_descriptor_matches_store_allowlist_and_revision(bound_store, m
         action = next(item for item in detail["actions"] if item["id"] == "row-save")
         fields = {field["name"]: field for field in action["fields"]}
         assert fields["expected_revision"]["value"] == rows[row_id]["revision"]
-        assert fields["change_mode"]["options"] == [
-            {"value": "exception", "label": "예외 사항"},
-            {"value": "rule_change", "label": "규칙 변경"},
-        ]
+        if row_id == "allocation":
+            assert "change_mode" not in fields
+        else:
+            assert fields["change_mode"]["options"] == [
+                {"value": "exception", "label": "예외 사항"},
+                {"value": "rule_change", "label": "규칙 변경"},
+            ]
         assert len(fields["client_request_id"]["value"]) == 32
         assert allowed <= set(fields)
         if row_id == "cash-expense":
@@ -623,10 +626,10 @@ def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_sto
             "key": "trip-key", "kind": "trip", "closure": "open", "closure_current": True,
             "chosen_source": "main", "canonical_source": "main", "verified": True,
             "blocked_by": [], "review": ["TOTAL_MISMATCH"],
-            "income_total": 10000, "expense_total": 5000, "net": 5000,
+            "income_total": 9007199254740993, "expense_total": 5000, "net": 9007199254735993,
             "copies": {
                 "main": {"sheet": "PRIVATE-SHEET", "layout": "rev", "flags": [],
-                         "income": {"verified": True, "total": 10000, "rows": "PRIVATE-INCOME"},
+                         "income": {"verified": True, "total": 9007199254740993, "rows": "PRIVATE-INCOME"},
                          "expense": {"verified": True, "total": 5000, "rows": "PRIVATE-EXPENSE"}},
                 "archive": None,
             },
@@ -658,7 +661,7 @@ def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_sto
     )} == {
         "key": "trip-key", "kind": "trip", "closure": "open", "closure_current": True,
         "chosen_source": "main", "verified": True, "blocked_by": [], "review": ["TOTAL_MISMATCH"],
-        "income_total": 10000, "expense_total": 5000, "net": 5000,
+        "income_total": "9007199254740993", "expense_total": "5000", "net": "9007199254735993",
         "connected_tab_id": "trip-demo-a",
         "source_href": "/api/google-ledger/source?trip=trip-demo-a",
         "reconciliation_href": "/api/google-ledger/expense-reconciliation?trip=trip-demo-a&page=1",
@@ -666,7 +669,7 @@ def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_sto
     }
     assert row["copies"] == {
         "main": {"present": True, "layout": "rev", "verified": True,
-                 "income_total": 10000, "expense_total": 5000, "flags": []},
+                 "income_total": "9007199254740993", "expense_total": "5000", "flags": []},
         "archive": {"present": False, "layout": None, "verified": False,
                     "income_total": None, "expense_total": None, "flags": []},
     }
@@ -682,3 +685,59 @@ def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_sto
     for secret in ("PRIVATE-SNAPSHOT", "PRIVATE-ROWS", "PRIVATE-HISTORY", "PRIVATE-GRANT-HISTORY",
                    "PRIVATE-HASH", "PRIVATE-SHEET", "PRIVATE-INCOME", "PRIVATE-EXPENSE", "PRIVATE-TRIP-ROWS"):
         assert secret not in serialized
+
+
+def test_admin_google_stale_snapshot_clears_verified_amounts(bound_store, monkeypatch, tmp_path):
+    store, _ = bound_store
+    from webapp import google_ledger_page
+
+    old_source = {
+        "status": "ok", "stale": False,
+        "last_ok_at": "2000-01-01T00:00:00+09:00",
+        "checked_at": "2000-01-01T00:00:00+09:00",
+    }
+    stale_trip = {
+        "key": "trip-stale", "owner_id": "aslan", "kind": "trip",
+        "closure": "open", "closure_current": True, "canonical_source": "main",
+        "income_total": 10000, "expense_total": 5000, "net": 5000, "verified": True,
+        "review": [], "blocked_by": [],
+        "copies": {
+            "main": {
+                "sheet": "synthetic-private-sheet", "layout": "rev", "flags": [],
+                "income": {"verified": True, "total": 10000},
+                "expense": {"verified": True, "total": 5000},
+            },
+            "archive": None,
+        },
+    }
+    monkeypatch.setattr(google_ledger_page, "enabled", lambda: True)
+    monkeypatch.setattr(google_ledger_page, "_snapshot_path", lambda: tmp_path / "snapshot.json")
+    monkeypatch.setattr(google_ledger_page, "_rows_path", lambda: tmp_path / "rows.json")
+    monkeypatch.setattr(google_ledger_page, "_load_consistent_measured", lambda *_: (
+        {"synced_at": "2000-01-01T00:00:00+09:00",
+         "sources": {"main": dict(old_source), "archive": dict(old_source)},
+         "trips": [stale_trip]},
+        {"private_rows": "synthetic-private-rows"},
+    ))
+    monkeypatch.setattr(google_ledger_page, "load_choices", lambda *_: {
+        "choices": {"trip-stale": "main"}, "history": [],
+    })
+    monkeypatch.setattr(google_ledger_page, "load_mapping", lambda *_: {
+        "trip-stale": "trip-demo-a",
+    })
+    monkeypatch.setattr(google_ledger_page, "load_grants", lambda *_: {"grants": {}})
+
+    status, result = call("/api/plush/admin?view=google", "syn-owner", store)
+
+    assert status == 200
+    assert result["data"]["sources"]["main"]["stale"] is True
+    row = next(item for item in result["rows"] if item["key"] == "trip-stale")
+    assert row["verified"] is False
+    assert row["income_total"] is None
+    assert row["expense_total"] is None
+    assert row["net"] is None
+    assert "SOURCE_STALE" in row["review"]
+    assert row["copies"]["main"] == {
+        "present": True, "layout": "rev", "verified": False,
+        "income_total": None, "expense_total": None, "flags": ["SOURCE_STALE"],
+    }

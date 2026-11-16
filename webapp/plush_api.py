@@ -275,17 +275,20 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         save_fields = [*fields, {
             "name": "expected_revision", "label": "revision", "type": "hidden",
             "value": row.get("revision"), "required": True,
-        }, {
-            "name": "change_mode", "label": "변경 이유", "type": "select",
-            "value": "exception", "required": True,
-            "options": [
-                {"value": "exception", "label": "예외 사항"},
-                {"value": "rule_change", "label": "규칙 변경"},
-            ],
-        }, {
+        }]
+        if not row.get("is_allocation"):
+            save_fields.append({
+                "name": "change_mode", "label": "변경 이유", "type": "select",
+                "value": "exception", "required": True,
+                "options": [
+                    {"value": "exception", "label": "예외 사항"},
+                    {"value": "rule_change", "label": "규칙 변경"},
+                ],
+            })
+        save_fields.append({
             "name": "client_request_id", "label": "요청 ID", "type": "hidden",
             "value": uuid.uuid4().hex, "required": True,
-        }]
+        })
         actions.append({
             "id": "row-save", "label": "거래 저장", "method": "POST",
             "href": f"/api/rows/{_quote(row_id)}/save", "encoding": "json",
@@ -420,7 +423,7 @@ def _card_transaction_page(ledger_board: Any, query: dict[str, list[str]], *,
     if undated:
         total_count = int(summary.get("undated_count", 0) or 0)
     else:
-        total_count = (int(months.get(f"{month:02d}", 0) or 0) if month is not None
+        total_count = (int(months.get(month, 0) or 0) if month is not None
                        else sum(int(value or 0) for value in months.values()))
     offset = (page - 1) * page_size
     limit = offset + page_size
@@ -824,8 +827,8 @@ def _google_text(value: Any, *, limit: int = 96) -> str | None:
     return value
 
 
-def _google_amount(value: Any) -> int | None:
-    return value if type(value) is int else None
+def _google_amount(value: Any) -> str | None:
+    return str(value) if type(value) is int else None
 
 
 def _google_codes(value: Any) -> list[str]:
@@ -836,20 +839,23 @@ def _google_codes(value: Any) -> list[str]:
             and all(char.isupper() or char.isdigit() or char == "_" for char in item)]
 
 
-def _google_copy_projection(copy: Any) -> dict[str, Any]:
+def _google_copy_projection(copy: Any, *, source_current: bool = True) -> dict[str, Any]:
     if not isinstance(copy, dict):
         return {"present": False, "layout": None, "verified": False,
                 "income_total": None, "expense_total": None, "flags": []}
     income = copy.get("income") if isinstance(copy.get("income"), dict) else {}
     expense = copy.get("expense") if isinstance(copy.get("expense"), dict) else {}
     layout = _google_text(copy.get("layout"), limit=32)
+    flags = _google_codes(copy.get("flags"))
+    if not source_current and "SOURCE_STALE" not in flags:
+        flags.append("SOURCE_STALE")
     return {
         "present": True,
         "layout": layout,
-        "verified": income.get("verified") is True and expense.get("verified") is True,
-        "income_total": _google_amount(income.get("total")),
-        "expense_total": _google_amount(expense.get("total")),
-        "flags": _google_codes(copy.get("flags")),
+        "verified": source_current and income.get("verified") is True and expense.get("verified") is True,
+        "income_total": _google_amount(income.get("total")) if source_current else None,
+        "expense_total": _google_amount(expense.get("total")) if source_current else None,
+        "flags": flags,
     }
 
 
@@ -901,11 +907,13 @@ def _admin_google(board: Any) -> dict[str, Any]:
         choices = google_ledger_page.load_choices(google_ledger_page._snapshot_path())
         mapping = google_ledger_page.load_mapping(google_ledger_page._snapshot_path())
         grants = google_ledger_page.load_grants(google_ledger_page._snapshot_path())
+        snapshot = google_ledger_page.snapshot_for_display(snapshot)
         payload = google_ledger_page.owner_payload(snapshot, choices)
         raw_trips = payload.get("trips") if isinstance(payload.get("trips"), list) else []
         trips = {key: trip for trip in raw_trips if isinstance(trip, dict)
                  and (key := _google_text(trip.get("key"), limit=200))}
         trip_keys = set(trips)
+        source_states = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
 
         try:
             local_trips = board.list_trips(include_archived=True) if board is not None else []
@@ -952,8 +960,12 @@ def _admin_google(board: Any) -> dict[str, Any]:
             trip = trips[key]
             raw_copies = trip.get("copies") if isinstance(trip.get("copies"), dict) else {}
             copy_roles = ("andre_main",) if trip.get("owner_id") == "andre" else ("main", "archive")
-            copies = {source: _google_copy_projection(raw_copies.get(source))
-                      for source in copy_roles}
+            copies = {}
+            for source in copy_roles:
+                state = source_states.get(source) if isinstance(source_states.get(source), dict) else {}
+                source_current = state.get("status") == "ok" and state.get("stale") is not True
+                copies[source] = _google_copy_projection(
+                    raw_copies.get(source), source_current=source_current)
             chosen = trip.get("chosen_source")
             chosen = chosen if chosen in google_authority.SPREADSHEET_IDS else None
             tab_id = _google_text(mapping.get(key), limit=200)
@@ -989,10 +1001,9 @@ def _admin_google(board: Any) -> dict[str, Any]:
                 "copies": copies,
             })
 
-        sources = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
         safe_sources = {}
         for source in google_authority.SPREADSHEET_IDS:
-            status = sources.get(source) if isinstance(sources.get(source), dict) else {}
+            status = source_states.get(source) if isinstance(source_states.get(source), dict) else {}
             safe_sources[source] = {
                 "status": _google_text(status.get("status"), limit=32),
                 "error_code": _google_text(status.get("error_code"), limit=80),
