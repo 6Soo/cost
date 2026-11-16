@@ -7,6 +7,7 @@
 - **직접 검사:** 기준 영향778건+35subtests, 후속 영향565건+26subtests, 모두 실패0/skip0/exit0 및 컴파일·Rust release build 통과. 프런트43건·타입·빌드 통과. 이전 broad1475건의 간헐 실패1건 및 현재/main 재실행 결과는 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 별도 보존했다.
 - **검수 보완:** 독립 sol medium이 Google 실제 숫자 금액과 links_revision 계약, 규칙 사례 변경 preview, 참가자/예약 쓰기 누락을 발견했다. Google `05ae7d19` 수정은 회귀5실패→12통과/타입 통과. E 후속 수정·최종 정확 SHA 재검수 후 공식 배포한다. 기존 반려 SHA를 승인으로 표현하지 않는다.
 - **브라우저:** ego53 합성 DB, 영수증 응답 유실·revision충돌·원자 반영·재복귀, PDF 원본/중복 방지, Tab/ShiftTab/Esc/초점복귀·320~1440px·모션 감소 검사. 새 합성 실제 XLSX ready/GET200/ZIP, Google owner390/1440·viewerAPI403 확인. 운영 인증 읽기는 상태 코드만 확인했고 고객 화면 캡처·원문 로그·금융 apply는 없다. 실제 전경paint 목표·실기기·스크린리더는 미검증/한계 기록을 유지한다.
+- **추가 통합/검사:** 계정·OTA·환불 D 최종 source25c672까지 `3c0672a2`로 반영, 영향173건 실패0/skip0/컴파일0. C 항공권9976e5b9/rootb604 연결, E 참가자/예약a8258425 통합. 규칙61e4c510은 독립7건 검사로 해당P1해소 승인. 새 합성 브라우저Task54에서 실제 접근승인→연결 생성→해지→연결 제거 오류0. 상세는 검증 기록에 있다. 항공권 후보/예약 미저장 편집 identity 보완과 최종 전체 승인은 아직 남아 있다.
 - **다음:** E 최종 보완과 독립 정확SHA 승인, 최종 프런트 검사·빌드 자산해시, 현재 PreviousSha 재확인 후 [공식 배포 절차](playbooks/plush-ui-release.md), 운영 smoke, 같은 PR971에 완료 근거 기록·통합. 로컬 복구 `.agents/plush-integration-checkpoint.json`. graphify는 graph/CLI 없어 갱신 미실행이다.
 
 ## 2026-11-16 21:05 — 영수증 기본 Terra high·선택 모델 동적 표시 운영 완료
