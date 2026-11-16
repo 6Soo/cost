@@ -37,6 +37,7 @@ def load(conn, trips, directory):
         if any(review['card'].get(k) != row.get(k) for k in keys):
             raise ValueError('SOURCE_RECHECK_SOURCE_CHANGED')
         originals, roles, hashes, mail_facts = review.get('originals'), set(), [], {}
+        ledger_originals, ledger_fact = [], {}
         if not isinstance(originals, list) or not 1 <= len(originals) <= 30:
             raise ValueError('SOURCE_RECHECK_INVALID')
         for original in originals:
@@ -54,6 +55,8 @@ def load(conn, trips, directory):
                     'cancellation_confirmation', 'counter_evidence', 'manual_ledger'):
                 raise ValueError('SOURCE_RECHECK_INVALID')
             roles.add(original['role']);hashes.append(digest)
+            if review.get('kind') == 'manual_ledger_attribution' and original['role'] == 'manual_ledger':
+                ledger_originals.append((original, original_bytes))
             if review.get('kind') == 'cancelled_booking_payment' and original['role'] in (
                     'payment_confirmation', 'cancellation_confirmation'):
                 from .ota_mail import extract_mail
@@ -80,7 +83,13 @@ def load(conn, trips, directory):
         if 'card_original' not in roles or not isinstance(review.get('basis'), str) or not review['basis'].strip():
             raise ValueError('SOURCE_RECHECK_INVALID')
         kind = review.get('kind')
-        if kind == 'cancelled_booking_payment':
+        if kind == 'manual_ledger_attribution':
+            from .manual_ledger_recheck import attribution
+            ledger_fact = attribution(conn, row, trips, ledger_originals)
+            target = ledger_fact['display_tab_id']
+            trip_basis = ('GGL-045/PROC-073 · 수기 원장 ' + ledger_fact['google_sheet']
+                          + '!' + str(ledger_fact['google_row']) + ' · ' + ledger_fact['ledger_match'])
+        elif kind == 'cancelled_booking_payment':
             if (not {'payment_confirmation', 'cancellation_confirmation'} <= roles
                     or review.get('reservation_status') != 'cancelled'
                     or not review.get('booking_ref')
@@ -109,10 +118,11 @@ def load(conn, trips, directory):
         result[tid] = dict(kind=SCOPE, review_id=doc['review_id'], source_hash=row['source_hash'],
             approval_date=row['approval_date'], amount_krw=row['amount_krw'],
             before_tab=review['before_tab'], purpose=kind,
-            display_tab_id=target or quarter[0], item=row['item'] if target else '분기 기타비용',
+            display_tab_id=target or quarter[0], item=ledger_fact.get('item', row['item']) if target else '분기 기타비용',
             basis=review['basis'] + ' · ' + trip_basis,
             evidence_digest=hashlib.sha256(raw + ''.join(sorted(hashes)).encode()).hexdigest(),
-            original_hashes=sorted(hashes), original_roles=sorted(roles))
+            original_hashes=sorted(hashes), original_roles=sorted(roles), **{
+                k: v for k, v in ledger_fact.items() if k not in ('display_tab_id', 'item')})
     return result
 
 
@@ -139,7 +149,11 @@ def allowed(conn, row, correction, manifest, fact, valid):
             ('card-' + row['transaction_id'],)).fetchall()
     if not revisions:
         return False
+    from .manual_ledger_recheck import legacy_owner_import
+    initial_owner = (fact['purpose'] == 'manual_ledger_attribution' and legacy_owner_import(conn, row))
     for index, (actor, previous, new, request) in enumerate(revisions):
+        if initial_owner:
+            break
         payload = json.loads(new or '{}')
         if index == 0 and (previous not in (None, '', '{}', 'null')
                 or request != 'card-' + row['transaction_id']
@@ -153,6 +167,9 @@ def allowed(conn, row, correction, manifest, fact, valid):
                     or payload.get('classification_source') != 'inference'):
                 return False
     quarter = observed_quarter(row)
+    if fact['purpose'] == 'manual_ledger_attribution':
+        return bool(correction['display_tab_id'] in valid
+                    and (fact.get('ledger_period') or {}).get('starts_on', '') >= '2026-07-01')
     if fact['purpose'] == 'cancelled_booking_payment':
         return bool(quarter and correction['display_tab_id'] == quarter[0]
                     and correction['item'] == '분기 기타비용')

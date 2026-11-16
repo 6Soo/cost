@@ -51,8 +51,8 @@
     },
     {
       "name": "ai-quarter-review-apply",
-      "paths": ["app/ai_review_repair.py", "app/source_recheck.py", "tools/apply_ai_quarter_review.py", "tests/test_ai_review_repair.py", "tests/test_source_recheck.py", "docs/playbooks/ai-review-apply.md"],
-      "tests": ["tests/test_source_recheck.py", "tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py", "webapp/tests/test_automatic_classification_completion.py"]
+      "paths": ["app/ai_review_repair.py", "app/source_recheck.py", "app/manual_ledger_recheck.py", "tools/apply_ai_quarter_review.py", "tests/test_ai_review_repair.py", "tests/test_source_recheck.py", "tests/test_manual_ledger_recheck.py", "docs/playbooks/ai-review-apply.md"],
+      "tests": ["tests/test_manual_ledger_recheck.py", "tests/test_source_recheck.py", "tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py", "webapp/tests/test_automatic_classification_completion.py"]
     },
     {
       "name": "bulk-owner-confirmation-provenance",

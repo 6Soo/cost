@@ -16,7 +16,7 @@ from .db import utc_now
 SCOPE = 'ai_quarter_review'
 RELEASE = 'card.ai_review_corrected'
 RESTORE = 'card.ai_review_restored'
-FIELDS = ('item', 'display_tab_id', 'trip_id', 'classification_state',
+FIELDS = ('item', 'description', 'display_tab_id', 'trip_id', 'classification_state',
           'classification_source', 'classification_basis')
 MANUAL_SOURCES = {'user_decision', 'user_exception', 'owner_booking', 'manual', 'manual_hold'}
 QUARTER_TAB = re.compile(r'quarter:(\d{4}):([1-4])')
@@ -98,6 +98,10 @@ def preview(conn, trips, manifest, *, evidence=None):
         source_fact = (evidence or {}).get(tid)
         source_exception = bool(not reason and source_recheck_allowed(
             conn, row, correction, manifest, source_fact, valid))
+        legacy_owner = False
+        if source_exception and source_fact.get('purpose') == 'manual_ledger_attribution':
+            from .manual_ledger_recheck import legacy_owner_import
+            legacy_owner = legacy_owner_import(conn, row)
         if not reason and manifest.get('scope') == 'q2_source_recheck' and not source_exception:
             reason = 'SOURCE_RECHECK_PROTECTED'
         if not reason:
@@ -120,7 +124,8 @@ def preview(conn, trips, manifest, *, evidence=None):
                     payload = json.loads(projection['payload_json'])
                     if (any(k in payload and payload[k] not in destinations | ({''} if k == 'trip_id' else set())
                             for k in ('trip_id', 'display_tab_id'))
-                            or payload.get('confirmed_by') not in (None, '', 'automatic')):
+                            or (payload.get('confirmed_by') not in (None, '', 'automatic')
+                                and not (legacy_owner and payload.get('confirmed_by') == 'owner'))):
                         reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
         tab = correction['display_tab_id']
         is_quarter = bool(QUARTER_TAB.fullmatch(tab))
@@ -137,12 +142,15 @@ def preview(conn, trips, manifest, *, evidence=None):
                 reason = 'INVALID_TARGET'
         if not reason:
             values = dict(item='분기 기타비용' if is_quarter else correction['item'],
+                          description=row.get('description') or '',
                           display_tab_id=tab, trip_id='' if is_quarter else tab,
                           classification_state='classified', classification_source='ai_inference',
                           classification_basis='AI_REVIEW · ' + json.dumps(
                               dict(model=reviewer['model'], provider=reviewer['provider'],
                                    effort=reviewer['effort'], review_id=review_id),
                               ensure_ascii=False, sort_keys=True) + ' · ' + correction['basis'])
+            if source_exception and source_fact.get('purpose') == 'manual_ledger_attribution':
+                values['description'] = values['item'] + ' · 수기 원장 ' + source_fact['google_sheet']
             if all(row.get(k) == values[k] for k in FIELDS):
                 reason = 'NO_CHANGE'
         if reason:
