@@ -66,13 +66,16 @@ class SyntheticRuntime:
 
 
 @pytest.fixture
-def receipt_http(monkeypatch):
+def receipt_http(monkeypatch, tmp_path):
     from app import receipt_paseo
 
     runtime = SyntheticRuntime()
+    workflow_path = tmp_path / "acceptance-workflow.sqlite"
+    monkeypatch.setenv("WEBLEDGER_RECEIPT_WORKFLOW_DB", str(workflow_path))
     for name in ("catalog", "prompt_metadata", "start", "find_run", "inspect_run", "archive_run"):
         monkeypatch.setattr(receipt_paseo, name, getattr(runtime, name))
     fixture = legacy.ReceiptReviewTests()
+    fixture.workflow_path = workflow_path
     try:
         fixture.setUp()
         yield fixture, runtime
@@ -111,7 +114,7 @@ def _candidates(fixture, batch_id):
 
 
 def _persisted_result(fixture):
-    db = fixture.store.parent / "receipt-workflow.sqlite"
+    db = fixture.workflow_path
     if not db.is_file():
         return False
     with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True) as conn:
