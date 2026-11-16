@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 2026-11-16 — 영수증 Paseo 흐름 통합 검수 완료(운영 배포 전)
+
+- **통합 커밋:** `291c44a7` (`feat(receipts): add local Paseo SDK bridge`). 로컬 Paseo provider/model catalog, 승인된 사진 입력 모델 필터, 고정 프롬프트·스키마 해시, 사진 첨부, run-key 멱등·복구, timeline 결과 회수·도구 차단·archive를 `tools/receipt_paseo_bridge.mjs`로 연결했다. `webapp/receipt_workflow.py`의 trailing whitespace도 제거해 diff 게이트를 통과시켰다.
+- **직접 검사:** `node --check tools/receipt_paseo_bridge.mjs` 통과. 영수증 표적 검사 **42 passed**(runtime, HTTP acceptance, backend, UI). 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 통과: **1,253 passed, 107 subtests passed**, Rust `costcore` release build 성공. 문서 diff/link 검사도 통과했다.
+- **실제 Paseo 확인:** catalog가 연결됨을 확인했고 provider 11개와 승인 가능한 Claude 사진 모델 5개를 읽었다. 합성 PNG로 `start → inspect → archive`를 실행했으며 provider가 `PASEO_PROVIDER_ERROR`를 반환했다. 로컬 timeline의 원인은 Claude 구독 결제 미납/갱신 필요였고, 코드·입력 오류가 아니다. 재호출하지 않고 차단 상태로 남긴다. 고객 원본·운영 DB·운영 포트는 사용하지 않았다.
+- **브라우저 검수:** 이전 C 작업자의 TaskSpace 44 합성 검수에서 retry/revision/재분석 링크/입력 보존을 확인한 증거를 보존한다. 현재 TaskSpace 44는 사용자 제어 상태라 ego-browser가 takeover를 거부했으며, 이 세션에서 재검수하지 않았다. C 소유 합성 preview PID 27156은 종료하지 않았다.
+- **상태/남은 일:** 승인된 범위의 코드·검사는 완료했지만 실제 provider 결과 검증은 구독 결제 상태가 해결될 때까지 PARTIAL이다. 운영 배포·push·PR·고객 자료 변경은 하지 않았다. 다음 재개 명령은 구독 상태 확인 후 합성 PNG로 `python` start/inspect를 다시 실행하고, 사용자가 TaskSpace 44 제어를 넘긴 경우에만 브라우저 검수를 재개하는 것이다. 사용자 미추적 `.qwen/`, `review-size-attempt4.md`, `.codex/`, AGENTS.md 변경은 보존한다.
+
 ## 2026-11-16 — Plush UI 전체 화면 설계 (문서 완료)
 
 - **현재 요청/답변:** 사용자가 Dominik Martin의 Plush UI를 특정한 뒤 COST 전체 UI 설계를 요청했다. 주 사용 환경은 PC 장부 업무, 모바일은 조회·영수증 등록이다. 시각 선택지의 차이를 설명한 뒤 Plush의 외형·탄성 조작과 촘촘한 장부 표를 결합하는 기본안을 작성했다. 사용자가 선택지 1을 명시 승인했다고 기록하지 않는다.
