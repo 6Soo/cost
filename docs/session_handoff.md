@@ -9,6 +9,13 @@
 - **추가 영수증 계약:** 별도 영수증 감독이 전달한 사용자 요청에 따라 React에 서버 기본 provider/model·effective thinking과 영속 batch의 실제 모델/추론을 표시했다(`8d332330`, 표적2건·타입·빌드 통과). 서버 Terra high 기본 계약과 최종 SHA는 해당 감독 소유이며 통합 대기다. 모델 목록 조회나 기본 선택으로 실행하지 않는다.
 - **남은 일/다음 행동:** 기존 C Google 비교·연결·복사, D 실제 원천/편집/보조 projection, E 규칙 대화·내보내기 후속을 통합한다. 최종 영향 검사와 정확 SHA 독립 검수 뒤 PR971 병합·검증 배포·운영 smoke를 수행한다. 현재 운영은 선행 영수증11267cd0이며 Plush 배포는 미실행이다. 배포 직전 실제 운영 SHA와 다른 배포 세션을 재확인한다.
 - **복구:** `.agents/plush-integration-checkpoint.json`, `.agents/quality-b46-preserved/`, `.agents/*v8*`, `quality-artifacts/`. graphify graph/CLI가 이 worktree에 없어 query/update를 실행하지 못했다. 현재 실행 가능한 후속 작업을 계속하며 전체 완료로 표시하지 않는다.
+## 2026-11-16 — 영수증 기본 Terra high·선택 모델 동적 표시
+
+- **최신 요청:** Claude 대신 `codex/gpt-6.1-terra` high를 기본으로 하고 선택 모델을 UI에 동적으로 표시한다. catalog의 기본값·모델별 실제 추론 수준으로 초기 선택과 버튼/상태를 표시하며, 기존 작업은 저장된 provider/model/thinking을 보존한다. 목록 로딩 경쟁·새로고침은 분석을 자동 실행하지 않는다.
+- **실제 판독:** 합성 사진으로 Terra high start→스키마 검증 완료→새 bridge에서 동일 handle 복구→archive 성공, tool event 0, 금융 apply 없음. Claude 로그인 차단은 새 기본 경로의 차단 사유가 아니다. 근거 `.local-archive/receipt-terra-20261116/live-summary.json`.
+- **실행 보호:** 일반 Codex 설정을 바꾸지 않는 영수증 전용 Paseo alias와 로컬 launcher를 추가했다. 구독 인증·OpenAI provider를 강제하고 파일/셸/웹/MCP/플러그인/다중 에이전트 도구를 끈다. native config/read 예행에서 기존 MCP 항목이 실제 비활성화됨을 확인했다. 단순 read-only를 도구 차단으로 취급하지 않는다.
+- **실행 결함 수정:** SDK의 workspaceId는 기존 작업공간 참조이므로, 임의 ID를 만들던 대신 daemon이 반환한 작업공간 ID와 경로를 검증해 보존한다. 기존 불확실 실행은 재전송하지 않는다. SDK config의 options 필드로 native 제약을 전달한다.
+- **현재 단계:** 표적 검사·영향 검사·최종 SHA 독립 검수와 운영 반영을 마무리한다. 운영은 아직 `11267cd0`이며 이번 변경 배포 완료를 주장하지 않는다. React 화면 변경은 별도 Plush 감독이 같은 DTO 계약으로 통합 중이다. 사용자·성능 세션 변경은 보존한다.
 
 ## 2026-11-16 20:14 — 영수증 구현·운영 배포 완료, 실모델 판독은 로그인 차단
 

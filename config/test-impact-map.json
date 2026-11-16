@@ -479,12 +479,12 @@
     },
     {
       "name": "receipt-paseo-workflow",
-      "paths": ["app/receipt_paseo.py", "tools/receipt_paseo_bridge*", "tools/receipt_paseo_plugin/**",
+      "paths": ["app/receipt_paseo.py", "tools/receipt_paseo_bridge*", "tools/receipt_codex*", "tools/receipt_paseo_plugin/**",
                 "webapp/receipt_workflow*.py", "webapp/receipt_ledger.py",
                 "webapp/static/js/receipt_workflow.js", "webapp/static/css/receipt_workflow.css",
-                "tests/card_pipeline/test_receipt_paseo_runtime.py", "webapp/tests/test_receipt_paseo_acceptance.py",
+                "tests/card_pipeline/test_receipt_paseo_runtime.py", "tests/card_pipeline/test_receipt_terra.py", "webapp/tests/test_receipt_paseo_acceptance.py",
                 "webapp/tests/test_receipt_workflow*.py", "webapp/tests/test_receipt_ledger*.py"],
-      "tests": ["tests/card_pipeline/test_receipt_paseo_runtime.py", "webapp/tests/test_receipt_workflow_ui.py",
+      "tests": ["tests/card_pipeline/test_receipt_paseo_runtime.py", "tests/card_pipeline/test_receipt_terra.py", "webapp/tests/test_receipt_workflow_ui.py",
                 "webapp/tests/test_receipt_paseo_acceptance.py", "tests/card_pipeline/test_receipt_candidates.py",
                 "webapp/tests/test_receipt_drafts.py", "webapp/tests/test_receipt_integrity.py",
                 "webapp/tests/test_receipt_partial.py"]

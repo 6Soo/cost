@@ -15,6 +15,7 @@
   let lastBatchFingerprint = '';
   let polling = false;
   let workflowDisabled = false;
+  let catalogRequest = 0;
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -157,6 +158,7 @@
       return `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label || provider.id)}${suffix}</option>`;
     }).join('');
     if (providers.some((provider) => provider.id === current)) select.value = current;
+    else if (providers.some((provider) => provider.id === catalog.default_provider)) select.value = catalog.default_provider;
     else if (providers.length) select.value = providers[0].id;
   }
 
@@ -181,6 +183,7 @@
       return `<option value="${escapeHtml(model.id)}" ${model.selectable && available ? '' : 'disabled'}>${escapeHtml(model.label || model.id)}${reason}</option>`;
     }).join('');
     if (models.some((model) => model.id === selectedId && model.selectable && available)) select.value = selectedId;
+    else if (provider.id === catalog.default_provider && models.some((model) => model.id === catalog.default_model)) select.value = catalog.default_model;
     const selected = models.find((model) => model.id === select.value);
     byId('rw-model-reason').textContent = selected
       ? (selected.selectable && available ? '이 모델로 처리 버튼을 누르면 선택한 사진의 분석이 시작됩니다.' : selected.reason || '현재 처리할 수 없습니다.')
@@ -189,19 +192,27 @@
   }
 
   async function loadCatalog(providerId = '') {
+    const request = ++catalogRequest;
     const status = byId('rw-host-status');
     status.textContent = '연결된 로컬 Paseo 모델 목록을 확인하고 있습니다.';
+    catalog = null;
+    models = [];
+    byId('rw-model').disabled = true;
+    updateControls();
     const suffix = providerId ? `?provider=${encodeURIComponent(providerId)}` : '';
     try {
-      catalog = await get(`/api/receipts/paseo/models${suffix}`);
+      const result = await get(`/api/receipts/paseo/models${suffix}`);
+      if (request !== catalogRequest) return;
+      catalog = result;
       const checked = isoTime(catalog.checked_at);
       const host = catalog.host_label || '연결된 PC';
       status.textContent = catalog.connected
         ? `${host} · 목록 확인 ${checked}`
         : `${host}에 연결할 수 없습니다 · 마지막 확인 ${checked}`;
-      if (!providerId) renderProviders();
+      renderProviders();
       renderModels();
     } catch (error) {
+      if (request !== catalogRequest) return;
       catalog = null;
       models = [];
       byId('rw-provider').innerHTML = `<option value="">Provider 목록을 불러오지 못함</option>`;
@@ -386,7 +397,7 @@
       const batchLabel = batch.status === 'posted' ? '장부 반영됨' :
         (batch.jobs || []).some((job) => job.status === 'running' || job.status === 'queued' || job.status === 'starting') ? '분석 중' :
           (batch.jobs || []).length && (batch.jobs || []).every((job) => job.status === 'done' || job.status === 'completed' || job.status === 'failed') ? '처리 완료' : (batch.status || '상태 확인 중');
-      return `<article class="rw-batch"><div class="rw-batch-heading"><div><h3>${escapeHtml(batch.provider || 'Paseo')} · ${escapeHtml(batch.model || '선택 모델')}</h3>
+      return `<article class="rw-batch"><div class="rw-batch-heading"><div><h3>${escapeHtml(batch.provider || 'Paseo')} · ${escapeHtml(batch.model || '선택 모델')}${batch.thinking ? ` · ${escapeHtml(batch.thinking)}` : ''}</h3>
         <p class="rw-batch-meta">시작 ${escapeHtml(isoTime(batch.created_at))} · 사진 ${(batch.jobs || []).length}장 · ${candidateSummary}</p></div>
         <span class="rw-status" data-state="${batchLabel === '장부 반영됨' ? 'posted' : batchLabel === '분석 중' ? 'running' : 'done'}">${escapeHtml(batchLabel)}</span></div>${jobHtml}</article>`;
     }).join('');
@@ -456,6 +467,9 @@
     const provider = (catalog?.providers || []).find((item) => item.id === byId('rw-provider')?.value);
     const model = models.find((item) => item.id === byId('rw-model')?.value);
     const canRun = Boolean(!workflowDisabled && checkedImages && catalog?.connected && provider?.available && model?.selectable);
+    const identity = model ? `${provider?.label || provider?.id || ''} · ${model.label || model.id}${model.default_thinking ? ` · ${model.default_thinking}` : ''}` : '모델을 선택해 주세요';
+    if (byId('rw-selected-model')) byId('rw-selected-model').textContent = `선택 모델: ${identity}${model && !model.selectable ? ' · 현재 처리 불가' : ''}`;
+    if (byId('rw-run-model')) byId('rw-run-model').textContent = model ? `${model.label || model.id}${model.default_thinking ? ` · ${model.default_thinking}` : ''}로 처리` : '이 모델로 처리';
     if (byId('rw-run-model')) byId('rw-run-model').disabled = !canRun;
     const count = selectedCount();
     if (byId('rw-selection-summary')) byId('rw-selection-summary').textContent = `선택된 내역 ${count}건`;
