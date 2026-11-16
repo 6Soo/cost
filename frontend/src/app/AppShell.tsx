@@ -217,6 +217,23 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
     }
   }, [path]);
 
+  // Acceptance #6: each screen needs a unique page <title>. Follow the visible
+  // screen heading rather than the route alone, because the ledger h1 only settles
+  // after its async load; observe the main subtree so the title tracks that change.
+  useEffect(() => {
+    const main = document.getElementById("cost-main");
+    if (!main) return;
+    const syncTitle = () => {
+      const label = main.querySelector("h1")?.textContent?.trim();
+      const next = label ? `${label} · COST` : "COST";
+      if (document.title !== next) document.title = next;
+    };
+    syncTitle();
+    const observer = new MutationObserver(syncTitle);
+    observer.observe(main, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+
   const toggleTheme = () => setTheme((previous) => previous === "dark" ? "light" : "dark");
 
   return (

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppShell } from "./AppShell";
 
@@ -7,6 +7,7 @@ afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("dark");
   window.localStorage.removeItem("cost-theme");
+  document.title = "";
 });
 
 const trips = [{ id: "trip-a", title: "합성 여행" }];
@@ -126,5 +127,26 @@ describe("Plush UI audit regressions", () => {
     // would throw on the removed shell ref. Dispatching must be a no-op.
     expect(() => fireEvent.keyDown(document, { key: "Escape" })).not.toThrow();
     expect(details.open).toBe(false);
+  });
+
+  it("gives each screen a unique page title from its heading (#6)", async () => {
+    const { rerender } = render(
+      <AppShell role="owner" trips={trips} path="/trips">
+        <h1>여행</h1>
+      </AppShell>,
+    );
+    await waitFor(() => expect(document.title).toBe("여행 · COST"));
+    rerender(
+      <AppShell role="owner" trips={trips} path="/">
+        <h1>정산 현황</h1>
+      </AppShell>,
+    );
+    await waitFor(() => expect(document.title).toBe("정산 현황 · COST"));
+    rerender(
+      <AppShell role="owner" trips={trips} path="/board">
+        <h1>합성 여행</h1>
+      </AppShell>,
+    );
+    await waitFor(() => expect(document.title).toBe("합성 여행 · COST"));
   });
 });
