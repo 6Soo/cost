@@ -18,7 +18,7 @@ type PageProps = {
 };
 
 function tripHref(id: string): string {
-  return `/ui/board?${new URLSearchParams({ tab: id }).toString()}`;
+  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
 }
 
 function tripState(trip: TripSummary & { kind?: 'trip' | 'quarter' }): string {
@@ -73,7 +73,7 @@ export function HomePage({ bootstrap }: PageProps) {
             {data?.updated_at ? `마지막 갱신 ${new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(data.updated_at))}` : '여행별 손익과 실제 자동화 실행 상태'}
           </p>
         </div>
-        <a className="cost-home__all-trips" href="/ui/trips">여행 전체 보기</a>
+        <a className="cost-home__all-trips" href="/trips">여행 전체 보기</a>
       </header>
 
       {error && <InlineNotice tone="error" title="정산 현황을 불러오지 못했습니다">{error}</InlineNotice>}
@@ -84,7 +84,7 @@ export function HomePage({ bootstrap }: PageProps) {
             <p className="cost-eyebrow">여행별 손익</p>
             <h2 id="cost-home-trips-title">최근 여행</h2>
           </div>
-          <a href="/ui/trips">모든 여행</a>
+          <a href="/trips">모든 여행</a>
         </div>
         {loading && !data ? <Loading label="여행 현황 불러오는 중" /> : trips.length ? (
           <div className="cost-home__trip-grid">

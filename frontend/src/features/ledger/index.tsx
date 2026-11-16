@@ -245,7 +245,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   return (
     <main className="cost-ledger">
       <header className="cost-ledger__header">
-        <div className="cost-ledger__breadcrumbs"><a href="/ui/trips">여행</a><span aria-hidden="true">/</span><span>장부</span></div>
+        <div className="cost-ledger__breadcrumbs"><a href="/trips">여행</a><span aria-hidden="true">/</span><span>장부</span></div>
         <div className="cost-ledger__title-row">
           <div>
             <h1>{currentTrip ? tripLabel(currentTrip) : '여행 장부'}</h1>

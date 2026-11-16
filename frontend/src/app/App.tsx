@@ -132,7 +132,7 @@ export function ComponentGallery() {
 }
 
 export function App({ role = "owner", trips = [], path, onTripSelect, children }: AppProps) {
-  const currentPath = path ?? (typeof window === "undefined" ? "/ui/" : window.location.pathname);
+  const currentPath = path ?? (typeof window === "undefined" ? "/" : window.location.pathname);
   return (
     <AppShell role={role} trips={trips} path={currentPath} onTripSelect={onTripSelect}>
       {children ?? <ComponentGallery />}

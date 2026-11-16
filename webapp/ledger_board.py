@@ -3545,13 +3545,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         resolve_role(self.headers, self._cookies())
         from . import plush_ui
-        if plush_ui.owns_route(parsed.path):
+        if plush_ui.owns_route(parsed.path) or parsed.path in plush_ui.PRIMARY_ROUTES:
             from . import ledger_board as board_module
             try:
-                plush_ui.dispatch(self, parsed, board=board_module)
+                if plush_ui.dispatch_primary(self, parsed, board=board_module):
+                    return
+                if plush_ui.dispatch(self, parsed, board=board_module):
+                    return
             except Exception as exc:
                 self._phase7_refuse(exc)
-            return
+                return
         if parsed.path == '/my-actions':
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED'}, code=403)

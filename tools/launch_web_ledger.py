@@ -255,6 +255,7 @@ def main(argv=None) -> int:
         session_secret = _read_session_secret_file(session_path)
         os.environ["WEBLEDGER_SESSION_SECRET"] = session_secret
         os.environ["WEBLEDGER_PUBLIC_BASE_URL"] = PUBLIC_BASE_URL
+        os.environ["WEBLEDGER_PRIMARY_UI"] = "1"
 
         checkout_str = str(checkout)
         if checkout_str not in sys.path:

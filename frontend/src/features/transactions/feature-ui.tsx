@@ -64,7 +64,9 @@ export function useResource<T>(url: string) {
 }
 
 function uiHref(path: string, params?: URLSearchParams) {
-  const pathname = `/ui${path.startsWith("/") ? path : `/${path}`}`;
+  const pathname = path.startsWith("/") ? path : `/${path}`;
+  // The historical participant correction link uses ?trip without a view.
+  if (pathname === "/participants" && params?.has("trip")) params.set("view", "links");
   return params && [...params.keys()].length ? `${pathname}?${params.toString()}` : pathname;
 }
 
@@ -412,6 +414,7 @@ function DataCell({ row, column }: { row: Record<string, unknown>; column: Colum
   try {
     const url = new URL(value, window.location.origin);
     if (url.origin !== window.location.origin || !["/ota/booking", "/board", "/row", "/cards/all"].includes(url.pathname) || url.username || url.password || url.hash) return <>—</>;
+    if (["/board", "/cards/all"].includes(url.pathname)) url.searchParams.set("legacy", "1");
     return <a className="cost-button cost-button-quiet" href={`${url.pathname}${url.search}`}>{column.label}</a>;
   } catch { return <>—</>; }
 }

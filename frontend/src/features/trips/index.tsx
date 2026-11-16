@@ -45,7 +45,7 @@ function compareIntegerStrings(left: string, right: string): number {
 }
 
 function ledgerHref(id: string): string {
-  return `/ui/board?${new URLSearchParams({ tab: id }).toString()}`;
+  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
 }
 
 export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {
@@ -82,10 +82,15 @@ export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {
       key: 'title',
       header: '여행',
       cell: (trip: TripListItem) => (
+        <>
         <a className="cost-trips__trip-link" href={ledgerHref(trip.id)} title={trip.title}>
           <strong>{trip.title}</strong>
           <span>{humanDate(trip.starts_on)}–{humanDate(trip.ends_on)}</span>
         </a>
+        {bootstrap.role === 'owner' && trip.kind !== 'quarter' && (
+          <a href={`/trips?${new URLSearchParams({ state: stateFor(trip), legacy: '1' })}#manage-${encodeURIComponent(trip.id)}`}>여행 정보 수정</a>
+        )}
+        </>
       ),
     },
     { key: 'status', header: '상태', cell: (trip: TripListItem) => <span className="cost-trips__status">{statusLabel(trip)}</span> },
