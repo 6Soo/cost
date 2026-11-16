@@ -113,7 +113,7 @@
 - 목적: 환불 짝 도출(`app.partial_refund`)과 OTA↔카드 연결 풀이(`app.ota_payments.match_ota_payment_events`)의 계산 주체를 Python에서 Rust(`cost-core::links`)로 바꾼다. 같은 결과를 두 곳에서 만들지 않는다.
 - 실행 주체: 운영 담당 세션(한 세션). 소유자 승인 지점은 아래 표시. 전환 1회, 이후 배포 창마다 대조.
 - 개정 이력: 2026-11-14 · 2차 부분 신설 · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U12~U14. 2026-11-14 · 환불 짝 쓰기 전환 코드와 스위치 이름 확정.
-- 상태: **환불 짝 스위치 코드가 있다(기본 Python, opus 검수 대상). OTA 연결 스위치와 `ledger.py` 묶음 판정 배선은 아직 없다.** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
+- 상태: **환불 짝 스위치 코드가 있다(기본 Python, opus 검수 대상). OTA 연결 스위치 부분도 구현돼 있다 — `app/core_ota_links.py`·`app/core_links.py`의 단일 `WEBLEDGER_LINKS_PRODUCER` 스위치(기본 Python, `rust`만 Rust, 미설정·그 밖의 값은 Python)와 `costcore links ota`·`costcore shadow-links --ota-input`, 입력 포착 `tools/core_bridge/ota_input.py`. `ledger.py` 묶음 판정 배선은 아직 없다(환불 작업자 진행 중 — 미완으로 유지).** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
 
 ## 전환이 바꾸는 것과 바꾸지 않는 것
 
