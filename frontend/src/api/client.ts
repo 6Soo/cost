@@ -20,8 +20,12 @@ export type ActionJson<T> = { kind: "json"; data: T };
 export type ActionResult<T> = ActionJson<T> | ActionBlob | ActionRedirect;
 export type ActionValue = string | number | boolean | Blob | Array<string | number | boolean | Blob> | null | undefined;
 
-function checkedUrl(path: string): URL {
-  if (typeof path !== "string" || !path.startsWith("/api/") || path.startsWith("//")) {
+const ACCOUNT_ACTION_PATHS = new Set(["/access/applications", "/access/decision", "/access/logout"]);
+
+function checkedUrl(path: string, accountAction = false): URL {
+  if (typeof path !== "string" ||
+      (!path.startsWith("/api/") && !(accountAction && ACCOUNT_ACTION_PATHS.has(path))) ||
+      path.startsWith("//")) {
     throw new ApiError("INVALID_API_PATH", 0, "허용된 API 경로가 아닙니다.");
   }
 
@@ -82,8 +86,7 @@ async function send<T>(url: URL, init: RequestInit, responseKind: ActionDescript
     if (response.redirected) {
       throw new ApiError("UNEXPECTED_REDIRECT", response.status, "다운로드 경로가 바뀌었습니다.");
     }
-    const textBody = await response.text();
-    return { kind: "blob", blob: new Blob([textBody], { type: response.headers.get("content-type") || "application/octet-stream" }) };
+    return { kind: "blob", blob: await response.blob() };
   }
 
   if (responseKind === "redirect") {
@@ -154,7 +157,7 @@ export async function executeAction<T>(
   if (action.disabled) {
     throw new ApiError("ACTION_DISABLED", 0, action.reason || "이 동작을 사용할 수 없습니다.");
   }
-  const url = checkedUrl(action.href);
+  const url = checkedUrl(action.href, action.method === "POST");
   if (!(action.method === "GET" || action.method === "POST") ||
       !(action.encoding === "json" || action.encoding === "form" || action.encoding === "multipart") ||
       !(action.csrf === "header" || action.csrf === "field" || action.csrf === "none") ||

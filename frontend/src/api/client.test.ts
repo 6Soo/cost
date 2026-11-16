@@ -134,4 +134,33 @@ describe("Plush authenticated API client", () => {
       pathname: "/api/board/tsv", search: "?tab=trip-a&q=lodging&kind=expense",
     });
   });
+
+  it("preserves non-text download bytes", async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0, 0xff, 0x80, 0x01]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(bytes)));
+    const result = await executeAction(exportDownloadAction("binary-job"));
+    expect(result.kind).toBe("blob");
+    if (result.kind === "blob") {
+      expect(new Uint8Array(await result.blob.arrayBuffer())).toEqual(bytes);
+    }
+  });
+
+  it("allows only the three existing account POST actions", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const base: ActionDescriptor = {
+      id: "account", label: "계정", href: "/access/logout", method: "POST",
+      encoding: "json", csrf: "header", response: "json",
+    };
+    for (const href of ["/access/applications", "/access/decision", "/access/logout"]) {
+      await executeAction({ ...base, href }, {}, "synthetic-csrf");
+    }
+    for (const href of ["/access/admin", "/access/logout/", "/access/logout?next=elsewhere"]) {
+      await expect(executeAction({ ...base, href }, {}, "synthetic-csrf"))
+        .rejects.toMatchObject({ code: "INVALID_API_PATH" });
+    }
+    await expect(executeAction({ ...base, method: "GET", encoding: "form", csrf: "none" }))
+      .rejects.toMatchObject({ code: "INVALID_API_PATH" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });
