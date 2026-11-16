@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-17 — M4 UI-0 React 프런트 수락 검증·간극 종결 운영 배포 완료
+
+- **배포:** 공식 도구 `tools/deploy_verified_release.ps1 -Apply` exit0, actual `fddbb8c600800b0612300514daea3a7a70c5f217`, Previous `d5b77717ccfb9d50242b6e29464f8bd59766a71c`. **continuous code-only**(ledger-route.json 존재→switch_continuous_release, -BackupProducts 미사용). backend8752→**8751**·gateway8790. 추적1902파일 blob불일치0·dist 3파일(index-BwmfHmXQ.css·index-0E-k9Uco.js·index.html) 복사 전후 SHA-256 일치·runtime SHA verified·listener1·보호14표 전환 후 불변·health/ready200·비인증 보호API401. prepared_before_stop·drained·worker_switched·core_writers VERIFIED. 금융 apply NOT_RUN·마이그레이션·Google 자동 쓰기 없음.
+- **후보/검수:** M4 본문 `4d338374`(독립 검수 PASS)에 main `df636b90`(M3 PR985, 이미 승인)을 clean re-merge한 `fddbb8c6`. PR983 병합 `aa9c45e1`. 독립 gpt-6.1-sol medium 최종 SHA **PASS(findings0)**. 병합 무결성: 4d338374 대비 프런트·브라우저 수락 시험 diff 없음, df636b90 대비 M3 core_bridge·기준 시험 diff 없음. 표적: vitest 23파일141·타입0·build·브라우저 렌더16·백엔드26·M3 기준8 통과(검수자 독립 재실행).
+- **수락 간극 종결(1·2·3차 독립검수 FAIL→genuine 강화, 약화 아님):** #6 화면별 고유 `<title>`(AppShell document.title MutationObserver, 주요 6화면 실측). #3 셀 수준 전체값 접근 — overflow-wrap 속성만 보고 인정하지 않고 실제 줄바꿈(white-space)·클리핑·스크롤 공개(셀·중간 조상 hidden 클리핑 부재+컨테이너 실제 overflow 시만)·title 전체 값 포함 시만 인정. 잘림 반례 회귀 5변별. #3 잘림 수정(320px totals 2열 328px>288px → ≤390px 1열). 검수자 별도 Chromium 반례 5종 거부·실제 장부/여행 5폭 genuine 통과 확인.
+- **Rust/설정 보존:** `costcore-e4e5dd67.exe` SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c`·links_producer=rust·classification_writer=rust·나머지 config 불변.
+- **화면 검증 구분:** on-disk dist 해시==빌드 일치 확인. 익명 자산 프로브는 401(인증 활성, 우회 금지) — 인증 화면 렌더는 로그인 필요로 미수행, 합성 미리보기 브라우저 수락 검증(16종)과 구분.
+- **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-fddbb8c6….json`·`continuous-switch-fddbb8c6….json`·`release-audit-fddbb8c6….json`, worktree `.local-archive/m4-ui-deploy-20261117/`(review-evidence·protection-before/after·verify_deploy). staging은 검증된 `stage_release.py`(git archive+blob 검증+dist 복사) 재사용. **다음 PreviousSha=fddbb8c6**(다른 배포 없으면). 소유권 자유·보류 없음. 문서 후속 때문에 재배포하지 않는다. 잔여 부가 렌더·P-03/P-04 서버 대조·스크린리더/실기기는 [계약 지도](design/m4-ui0-contract-map-20261117.md) 참조.
+
 ## 2026-11-17 04:42 — 원행 대조 공통 코드 배포·77건 교정·4건 신규 기장 완료
 
 - **코드 배포:** PR982/merge `a88776e6`, 검수 코드·실제 운영 `e4e5dd67c72ee3b9aa3201167b797010cbb97997`, Previous `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`. 공식 도구 exit0, backend8751/gateway8790, Board·Worker 같은 릴리스. 추적1888 blob불일치0·보호14표 불변·health/ready200·보호API401. 프런트 소스는 이전 actual과 동일해 검증된 dist를 보존했다.
