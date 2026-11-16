@@ -74,6 +74,8 @@ type AssignmentResponse = {
   assignment: Record<string, unknown>;
 };
 
+const CANDIDATE_IDENTITY_MISMATCH = "후보 응답의 예약번호 또는 여행 ID가 조회한 값과 다릅니다. 다시 조회해 주세요.";
+
 const API = {
   nameSearch: "/api/flight-passengers/name-search",
   candidates: "/api/flight-passengers/candidates",
@@ -179,6 +181,16 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
   const [savedProposals, setSavedProposals] = useState<Record<string, boolean>>({});
   const candidateGeneration = useRef(0);
 
+  function invalidateCandidateLookup() {
+    candidateGeneration.current += 1;
+    setCandidateData(null);
+    setSelectedCandidates({});
+    setSavedProposals({});
+    setCandidateBusy(false);
+    setCandidateError("");
+    setCandidateMessage("");
+  }
+
   async function searchReservations(offset: number, sourceRevision: string | null) {
     const query = name.trim();
     setSearchError("");
@@ -270,6 +282,12 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
       const params = new URLSearchParams({ booking_ref: booking, tour_id: externalTourId });
       const result = await getJSON<CandidateResponse>(`${API.candidates}?${params.toString()}`);
       if (requestGeneration !== candidateGeneration.current) return;
+      if (result.booking_ref !== booking || result.tour_id !== externalTourId) {
+        setCandidateData(null);
+        setSelectedCandidates({});
+        setCandidateError(CANDIDATE_IDENTITY_MISMATCH);
+        return;
+      }
       setCandidateData(result);
       setSavedProposals({});
     } catch (error) {
@@ -293,6 +311,12 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
 
   async function saveCandidate(passenger: PassengerProposal) {
     if (!candidateData) return;
+    if (candidateData.booking_ref !== candidateBookingRef.trim() || candidateData.tour_id !== tourId.trim()) {
+      setCandidateData(null);
+      setSelectedCandidates({});
+      setCandidateError(CANDIDATE_IDENTITY_MISMATCH);
+      return;
+    }
     const candidateReferenceId = selectedCandidates[passenger.proposal_id];
     if (!candidateReferenceId) {
       setCandidateError("COST에 연결할 참가자를 먼저 선택해 주세요.");
@@ -328,6 +352,7 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
 
   const outerBlocked = candidateData?.cancellation_status === "CANCELLED" ||
     candidateData?.cancellation_status === "CONFLICT" || candidateData?.evidence_conflict;
+  const candidateIdentityLocked = candidateBusy || Boolean(assigningProposal);
 
   return (
     <section className="cost-panel" aria-label="항공권 참가자 연결" style={{ display: "grid", gap: "16px", marginBlock: "16px" }}>
@@ -373,7 +398,7 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
                 {row.cancelled || row.cancellation_status === "CANCELLED"
                   ? <p className="e-feature-status">취소된 항공권 예약 자료입니다.</p> : null}
               </div>
-              <button type="button" className="cost-button cost-button-secondary" disabled={candidateBusy}
+              <button type="button" className="cost-button cost-button-secondary" disabled={candidateIdentityLocked}
                 onClick={() => { void loadCandidates(row.booking_ref); }}>
                 후보 확인
               </button>
@@ -395,14 +420,22 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
           <label className="e-feature-field" htmlFor="flight-candidate-booking" style={{ flex: "1 1 180px", minWidth: 0 }}>
             <span>항공권 예약번호</span>
             <input id="flight-candidate-booking" name="booking_ref" type="search" value={candidateBookingRef}
-              autoComplete="off" onChange={(event) => setCandidateBookingRef(event.currentTarget.value)} />
+              autoComplete="off" disabled={candidateIdentityLocked}
+              onChange={(event) => {
+                setCandidateBookingRef(event.currentTarget.value);
+                invalidateCandidateLookup();
+              }} />
           </label>
           <label className="e-feature-field" htmlFor="flight-reservation-tour" style={{ flex: "1 1 220px", minWidth: 0 }}>
             <span>예약 시스템 여행 ID</span>
             <input id="flight-reservation-tour" name="tour_id" type="search" value={tourId}
-              autoComplete="off" onChange={(event) => setTourId(event.currentTarget.value)} />
+              autoComplete="off" disabled={candidateIdentityLocked}
+              onChange={(event) => {
+                setTourId(event.currentTarget.value);
+                invalidateCandidateLookup();
+              }} />
           </label>
-          <button type="submit" className="cost-button cost-button-secondary" disabled={candidateBusy}>
+          <button type="submit" className="cost-button cost-button-secondary" disabled={candidateIdentityLocked}>
             {candidateBusy ? "후보 조회 중…" : "후보 조회"}
           </button>
         </form>
@@ -411,6 +444,9 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
         {candidateBusy ? <p role="status">예약 명단과 대조하고 있습니다…</p> : null}
         {candidateData ? (
           <section aria-label="참가자 후보 결과" style={{ display: "grid", gap: "12px", minWidth: 0 }}>
+            <p className="e-feature-status">
+              조회 기준 · 예약번호 {candidateData.booking_ref} · 예약 시스템 여행 ID {candidateData.tour_id}
+            </p>
             {candidateData.stale_assignments?.length ? (
               <p className="e-feature-status">이전 COST 연결의 항공권 근거가 변경됐습니다. 현재 자료를 확인해 주세요.</p>
             ) : null}
@@ -445,7 +481,7 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
                         aria-label={`${kindLabel(candidate.kind)} ${candidate.name_kr}`}
                         value={candidate.reference_id}
                         checked={selectedCandidates[passenger.proposal_id] === candidate.reference_id}
-                        disabled={blocked || alreadySaved || assigningProposal === passenger.proposal_id}
+                        disabled={blocked || alreadySaved || Boolean(assigningProposal)}
                         onChange={() => setSelectedCandidates((current) => ({
                           ...current, [passenger.proposal_id]: candidate.reference_id,
                         }))} />
@@ -453,7 +489,7 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
                     </label>
                   ))}
                   {candidates.length && !blocked ? (
-                    <button type="button" className="cost-button" disabled={alreadySaved || assigningProposal === passenger.proposal_id}
+                    <button type="button" className="cost-button" disabled={alreadySaved || Boolean(assigningProposal)}
                       onClick={() => { void saveCandidate(passenger); }}>
                       {assigningProposal === passenger.proposal_id ? "COST에 저장 중…"
                         : alreadySaved ? "COST 내부 연결 저장됨"
@@ -466,7 +502,7 @@ export function FlightTools({ bootstrap, search }: FlightToolsProps) {
           </section>
         ) : null}
         {candidateMessage ? <p role="status" className="e-feature-status">{candidateMessage}</p> : null}
-        {candidateData ? <button type="button" className="cost-button cost-button-quiet" disabled={candidateBusy}
+        {candidateData ? <button type="button" className="cost-button cost-button-quiet" disabled={candidateIdentityLocked}
           onClick={() => { void loadCandidates(candidateData.booking_ref); }}>
           후보 다시 불러오기
         </button> : null}

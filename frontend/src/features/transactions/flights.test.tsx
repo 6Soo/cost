@@ -112,14 +112,18 @@ describe("FlightTools active flight passenger APIs", () => {
 
   it("loads candidates with the separate reservation tour ID and saves only an explicit COST link", async () => {
     const calls: Array<{ url: URL; init?: RequestInit; body?: Record<string, unknown> }> = [];
+    let resolveAssignment!: (value: Response) => void;
+    const pendingAssignment = new Promise<Response>((resolve) => { resolveAssignment = resolve; });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin);
       const call = { url, init, body: init?.body ? JSON.parse(String(init.body)) : undefined };
       calls.push(call);
       if (url.pathname === "/api/flight-passengers/name-search") return response(firstSearchPage);
-      if (url.pathname === "/api/flight-passengers/candidates") return response(candidateResponse);
+      if (url.pathname === "/api/flight-passengers/candidates") {
+        return response({ ...candidateResponse, tour_id: url.searchParams.get("tour_id") });
+      }
       if (url.pathname === "/api/flight-passengers/assign") {
-        return response({ code: "OK", assignment: { candidate_reference_id: "candidate-synthetic-b" } });
+        return pendingAssignment;
       }
       throw new Error(`Unexpected synthetic request: ${url.pathname}`);
     }));
@@ -137,7 +141,12 @@ describe("FlightTools active flight passenger APIs", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /합성 김알파 동행/ }));
     fireEvent.click(screen.getByRole("button", { name: "선택한 참가자를 COST에 연결" }));
+
+    expect((screen.getByLabelText("항공권 예약번호") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("예약 시스템 여행 ID") as HTMLInputElement).disabled).toBe(true);
+    resolveAssignment(response({ code: "OK", assignment: { candidate_reference_id: "candidate-synthetic-b" } }));
     expect(await screen.findByText("COST 내부 연결을 저장했습니다. 실제 탑승 여부는 확인되지 않았습니다.")).toBeTruthy();
+    expect((screen.getByLabelText("항공권 예약번호") as HTMLInputElement).disabled).toBe(false);
 
     const assignment = calls.find((call) => call.url.pathname === "/api/flight-passengers/assign");
     expect(assignment?.init?.method).toBe("POST");
@@ -157,7 +166,9 @@ describe("FlightTools active flight passenger APIs", () => {
       const url = new URL(String(input), window.location.origin);
       calls.push(url);
       if (url.pathname === "/api/flight-passengers/name-search") return response(firstSearchPage);
-      if (url.pathname === "/api/flight-passengers/candidates") return response(candidateResponse);
+      if (url.pathname === "/api/flight-passengers/candidates") {
+        return response({ ...candidateResponse, tour_id: url.searchParams.get("tour_id") });
+      }
       throw new Error(`Unexpected synthetic request: ${url.pathname}`);
     }));
 
@@ -174,6 +185,90 @@ describe("FlightTools active flight passenger APIs", () => {
     const candidateUrl = calls.find((url) => url.pathname === "/api/flight-passengers/candidates");
     expect(candidateUrl?.searchParams.get("trip")).toBeNull();
     expect(candidateUrl?.searchParams.get("tour_id")).toBe("reservation-tour-manual");
+  });
+
+  it("discards loaded candidates when the booking or reservation tour ID changes", async () => {
+    const candidateResults = [
+      candidateResponse,
+      { ...candidateResponse, booking_ref: "SYNTH-PNR-52" },
+    ];
+    let candidateRequests = 0;
+    let assignmentRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/flight-passengers/candidates") {
+        const result = candidateResults[Math.min(candidateRequests, candidateResults.length - 1)];
+        candidateRequests += 1;
+        return response(result);
+      }
+      if (url.pathname === "/api/flight-passengers/assign") {
+        assignmentRequests += 1;
+        return response({ code: "OK", assignment: {} });
+      }
+      throw new Error(`Unexpected synthetic request: ${url.pathname}`);
+    }));
+
+    render(<FlightTools {...props(new URLSearchParams(
+      "booking_ref=SYNTH-PNR-51&tour_id=reservation-tour-synthetic",
+    ))} />);
+    fireEvent.click(screen.getByRole("button", { name: "후보 조회" }));
+    expect(await screen.findByRole("radio", { name: /예약자 합성 김알파/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /예약자 합성 김알파/ }));
+
+    fireEvent.change(screen.getByLabelText("항공권 예약번호"), { target: { value: "SYNTH-PNR-52" } });
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "선택한 참가자를 COST에 연결" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "후보 조회" }));
+    expect(await screen.findByRole("radio", { name: /예약자 합성 김알파/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /예약자 합성 김알파/ }));
+    fireEvent.change(screen.getByLabelText("예약 시스템 여행 ID"), { target: { value: "reservation-tour-52" } });
+
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "선택한 참가자를 COST에 연결" })).toBeNull();
+    expect(candidateRequests).toBe(2);
+    expect(assignmentRequests).toBe(0);
+  });
+
+  it("locks lookup identity during candidate requests and shows the returned identity", async () => {
+    let resolveCandidates!: (value: Response) => void;
+    const pendingCandidates = new Promise<Response>((resolve) => { resolveCandidates = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/flight-passengers/candidates") return pendingCandidates;
+      throw new Error(`Unexpected synthetic request: ${url.pathname}`);
+    }));
+
+    render(<FlightTools {...props(new URLSearchParams(
+      "booking_ref=SYNTH-PNR-51&tour_id=reservation-tour-synthetic",
+    ))} />);
+    fireEvent.click(screen.getByRole("button", { name: "후보 조회" }));
+
+    expect((screen.getByLabelText("항공권 예약번호") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("예약 시스템 여행 ID") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "후보 조회 중…" }) as HTMLButtonElement).disabled).toBe(true);
+
+    resolveCandidates(response(candidateResponse));
+    expect(await screen.findByRole("radio", { name: /예약자 합성 김알파/ })).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "조회 기준 · 예약번호 SYNTH-PNR-51 · 예약 시스템 여행 ID reservation-tour-synthetic",
+    );
+    expect((screen.getByLabelText("항공권 예약번호") as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("rejects candidate data whose returned booking or tour identity differs from the lookup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response({
+      ...candidateResponse,
+      booking_ref: "SYNTH-PNR-OTHER",
+    })));
+
+    render(<FlightTools {...props(new URLSearchParams(
+      "booking_ref=SYNTH-PNR-51&tour_id=reservation-tour-synthetic",
+    ))} />);
+    fireEvent.click(screen.getByRole("button", { name: "후보 조회" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("후보 응답의 예약번호 또는 여행 ID가 조회한 값과 다릅니다.");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
   });
 
   it("shows an unavailable source as an error state instead of an empty successful search", async () => {
