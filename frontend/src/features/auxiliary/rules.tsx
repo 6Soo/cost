@@ -13,7 +13,13 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "ready"; dialog: AnyRecord; conversation: AnyRecord; rule: AnyRecord | null };
 
-type PreviewState = AnyRecord & { apply_existing: boolean; apply_future: boolean };
+type PreviewState = AnyRecord & {
+  apply_existing: boolean;
+  apply_future: boolean;
+  caseId: string;
+  ruleId: string;
+  ruleVersion: string;
+};
 
 const CONDITION_LABELS: Record<string, string> = {
   merchant_normalized: "가맹점",
@@ -217,6 +223,13 @@ export function RulesPage({ bootstrap, search, nav }: RulesViewProps) {
         catch { rule = null; }
       }
       if (!active) return;
+      const loadedRuleId = scalar(conversation.rule_id || rule?.rule_id);
+      const loadedRuleVersion = scalar(rule?.version ?? rule?.rule_version ?? conversation.rule_version);
+      setPreview((current) => current && (
+        current.caseId !== caseId
+        || current.ruleId !== loadedRuleId
+        || current.ruleVersion !== loadedRuleVersion
+      ) ? null : current);
       setNote(scalar(asRecord(dialog.draft).note));
       setAnswers({});
       setDirectAnswers({});
@@ -321,13 +334,20 @@ export function RulesPage({ bootstrap, search, nav }: RulesViewProps) {
   const pending = turnDraft(conversation);
   const pendingRule = pending.draft;
   const ruleId = scalar(conversation.rule_id || savedRule.rule_id);
+  const ruleVersion = scalar(savedRule.version ?? savedRule.rule_version ?? conversation.rule_version);
+  const currentPreview = preview
+    && preview.caseId === caseId
+    && preview.ruleId === ruleId
+    && preview.ruleVersion === ruleVersion
+    ? preview
+    : null;
   const questions = rows(dialog.questions);
   const turns = rows(conversation.turns);
   const dialogState = scalar(dialog.dialog_state);
   const conversationState = scalar(conversation.state);
   const displayRule = Object.keys(savedRuleBody).length ? savedRuleBody : pendingRule || asRecord(dialog.draft);
   const draftSummary = summarizeRuleDraft({ rule: displayRule });
-  const previewCounts = asRecord(preview?.counts);
+  const previewCounts = asRecord(currentPreview?.counts);
 
   return (
     <main className="e-feature-page e-rules-page">
@@ -343,7 +363,10 @@ export function RulesPage({ bootstrap, search, nav }: RulesViewProps) {
       <form className="e-rules-case-picker cost-panel" onSubmit={updateCase}>
         <label className="e-feature-field">
           <span>규칙 대화 사례 ID</span>
-          <input value={caseId} onChange={(event) => setCaseId(event.currentTarget.value)} autoComplete="off" />
+          <input value={caseId} disabled={busy} onChange={(event) => {
+            setPreview(null);
+            setCaseId(event.currentTarget.value);
+          }} autoComplete="off" />
         </label>
         <button type="submit" className="cost-button" disabled={!caseId.trim() || busy}>사례 열기</button>
       </form>
@@ -534,25 +557,32 @@ export function RulesPage({ bootstrap, search, nav }: RulesViewProps) {
                   const result = await postJSON<AnyRecord>("/api/classification/rules/preview", {
                     rule_id: ruleId, apply_existing: applyExisting, apply_future: applyFuture,
                   }, bootstrap.csrf);
-                  setPreview({ ...result, apply_existing: applyExisting, apply_future: applyFuture });
+                  setPreview({
+                    ...result,
+                    apply_existing: applyExisting,
+                    apply_future: applyFuture,
+                    caseId,
+                    ruleId,
+                    ruleVersion,
+                  });
                   const counts = asRecord(result.counts);
                   return `영향 미리보기 · 포함 ${resultCount(counts.included_rows)}건 · 제외 ${resultCount(counts.excluded_rows)}건`;
                 }, false)}>
                 영향 미리보기
               </button>
               {!applyExisting && !applyFuture ? <p className="e-feature-hint">적용할 범위를 하나 이상 선택해 주세요.</p> : null}
-              {preview ? (
+              {currentPreview ? (
                 <>
                   <dl className="e-feature-record-list">
                     <div className="e-feature-record-line"><dt>포함</dt><dd>{resultCount(previewCounts.included_rows)}건</dd></div>
                     <div className="e-feature-record-line"><dt>제외</dt><dd>{resultCount(previewCounts.excluded_rows)}건</dd></div>
                     <div className="e-feature-record-line"><dt>일치</dt><dd>{resultCount(previewCounts.matched_rows)}건</dd></div>
                   </dl>
-                  {previewTableRows(preview.candidates).length ? (
+                  {previewTableRows(currentPreview.candidates).length ? (
                     <div className="e-feature-table-wrap" role="region" aria-label="영향 미리보기 후보 표" tabIndex={0}>
                       <table className="e-feature-table" aria-label="영향 미리보기 후보">
                         <thead><tr><th scope="col">행</th><th scope="col">이동 전</th><th scope="col">이동 후</th><th scope="col">금액</th></tr></thead>
-                        <tbody>{previewTableRows(preview.candidates).map((row, index) => (
+                        <tbody>{previewTableRows(currentPreview.candidates).map((row, index) => (
                           <tr key={scalar(row.row_id) || index}>
                             <td>{scalar(row.row_id)}</td><td>{scalar(row.from_tab_id) || "귀속 없음"}</td>
                             <td>{scalar(row.to_tab_id) || "귀속 없음"}</td><td>{scalar(row.amount_krw) || "—"}</td>
@@ -561,19 +591,27 @@ export function RulesPage({ bootstrap, search, nav }: RulesViewProps) {
                       </table>
                     </div>
                   ) : <p className="e-feature-hint">포함할 기존 행이 없습니다.</p>}
-                  {previewTableRows(preview.excluded).length ? (
+                  {previewTableRows(currentPreview.excluded).length ? (
                     <section className="e-rules-excluded"><h3>제외된 행</h3>
-                      <ul>{previewTableRows(preview.excluded).map((row, index) => <li key={scalar(row.row_id) || index}>{scalar(row.row_id)} · {scalar(row.reason)}</li>)}</ul>
+                      <ul>{previewTableRows(currentPreview.excluded).map((row, index) => <li key={scalar(row.row_id) || index}>{scalar(row.row_id)} · {scalar(row.reason)}</li>)}</ul>
                     </section>
                   ) : null}
-                  {preview.apply_existing || preview.apply_future ? (
+                  {currentPreview.apply_existing || currentPreview.apply_future ? (
                     <button type="button" className="cost-button" disabled={busy}
                       onClick={() => void runAction(async () => {
-                        const candidateIds = previewTableRows(preview.candidates).map((row) => scalar(row.row_id)).filter(Boolean);
+                        if (
+                          currentPreview.caseId !== caseId
+                          || currentPreview.ruleId !== ruleId
+                          || currentPreview.ruleVersion !== ruleVersion
+                        ) {
+                          setPreview(null);
+                          throw new Error("사례 또는 규칙이 변경되어 영향 미리보기를 다시 확인해야 합니다.");
+                        }
+                        const candidateIds = previewTableRows(currentPreview.candidates).map((row) => scalar(row.row_id)).filter(Boolean);
                         const payload: Record<string, unknown> = {
-                          preview_id: scalar(preview.preview_id),
-                          apply_existing: preview.apply_existing,
-                          apply_future: preview.apply_future,
+                          preview_id: scalar(currentPreview.preview_id),
+                          apply_existing: currentPreview.apply_existing,
+                          apply_future: currentPreview.apply_future,
                         };
                         if (candidateIds.length) payload.selected_row_ids = candidateIds;
                         const result = await mutate("/api/classification/rules/apply", payload);
