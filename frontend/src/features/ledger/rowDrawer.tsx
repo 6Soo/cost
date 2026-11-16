@@ -102,14 +102,8 @@ function RowActionForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState(requestId);
-  const [changeMode, setChangeMode] = useState<'exception' | 'rule_change'>('exception');
   const actionHref = internalHref(action.href);
   const revision = detail.expected_revision;
-  const requiresChangeMode = Boolean(
-    actionHref?.startsWith('/api/rows/')
-    && actionHref.endsWith('/save')
-    && !fields.some((field) => field.name === 'change_mode'),
-  );
   const encoding = (action as ActionDescriptor & { encoding?: string }).encoding;
   const canSubmit = Boolean(actionHref?.startsWith('/api/'))
     && action.method === 'POST'
@@ -137,7 +131,6 @@ function RowActionForm({
     });
     // Use the dedicated API concurrency token even if a descriptor also lists it.
     payload.expected_revision = revision;
-    if (requiresChangeMode) payload.change_mode = changeMode;
     if (typeof payload.client_request_id !== 'string' || !payload.client_request_id.trim()) {
       payload.client_request_id = clientRequestId;
     }
@@ -202,20 +195,6 @@ function RowActionForm({
           </FormField>
           );
         })}
-      {requiresChangeMode && (
-        <FormField id={`row-edit-${action.id}-change-mode`} label="변경 이유" required>
-          <Select
-            id={`row-edit-${action.id}-change-mode`}
-            value={changeMode}
-            required
-            disabled={pending}
-            onChange={(event) => setChangeMode(event.currentTarget.value as 'exception' | 'rule_change')}
-          >
-            <option value="exception">예외 사항</option>
-            <option value="rule_change">규칙 변경</option>
-          </Select>
-        </FormField>
-      )}
       <div className="cost-ledger__entry-actions">
         <ActionButton type="button" variant="secondary" onClick={onCancel} disabled={pending}>취소</ActionButton>
         <ActionButton type="submit" variant="primary" pending={pending} pendingLabel="저장 중" disabled={!canSubmit}>저장</ActionButton>
