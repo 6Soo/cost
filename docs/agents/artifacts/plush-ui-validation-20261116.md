@@ -1,5 +1,13 @@
 # Plush UI 구현·검증 현황
 
+## 최종 운영 수락 — eacc3bc7
+
+- 정확 SHA `eacc3bc73104425202cfeece0ec52e6b4e1b7aa8` 독립 sol medium APPROVE 후 공식 배포 exit0. runtime SHA 일치·1858파일 blob불일치0·보호14표불변·health/ready200·비인증 보호API401. 이전 운영1f436426에서 backend8752로 전환했다.
+- 실제 로그인 운영4경로(`/ui/`, 영수증, Google, 계정)에서 main/heading/nav 정상, 오류알림0·넘침0. bootstrap/ready/글꼴200. 운영 JS/CSS/HTML SHA-256 모두3개 일치. 비로그인 curl UI/bootstrap401, Python urllib은 edge403으로 구분. 고객 값·화면 캡처·금융 apply·Google 쓰기 없음.
+- 공식 증거 `D:/WebLedgerHost/releases/deploy-evidence-eacc3bc73104425202cfeece0ec52e6b4e1b7aa8.json` 및 로컬 `.agents/deploy-eacc-v12/`를 보존했다. 아래 전환 전 절들은 당시 상태의 검사 이력이다. 결과 문서만 같은 PR971에서 검수·병합하며 재배포하지 않는다.
+- 코드/검사 범위와 성능·실기기·스크린리더 제한은 아래 기록을 유지한다.
+
+
 ## 최종 코드 수락 — 운영 전환 준비
 
 - 코드 후보 `a92c0b8773971d9abb71db131e070e46482c1f4f`에 C 후보 identity `a47f2f55`와 E 미저장 예약/집계 `a92c0b87` 수정을 포함했다. 조회 대상 ID 변경 시 이전 항공권 후보를 폐기하고, 미저장 예약 draft가 있으면 이전 저장 계획을 반영하지 못한다. 참가자 고유 수입 행 집계와 기존 이름·별칭·여행 교정/미연결 수입 검토 접근도 보존한다.
