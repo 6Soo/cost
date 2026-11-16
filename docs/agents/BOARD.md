@@ -7,14 +7,14 @@
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
 | PLUSH UI-0~6 | IN_PROGRESS | 최신 사용자 승인: 모든 작업 재개와 운영 배포. UI/API 통합, 프런트 10건·Python 30건 통과, 합성 390/1440px 두 테마 확인. B/D/C/E 계약 보완·영수증 선행 배포 SHA 통합·영향 검사·최종 SHA 독립 검수·배포 대기. [실행 계약](artifacts/plush-ui-implementation-contract-20261116.md), [검증 현황](artifacts/plush-ui-validation-20261116.md). 고객 원본 변경 제외 |
-| RCP-A: Paseo runtime | PARTIAL (Terra 실제 판독 성공·새 기본값 배포 전) | 후속 사용자 지시로 기본 codex/gpt-6.1-terra high. 합성 사진의 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 운영은11267cd0이며 새 기본값 영향 검사·독립 검수·배포 진행 |
+| RCP-A: Paseo runtime | COMPLETE (Terra high 운영 기본값·실제 합성 판독 검증) | 1f436426 배포. 운영 catalog Codex/Terra/high/selectable=true. 합성 사진 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 일반 Codex/기존 Claude 이력 보존 |
 | RCP-B: 영속 작업·장부 | COMPLETE (구현·검사·운영 배포) | 영속 결과·revision·원자적 반영·멱등·인증 API를11267cd0로 배포. 실제 고객 장부 apply는 미실행 |
-| RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 모델 선택·사진/결과 교정·복귀·선택 반영·PDF 원본 UI 통합. 기존 TaskSpace44 합성 근거 보존, 현재 사용자 제어라 재조작 없음 |
-| RCP-Q: 통합·검수 | COMPLETE (배포 게이트) | broad1443+107subtests, receipt delta217, release guard delta32, 실패0/skip0; 정확 SHA별 sol medium APPROVE. 실모델 성공은 RCP-A 외부 차단 |
+| RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 1f436426에서 선택 모델/추론과 과거 작업 실제값을 동적으로 표시. 기존 사진/결과 교정·복귀·선택 반영·PDF 원본 UI 유지. TaskSpace44 사용자 제어 보존, 신규 동작은 JS 실행 합성 검증 |
+| RCP-Q: 통합·검수 | COMPLETE (Terra 배포 게이트) | 표적51, 기준 영향524+26subtests, 최종delta83, 실패0/skip0; 최종1f436426 sol medium APPROVED. 실제 합성Terra high 성공·native 도구차단 확인 |
 | 영수증 변경 요구와 질문 | COMPLETE | 사용자 요청·3개 답변 반영. 승인된 사진 지원 구독 모델·관리 프롬프트·선택 내역 일괄 반영 확정 |
 | 영수증 흐름 설계 | COMPLETE (구현 승인) | [설계](../design/receipt-paseo-workflow-20261116.md): 동적 목록·사진 첨부·영속 작업·복귀 검수·실제 장부 반영·수락 기준. 사용자가 다수 Luna xhigh 병렬 구현을 승인했으며 실제 구현 상태는 RCP-A~Q를 따른다 |
 | 판정 규칙·정본 연결 | COMPLETE (문서 작성) | SPEC §7.1, RCPT-020·022 개정/031 신설, CODE_GAPS에 현 코드 차이와 미구현 상태 기록 |
-| 영수증 운영 배포 | COMPLETE | PR970·972, 공식 도구로11267cd0/8752 배포. 별도 신선 범위 백업·복원 PASS, 보호14표 불변,1764파일 blob불일치0, health/ready200·비인증 영수증API401. 첫 시도 실패와 공식 rollback은 운영 기록에 명시 |
+| 영수증 운영 배포 | COMPLETE | 최신 PR973, 공식 도구로1f436426/8751 배포. 보호14표 불변,1767파일 blob불일치0, health/ready200·비인증 영수증API401. 이전 배포/복구·백업 근거는 운영 기록 보존 |
 
 ## 이전 요청 완료
 
