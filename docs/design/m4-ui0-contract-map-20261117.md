@@ -10,10 +10,10 @@
 | 기준 SHA | `7ec9d3ae98198b02c89dc7efc4c6fbd4b7179b6b` (Merge PR #978) |
 | Node / npm | v24.22.1 / 11.19.1 |
 | 의존성 설치 | `npm ci` — 179개 패키지 |
-| 단위·통합 시험 | `vitest run --no-file-parallelism` — **20개 파일 / 126개 시험 통과, 실패 0** |
+| 단위·통합 시험 | `vitest run --no-file-parallelism` — **21개 파일 / 130개 시험 통과, 실패 0** |
 | 타입 검사 | `tsc --noEmit` — **오류 0** |
 | 프로덕션 빌드 | `vite build` — **성공**(6228 모듈, `dist/` 산출) |
-| 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건), `glossary.test.ts`(3건·#12), `ledger-not-found.test.tsx`(2건·#10) |
+| 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건), `glossary.test.ts`(3건·#12), `ledger-not-found.test.tsx`(2건·#10), `render-prerequisites.test.ts`(4건·#3·#7 전제) |
 | 백엔드 수락 시험 | `webapp/tests/test_plush_api.py::test_unknown_trip_and_row_answer_404`(#10 서버 404), 전체 22건 통과 |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
@@ -64,7 +64,7 @@ npm run typecheck
 | --- | --- | --- | --- |
 | 1 관리 탭 href | ✅ 시험 | shell-accessibility: 계정·권한(`/access/admin`)·Google 장부(`/google-ledger`)·검수 결과(`/review`) 링크가 정확한 href. 따옴표 누락 버그는 Python 문자열 문제였고 React는 정상. | 없음(회귀 시험 유지) |
 | 2 사본 안내 문구 | 🔎 코드 + ✅ API | ledger `copyForGoogle`→`/api/board/tsv`(row_count·total_krw), 클립보드+대체 textarea. client.test.ts가 TSV 계약 검증. 안내가 실제 복구 수단을 가리킴. | 안내 문구·링크 존재 렌더 확인(🖥) |
-| 3 표 잘림 | 🔎 코드 | `base.css` td/th `overflow-wrap:anywhere`(줄바꿈). `text-overflow:ellipsis`·`table-layout:fixed` 없음. `nowrap`은 헤더·금액(tabular-nums)·시각숨김에만. | 320·390·640~720px에서 `scrollWidth>clientWidth` 셀 전체값 접근 렌더 시험(🖥, P-07) |
+| 3 표 잘림 | ✅ 전제 시험 + 🖥 | `render-prerequisites.test.ts`: 잘림 기법(`text-overflow:ellipsis`·`table-layout:fixed`) 0건 + 장부 셀·모바일 행 `overflow-wrap:anywhere` 줄바꿈 검증. `nowrap`은 헤더·금액(tabular-nums)·시각숨김에만. | 320·390·640~720px에서 `scrollWidth>clientWidth` 셀 전체값 접근 **브라우저 렌더** 시험(UI-2, 🖥, P-07) |
 | 4 다크 글자 대비 | ✅ 시험 | contrast.test.ts: 라이트·다크 글자 15쌍 모두 ≥4.5:1(최저 4.57 = 라이트 보조글자/패널). 실패 0. | 없음(정적). 컴포넌트별 렌더 대비는 🖥 |
 | 5 OTA 펼침 단서 | 🔎 코드 | React OTA는 "추가 조회" 펼침 대신 **페이지 매김+상세 링크**로 대체(펼침 패턴 없음). 존재하는 펼침은 `details/summary`(네이티브 단서)·google `aria-expanded`. | OTA 화면 렌더 확인(🖥) |
 
@@ -73,7 +73,7 @@ npm run typecheck
 | # | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 6 제목·브랜드·식별자 | ✅ 부분 + 🖥 | shell-accessibility: 브랜드 마크(`.cost-brand`) 1회. 화면별 제목은 `titleForPath`+각 페이지 h1. 내부 식별자 대신 라벨 사용. | topbar "COST/제목"은 위치 표시(브랜드 마크 아님) — 모바일 브랜드 중복 여부 렌더 확인(🖥) |
-| 7 글꼴 스택 하나 | 🔎 코드 | tokens.css `--font-sans`·`--plush-font` 단일 Pretendard 스택. | 화면별 계산 글꼴·본문 크기·행간 동일 렌더 시험(🖥). 폰트 woff2는 `webapp/static/fonts/`에 있고 CSS는 `/assets/fonts/` 참조 — 호스트 정적 경로 매핑 런타임 확인(🗄), 미로드 시 폴백 스택 |
+| 7 글꼴 스택 하나 | ✅ 전제 시험 + 🖥 | `render-prerequisites.test.ts`: `--font-sans`==`--plush-font` 동일 단일 Pretendard 스택 + `@font-face` 정의 검증. | 화면별 계산 글꼴·본문 크기·행간 동일 **브라우저 렌더** 시험(🖥). 폰트 woff2는 `webapp/static/fonts/`에 있고 CSS는 `/assets/fonts/` 참조 — 호스트 정적 경로 매핑 런타임 확인(🗄), 미로드 시 폴백 스택 |
 | 8 입력 테두리·높이·닫기 | ✅ 대비 + 🔎 코드 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. | 입력 높이 계산 렌더 시험(🖥) |
 | 9 건너뛰기 첫 초점 | ✅ 시험 | shell-accessibility: 건너뛰기 링크가 DOM 순서 첫 초점, `#cost-main`(tabIndex -1)이 본문 포함. | 실제 Tab 순서 브라우저 확인(🖥, jsdom은 Tab 이동 미구현) |
 | 10 없는 여행 404 | ✅ 시험 | 서버: `plush_api._trip_for_query`가 없는 여행 id에 **404 RESOURCE_NOT_FOUND**("없는 여행이에요") 반환 — `test_plush_api.py::test_unknown_trip_and_row_answer_404` 검증(없는 행도 404). 클라이언트: ledger가 404 시 h1 **'여행을 찾을 수 없음'** — `ledger-not-found.test.tsx` 검증(404 아닌 오류는 일반 제목 유지). 없는 주소→"화면을 찾을 수 없습니다"(main.tsx). | 브라우저 404 화면 렌더는 UI-6(🖥) |
