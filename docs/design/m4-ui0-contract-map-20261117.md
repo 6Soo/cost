@@ -18,6 +18,7 @@
 | 서버 권한·정적 경로 확인 | `test_plush_integration.py` **4 passed**(P-01 viewer 거부·bootstrap allowlist·합계), `test_ledger_design.py::test_only_the_allowed_font_assets_are_served` **1 passed**(#7 폰트 정적 경로 allowlist) — 현재 브랜치 실측 |
 | 브라우저 렌더 수락 시험 | `webapp/tests/test_plush_render_browser.py` **12 passed**(실제 Chromium·합성 미리보기·`WEBLEDGER_PRIMARY_UI=1`): 셸 부팅·브랜드 1회, #3 가로 overflow 0(320·390·640·720px), #7 계산 글꼴 Pretendard 로드, #9 건너뛰기 첫 초점+Tab 본문 이동, #11 행 서랍 Esc 닫기, #13 주 행동 1개, **#2 클립보드 거부→서버 산출 TSV 대체 textarea 복구**(합성 canonical Google 소스 설치·`install_canonical_source` 재사용), #8 입력 높이 48px 계산, LOW 모바일 입력 글꼴 ≥16px·금액 `inputmode=numeric`, #10 없는 주소→"화면을 찾을 수 없습니다"(`/ui/` 미등록 경로), #5 OTA 페이지 매김 구조(펼침 없음) |
 | 렌더 간극 수정 | **#3 잘림**: 320px에서 24px 가로 overflow 실측(일반 금액에서도) → 원인 `.cost-ledger__totals` 2열×`min-width:140px`+gap+padding=328px 최소폭이 320px 내용 영역(288px) 초과. `ledger.css` ≤390px에서 totals 1열로 수정 → 6시험 통과·프런트 130시험 회귀 0 |
+| main 통합 | `origin/main` `a88776e6`(PR982) 병합(`e1300d56`, index.tsx·ledger.css auto-merge 충돌 없음). 통합 후 **23파일 / 140시험 통과**·타입0·빌드 성공·브라우저 렌더 12 passed. main이 도입한 셸 상단바 위치 표시 `.cost-topbar-location` 모바일 ellipsis는 내비게이션 크롬(표 셀 아님·전체 제목 페이지 h1 존재)이라, #3 전제 시험의 ellipsis 금지를 **장부 표 CSS 범위**로 정렬(수락 #3 대상은 데이터 표 셀). `table-layout:fixed` 전역 금지·장부 셀 줄바꿈 검사는 유지 |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
 

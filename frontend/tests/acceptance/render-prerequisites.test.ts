@@ -27,8 +27,12 @@ const ledger = css.find((c) => c.file.endsWith("ledger.css"))?.text ?? "";
 const tokens = css.find((c) => c.file.endsWith("tokens.css"))?.text ?? "";
 
 describe("수락 #3 표 잘림 전제", () => {
-  it("잘림 기법(text-overflow:ellipsis·table-layout:fixed)을 쓰지 않는다", () => {
-    expect(allCss).not.toMatch(/text-overflow\s*:\s*ellipsis/);
+  it("장부 표에 잘림 기법(text-overflow:ellipsis·table-layout:fixed)을 쓰지 않는다", () => {
+    // 수락 #3의 대상은 데이터 표 셀이다(요구사항: "표 셀이 잘리지 않거나 전체 값 볼 수단").
+    // 셸 상단바 위치 표시(.cost-topbar-location)의 모바일 ellipsis는 main이 도입한
+    // 내비게이션 크롬으로 표 셀이 아니며, 전체 제목은 페이지 h1에 그대로 있다.
+    // 따라서 ellipsis 금지는 장부 표 CSS에 적용하고, table-layout:fixed는 전역 금지한다.
+    expect(ledger).not.toMatch(/text-overflow\s*:\s*ellipsis/);
     expect(allCss).not.toMatch(/table-layout\s*:\s*fixed/);
   });
 
