@@ -1,4 +1,5 @@
 import type { AdminResponse } from "../../api/types";
+import { GooglePage } from "./google";
 import { StructuredFeaturePage, type PageProps } from "../transactions/feature-ui";
 
 const ADMIN_NAV = [
@@ -48,6 +49,7 @@ export function AdminPage(props: PageProps) {
   // The current /api/plush/admin projection is owner-only for every view.
   // Keep direct viewer URLs from issuing a request the server will forbid.
   if (props.bootstrap.role !== "owner") return <OwnerOnly />;
+  if (view === "google") return <GooglePage {...props} />;
 
   const params = new URLSearchParams({ view });
   const trip = safeQuery(props.search.get("trip") || props.search.get("tab"));
