@@ -26,6 +26,7 @@
 | 코어 1차 전환(P1 작성자 Python→Rust) | [코어 1차 전환](core-cutover.md) | 운영 사본 C1·C2 재측정 통과. Python 유지, 재전환 승인 ① 대기 |
 | OTA 근거 기존 중복 압축 | [OTA 근거 압축](ota-evidence-compaction.md) | 도구·사본 예행까지. 운영 반영은 운영 담당이 배포 창에서 |
 | 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 및 Windows OCR→로컬 Paseo Qwen4 경로. #966의 Qwen4 경로는 병합·합성 검증까지이며 운영 배포 전 |
+| Paseo 작업공간 종료·정리 | [작업공간 종료·정리](workspace-closeout.md) | 완료 알림·결과 보존·통합 검수 뒤 agent/workspace archive와 잔여 자원 재확인 |
 
 새 절차서는 이 폴더에 `<작업이름>.md`로 만든다. 검증한 범위와 운영 실행 여부를 각 문서에 구분해 적는다.
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import importlib
 import json
 import os
 import re
@@ -38,6 +39,7 @@ ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
+PDF_PATH = re.compile(r"^/api/receipts/pdf/([0-9a-f]{64})$")
 VISION_JOB = re.compile(r"^/api/receipts/vision/([0-9a-f]{32})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
@@ -163,7 +165,8 @@ def enabled() -> bool:
 
 
 def owns_route(path: str) -> bool:
-    return path in ROUTES or IMAGE_PATH.match(path) is not None or VISION_JOB.match(path) is not None
+    return (path in ROUTES or IMAGE_PATH.match(path) is not None or PDF_PATH.match(path) is not None
+            or VISION_JOB.match(path) is not None)
 
 
 def _store_path() -> Path:
@@ -426,6 +429,16 @@ def image_bytes(path: Path, sha: str) -> bytes:
     body = (_images_dir(path) / f"{sha}.bin").read_bytes()
     if hashlib.sha256(body).hexdigest() != sha:
         raise ValueError('IMAGE_CORRUPT')
+    return body
+
+
+def pdf_bytes(path: Path, sha: str) -> bytes:
+    data = load(path)
+    if not any(pdf['sha256'] == sha for pdf in data['pdfs']):
+        raise KeyError('PDF_NOT_FOUND')
+    body = (_pdfs_dir(path) / f"{sha}.pdf").read_bytes()
+    if hashlib.sha256(body).hexdigest() != sha:
+        raise ValueError('PDF_CORRUPT')
     return body
 
 
@@ -949,6 +962,15 @@ def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = No
 
 @_storage_errors
 def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False, query=None) -> bool:
+    try:
+        receipt_workflow = importlib.import_module(f"{__package__}.receipt_workflow")
+    except ModuleNotFoundError as error:
+        if error.name != f"{__package__}.receipt_workflow":
+            raise
+        receipt_workflow = None
+    if receipt_workflow is not None and receipt_workflow.owns_route(parsed.path):
+        return receipt_workflow.dispatch(handler, parsed, raw=raw, csrf=csrf, board=board,
+                                        is_owner=is_owner, query=query)
     if not owns_route(parsed.path) or not enabled():
         return False
     if not is_owner:
@@ -968,6 +990,17 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         except ValueError:
             handler._send_json({"code": "IMAGE_CORRUPT"}, 409)
         return True
+    pdf = PDF_PATH.match(parsed.path)
+    if pdf and raw is None:
+        try:
+            handler._send_bytes(pdf_bytes(path, pdf.group(1)), "application/pdf")
+        except ReceiptStoreError:
+            raise
+        except (KeyError, OSError):
+            handler._send_json({"code": "PDF_NOT_FOUND"}, 404)
+        except ValueError:
+            handler._send_json({"code": "PDF_CORRUPT"}, 409)
+        return True
     if parsed.path == "/api/receipts/upload" and not local_receipt_ocr.enabled():
         handler._send_json({"code": "OCR_ENGINE_NOT_APPROVED",
                             "message": "글자를 읽는 엔진이 승인되지 않았습니다. 영역과 값을 직접 입력하세요."}, 501)
@@ -983,7 +1016,14 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 handler._send_json(state)
             return True
         if parsed.path == "/receipts":
-            handler._send(render_html(load(path), csrf, _trips(board)))
+            data = load(path)
+            params = query or {}
+            if (params.get("mode") or [""])[0] == "classic":
+                requested_image = (params.get("image") or [""])[0]
+                handler._send(render_html(data, csrf, _trips(board), image_sha=requested_image,
+                                          include_workflow=False))
+            else:
+                handler._send(render_html(data, csrf, _trips(board)))
         elif parsed.path == "/api/receipts":
             data = load(path)
             data.pop('drafts', None)
@@ -1664,14 +1704,15 @@ def _notes_html() -> str:
             "<ul id='learn-list'></ul></details>")
 
 
-def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
+def render_html(data: dict, csrf: str, trips: list | None = None, *, image_sha: str = "",
+                include_workflow: bool = True) -> str:
     from . import ui_components
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
     rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 사진을 분석하거나 직접 입력하세요.</td></tr>'
     holds = ''.join(_hold_html(h) for h in data['holds'])
-    latest = data['images'][-1] if data['images'] else ''
+    latest = image_sha if image_sha in data['images'] else (data['images'][-1] if data['images'] else '')
     pdf_by_sha = {pdf['sha256']: pdf for pdf in data.get('pdfs', [])}
     trip_names = {trip['id']: trip['name'] for trip in trips}
     def uploaded_page(sha: str, index: int, kind: str) -> str:
@@ -1679,7 +1720,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         count = f'등록된 영수증 {len(candidates)}건' if candidates else '등록된 영수증 없음'
         links = []
         for trip_id in dict.fromkeys(candidate.get('trip_id') or '' for candidate in candidates):
-            href = '/receipts?trip=' + quote(trip_id, safe='') + '#step-review' if trip_id else '#step-review'
+            href = '/receipts?mode=classic&trip=' + quote(trip_id, safe='') + '#step-review' if trip_id else '#step-review'
             name = trip_names.get(trip_id, '확인할 수 없는 여행') if trip_id else '여행 미지정'
             links.append(f"<a data-receipt-link href='{html.escape(href, quote=True)}'>"
                          f"{html.escape(name)} 영수증 확인</a>")
@@ -1738,7 +1779,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const editableFields='[data-trip],[data-merchant],[data-date],[data-total],[data-payment]';"
         "const reviewFields=editableFields+',[data-payee],[data-category]';"
         "const originalValues=new Map([...document.querySelectorAll(reviewFields)].map(input=>[input,input.value]));"
-        "let receiptBusy=false,allowReceiptReload=false;const lockControls=()=>{const controls=[...document.querySelectorAll('input,select,button')];"
+        "let receiptBusy=false,allowReceiptReload=false;const lockControls=()=>{const controls=[...document.querySelectorAll('#classic-receipt-tools input,#classic-receipt-tools select,#classic-receipt-tools button')];"
         "const disabled=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);"
         "return()=>controls.forEach((control,index)=>control.disabled=disabled[index])};"
         "const updateCandidate=(button,result)=>{const row=button.closest('tr');row.dataset.version=result.version;row.dataset.savedTrip=result.trip_id||'';"
@@ -1862,11 +1903,21 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         label="JPG·PNG·HEIC·PDF 파일을 선택하세요",
     ).replace('name="img-file"', 'name="img-file" id="img-file"', 1).replace(
         '<ul aria-live="polite"></ul>', '', 1)
+    workflow_panel = workflow_css = workflow_script = ""
+    if include_workflow:
+        from . import receipt_workflow_ui
+        workflow_panel = receipt_workflow_ui.render_panel(data, csrf, trips)
+        workflow_css = receipt_workflow_ui.WORKFLOW_CSS
+        workflow_script = receipt_workflow_ui.WORKFLOW_SCRIPT
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 처리</title>"
-            f"<style>{PAGE_CSS}</style></head><body>"
+            f"<style>{PAGE_CSS}{workflow_css}</style></head><body>"
             "<div id='receipt-page'><p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
-            "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
+            "<main><h1>영수증 처리</h1>"
+            + workflow_panel
+            + ("<div id='classic-receipt-tools'><h2 class='rw-legacy-heading'>기존 영수증 검수·직접 입력·복사</h2>"
+               if include_workflow else "<div id='classic-receipt-tools'>")
+            + "<p id='status' role='status' aria-live='polite'></p>"
             + workflow_steps
              + "<section id='step-trip'><h2>1. 여행 지정 (선택)</h2><div class='field'><label for='selected-trip'>여행</label>"
              "<select id='selected-trip'><option value=''>자동 분류 (사진 상단 여행명)</option>" + trip_options +
@@ -1911,8 +1962,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<option value='corporate_card'>법인카드</option></select></label> "
             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></div>"
             + (_notes_html() if ai else "") +
-             "</details></main></div>"
-            f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}{WORKFLOW_SCRIPT}</script></body></html>")
+              "</details></div></main></div>"
+            f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}{WORKFLOW_SCRIPT}{workflow_script}</script></body></html>")
 
 
 WORKFLOW_SCRIPT = r"""(()=>{

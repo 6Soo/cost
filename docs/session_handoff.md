@@ -8,6 +8,13 @@
 - **남은 일:** B/D/C/E의 기존 작업 폴더에서 후속 API 계약 수정·검증 진행. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`은 `webapp/tests/test_receipt_workflow_ui.py` 누락으로 selector 단계 실패; 통과로 기록하지 않는다. 영수증 최신 SHA 통합 후 재실행한다. Git 자료 보호 검사 차단 0건.
 - **배포 순서:** 별도 영수증 감독 `73dfaca3-7c22-4d37-897b-66f088af068e`가 `C:/AX/cost`의 영수증·배포·상태 문서를 소유하고 먼저 배포한다. 그 배포 SHA와 실제 API 계약을 받은 뒤 Plush에 통합, 영향 검사·최종 SHA 독립 검수·PR·`deploy_verified_release.ps1`·운영 smoke를 수행한다. 아직 Plush 운영 배포·완료를 주장하지 않는다. 원본 폴더와 사용자 변경은 보존한다.
 - **복구:** `.agents/plush-integration-checkpoint.json`, 합성 preview `.agents/plush_preview_v5.py`와 `.agents/plush-preview-v5/`, 브라우저 스크립트 `.agents/ego-*-v5.mjs`. preview는 임시 DB·임의 loopback 포트·worker/model 비활성 상태다. graphify 그래프와 실행 파일이 이 worktree에 없어 query/update는 실행할 수 없었다.
+## 2026-11-16 — 영수증 Paseo 흐름 통합 검수 완료(운영 배포 전)
+
+- **통합 커밋:** `291c44a7` (`feat(receipts): add local Paseo SDK bridge`). 로컬 Paseo provider/model catalog, 승인된 사진 입력 모델 필터, 고정 프롬프트·스키마 해시, 사진 첨부, run-key 멱등·복구, timeline 결과 회수·도구 차단·archive를 `tools/receipt_paseo_bridge.mjs`로 연결했다. `webapp/receipt_workflow.py`의 trailing whitespace도 제거해 diff 게이트를 통과시켰다.
+- **직접 검사:** `node --check tools/receipt_paseo_bridge.mjs` 통과. 영수증 표적 검사 **42 passed**(runtime, HTTP acceptance, backend, UI). 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 통과: **1,253 passed, 107 subtests passed**, Rust `costcore` release build 성공. 문서 diff/link 검사도 통과했다.
+- **실제 Paseo 확인:** catalog가 연결됨을 확인했고 provider 11개와 승인 가능한 Claude 사진 모델 5개를 읽었다. 합성 PNG로 `start → inspect → archive`를 실행했으며 provider가 `PASEO_PROVIDER_ERROR`를 반환했다. 로컬 timeline의 원인은 Claude 구독 결제 미납/갱신 필요였고, 코드·입력 오류가 아니다. 재호출하지 않고 차단 상태로 남긴다. 고객 원본·운영 DB·운영 포트는 사용하지 않았다.
+- **브라우저 검수:** 이전 C 작업자의 TaskSpace 44 합성 검수에서 retry/revision/재분석 링크/입력 보존을 확인한 증거를 보존한다. 현재 TaskSpace 44는 사용자 제어 상태라 ego-browser가 takeover를 거부했으며, 이 세션에서 재검수하지 않았다. C 소유 합성 preview PID 27156은 종료하지 않았다.
+- **상태/남은 일:** 승인된 범위의 코드·검사는 완료했지만 실제 provider 결과 검증은 구독 결제 상태가 해결될 때까지 PARTIAL이다. 운영 배포·push·PR·고객 자료 변경은 하지 않았다. 다음 재개 명령은 구독 상태 확인 후 합성 PNG로 `python` start/inspect를 다시 실행하고, 사용자가 TaskSpace 44 제어를 넘긴 경우에만 브라우저 검수를 재개하는 것이다. 사용자 미추적 `.qwen/`, `review-size-attempt4.md`, `.codex/`, AGENTS.md 변경은 보존한다.
 
 ## 2026-11-16 — Plush UI 전체 화면 설계 (문서 완료)
 
@@ -20,7 +27,8 @@
 ## 2026-11-16 — 영수증 Paseo 병렬 구현·감독
 
 - **감독 승계:** Paseo `77abc586-a18e-4b57-94f7-c9c8c3fa210e`가 인계 기록과 실제 worktree를 대조했다. 아래 최초 A/B native 작업자는 사용 한도로 실패했다. 복구 native `/root/receipt_runtime_recovery`, `/root/receipt_backend_recovery`도 초기화 대기에 머물러 중단한 뒤, 동일 worktree를 실제 실행 중인 Paseo Luna xhigh A `985d6162-2527-489c-991a-8d3165fc3013`, B `59274ce4-4e19-450a-8bb1-e98f64b99163`에 넘겼다. UI의 현재 소유자는 이어진 Paseo `1c99e24a-c577-488a-a0d4-48f8bea45095`다. 원래 폴더와 B의 미커밋 6개를 보존했다. 통합 HEAD는 아래 후속 커밋을 따르며 아직 신규 구현을 통합하지 않았다. 완료 검수·PR·배포를 주장하지 않는다.
-- **감독 추가 검사:** HTTP 수락 검사에 사진별 성공·실패·0건, 원본 결과 불일치 차단, 장부 커밋 후 workflow 응답 유실 복구를 추가했다(`d173bd85`). 현재는 문법 검사만 통과했으며 runtime 미도착으로 실행 전이다. UI 검수에서 편집 시작 revision 고정·저장 실패 자동 무한 재전송 문제를 지적해 C가 수정 중이다. ego-browser TaskSpace `44`, C의 합성 미리보기 `8799`를 재사용하며 감독 통합 preview 스크립트는 `.local-archive/receipt-paseo-implementation-20261116/supervisor_preview.py`에 준비했다(아직 미실행).
+- **후속 승계(17:17 KST):** Paseo A/B도 구독 한도로 중단돼 A `0d567726-1e72-41b0-bd75-3c67971a6cc9`, B `5a6024c1-248f-47a4-8ee5-e15ffa9fe7c1`로 자동 이어졌다. 실제 running·Luna xhigh·동일 worktree를 확인했다. 실패한 세션을 다시 실행하거나 새 작업자를 중복 배정하지 않는다.
+- **감독 추가 검사:** A의 Python API·관리 지시/스키마 해시·합성 단위검사 커밋 `4521c51d`를 통합 `2b2b292d`로 반영했고 감독 직접 **8 passed, skip0**를 확인했다. 실제 SDK bridge·사진 실호출은 아직 구현 중이다. HTTP 수락 검사는 현재 20건으로, 사진별 성공·실패·0건, 원본 불일치, 장부 커밋 후 workflow 응답 유실/GET 전 교정 차단, 법인카드 증빙·청구금액 불변, 두 번째 비용 쓰기 도중 오류 시 전체 rollback을 포함한다(`ee063e3f`). 실제 CardFlow 합성 원행·장부행 seed만 별도로 확인했고 HTTP 본 검사는 B/C 통합 전이다. UI 검수에서 revision 고정·저장 실패 무한 재전송·재분석 버튼 누락을 지적해 C가 수정 중이다. ego-browser TaskSpace `44`, C 합성 preview `8799`(C 소유 PID27156)를 유지한다. 감독의 통합 preview 스크립트는 `.local-archive/receipt-paseo-implementation-20261116/supervisor_preview.py`에 준비했다(미실행). 상세 다음 명령·소유자는 같은 폴더의 `SUPERVISOR_CHECKPOINT.md`에 남긴다.
 - **최신 승인:** 사용자가 작성 명세의 빠른 구현과 다수 Luna xhigh 병렬 위임을 지시했다. 이전의 문서까지만 범위는 갱신됐다. 이번에는 구현·합성 검사·PR 검수까지 진행하며 운영 배포·실제 고객 원본/운영 DB 변경은 하지 않는다.
 - **기준/통합:** 명세 완료 `7b0a37ef`, 병렬 계약 `33ef9112`, 통합 branch `integration/receipt-paseo-20261116`. 실행 명세는 [영수증 처리 변경](design/receipt-paseo-workflow-20261116.md), [파일/API 계약](agents/artifacts/receipt-paseo-implementation-contract-20261116.md)이다.
 - **A runtime:** native 협업 `/root/receipt_runtime_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_543d5980ddf9a7e5`, branch `feat/receipt-paseo-runtime-20261116`. 동적 목록·사진 첨부·제한 실행·결과 회수 담당.

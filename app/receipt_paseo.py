@@ -49,20 +49,11 @@ def _schema_bytes() -> bytes:
         raise PaseoError("PASEO_SCHEMA_MISSING") from None
 
 
-def _schema_text() -> str:
-    raw = _schema_bytes()
+def _managed_user_prompt(playbook: str, schema_bytes: bytes) -> str:
     try:
-        return raw.decode("utf-8")
+        schema_text = schema_bytes.decode("utf-8")
     except UnicodeError:
         raise PaseoError("PASEO_SCHEMA_INVALID") from None
-
-
-def managed_user_prompt() -> str:
-    """Return the playbook section and source schema, with a JSON-only output rule."""
-    try:
-        playbook = receipt_vision.playbook_prompt()
-    except receipt_vision.VisionUnavailable as error:
-        raise PaseoError("PASEO_PLAYBOOK_MISSING") from error
     old = "정해진 JSON 스키마로 StructuredOutput 하나만 낸다."
     new = "정해진 JSON 스키마를 따르는 JSON 객체 하나만 낸다."
     if old not in playbook:
@@ -73,23 +64,40 @@ def managed_user_prompt() -> str:
     return (
         playbook
         + "\n\n출력 스키마 원본 (JSON):\n"
-        + _schema_text().rstrip()
+        + schema_text.rstrip()
     )
+
+
+def _prompt_snapshot() -> dict[str, Any]:
+    """Read each managed source once so prompt and hashes describe the same bytes."""
+    try:
+        playbook = receipt_vision.playbook_prompt()
+    except receipt_vision.VisionUnavailable as error:
+        raise PaseoError("PASEO_PLAYBOOK_MISSING") from error
+    schema = _schema_bytes()
+    user_prompt = _managed_user_prompt(playbook, schema)
+    prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
+    metadata = {
+        "prompt_version": PROMPT_VERSION,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "schema_version": SCHEMA_VERSION,
+        "schema_sha256": hashlib.sha256(schema).hexdigest(),
+    }
+    return {"prompt": prompt, "user_prompt": user_prompt, "metadata": metadata, "schema": schema}
+
+
+def managed_user_prompt() -> str:
+    """Return the playbook section and source schema, with a JSON-only output rule."""
+    return _prompt_snapshot()["user_prompt"]
 
 
 def managed_prompt() -> str:
     """Exact system and user prompt text submitted to a new managed run."""
-    return SYSTEM_PROMPT + "\n\n" + managed_user_prompt()
+    return _prompt_snapshot()["prompt"]
 
 
 def prompt_metadata() -> dict[str, str]:
-    prompt = managed_prompt().encode("utf-8")
-    return {
-        "prompt_version": PROMPT_VERSION,
-        "prompt_sha256": hashlib.sha256(prompt).hexdigest(),
-        "schema_version": SCHEMA_VERSION,
-        "schema_sha256": hashlib.sha256(_schema_bytes()).hexdigest(),
-    }
+    return dict(_prompt_snapshot()["metadata"])
 
 
 def _node_executable() -> str:
@@ -158,11 +166,11 @@ def catalog(provider: str | None = None) -> dict[str, Any]:
     return value
 
 
-def _metadata_matches(expected: dict[str, Any] | None) -> dict[str, str]:
-    actual = prompt_metadata()
-    if expected is not None and expected != actual:
+def _metadata_matches(expected: dict[str, Any] | None) -> dict[str, Any]:
+    snapshot = _prompt_snapshot()
+    if expected is not None and expected != snapshot["metadata"]:
         raise PaseoError("PASEO_PROMPT_CHANGED")
-    return actual
+    return snapshot
 
 
 def _image(image_path: str | os.PathLike[str]) -> tuple[bytes, str]:
@@ -185,7 +193,8 @@ def start(image_path: str | os.PathLike[str], provider: str, model: str, *, run_
     """Start one asynchronous receipt run with the original photo and fixed prompt."""
     if not isinstance(run_key, str) or not _RUN_KEY.fullmatch(run_key):
         raise PaseoError("PASEO_RUN_KEY_INVALID")
-    metadata = _metadata_matches(expected_prompt_metadata)
+    source_snapshot = _metadata_matches(expected_prompt_metadata)
+    metadata = source_snapshot["metadata"]
     data, media_type = _image(image_path)
     model_row = next(
         (item for item in catalog(provider).get("models", [])
@@ -203,11 +212,18 @@ def start(image_path: str | os.PathLike[str], provider: str, model: str, *, run_
         "provider": provider,
         "model": model,
         "thinking": selected_thinking,
-        "prompt": managed_prompt(),
+        "prompt": source_snapshot["prompt"],
         "prompt_metadata": metadata,
         "source_sha256": hashlib.sha256(data).hexdigest(),
         "image": {"data": base64.b64encode(data).decode("ascii"), "mimeType": media_type},
     }
+    # Re-read immediately before dispatch. A change during catalog/image setup
+    # must not pair a pinned hash with a newer prompt or schema.
+    current_snapshot = _prompt_snapshot()
+    if (current_snapshot["metadata"] != metadata
+            or current_snapshot["prompt"] != request["prompt"]
+            or current_snapshot["schema"] != source_snapshot["schema"]):
+        raise PaseoError("PASEO_PROMPT_CHANGED")
     value = _bridge("start", request, timeout=RUN_TIMEOUT_SECONDS)
     if not isinstance(value, dict) or not isinstance(value.get("agent_id"), str) or not isinstance(
         value.get("workspace_id"), str
