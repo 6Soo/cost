@@ -162,6 +162,7 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
     if (nextTrip) url.searchParams.set("trip", nextTrip);
     else url.searchParams.delete("trip");
     url.searchParams.delete("tab");
+    url.searchParams.set("view", "links");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 

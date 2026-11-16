@@ -10,6 +10,20 @@ from webapp import access_control, ledger_board, plush_ui
 from webapp.tests.test_plush_ui import Handler, dist, http_ui  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def hosted_primary_mode(monkeypatch):
+    monkeypatch.setenv("WEBLEDGER_PRIMARY_UI", "1")
+
+
+def test_embedded_legacy_server_keeps_its_renderer(dist, monkeypatch):
+    monkeypatch.delenv("WEBLEDGER_PRIMARY_UI", raising=False)
+    handler = Handler()
+    handler.headers["Accept"] = "text/html"
+    board = SimpleNamespace(ACCESS_ENFORCEMENT=True, require_session=lambda *_: object())
+    assert not plush_ui.dispatch_primary(handler, urlsplit("/"), board=board, dist=dist)
+    assert handler.status is None
+
+
 @pytest.mark.parametrize("path", sorted(plush_ui.PRIMARY_ROUTES))
 def test_existing_browser_urls_serve_the_same_shell_without_redirect(dist, path):
     handler = Handler()

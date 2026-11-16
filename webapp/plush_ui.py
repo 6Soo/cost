@@ -6,6 +6,7 @@ existing authenticated APIs; this module never projects ledger data into HTML.
 from __future__ import annotations
 
 import mimetypes
+import os
 from pathlib import Path
 from urllib.parse import parse_qs, unquote
 
@@ -42,6 +43,10 @@ def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> boo
     still enforce the same login, role and financial protections.
     """
     if parsed.path not in PRIMARY_ROUTES:
+        return False
+    # Hosted composition enables the primary UI. Embedded legacy servers retain
+    # their existing renderer for integrations and rollback verification.
+    if os.environ.get("WEBLEDGER_PRIMARY_UI") != "1":
         return False
     if "text/html" not in handler.headers.get("Accept", "").lower():
         return False

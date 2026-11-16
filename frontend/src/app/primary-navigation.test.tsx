@@ -1,13 +1,26 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AuxiliaryLinksPage } from "../features/auxiliary/links";
+import type { Bootstrap } from "../api/types";
 import { AppShell } from "./AppShell";
 import { FeatureNav, DataRows } from "../features/transactions/feature-ui";
 import { queryForSearch } from "../features/transactions";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("canonical existing URLs", () => {
+  it("keeps participant linking mode in the bookmark after selecting a trip", async () => {
+    window.history.replaceState(null,"","/participants");
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify({participants:[],income_rows:[],configured:false}),{headers:{"content-type":"application/json"}})));
+    const trips=["a","b"].map(id=>({id:`trip-${id}`,title:`Synthetic ${id}`,kind:"trip" as const,previous:false,starts_on:"2026-11-10",ends_on:"2026-11-20",income:"0",expense:"0",profit:"0",closed:false,archived:false}));
+    const bootstrap:Bootstrap={role:"owner",csrf:"synthetic",trips,capabilities:[],receipt_enabled:false};
+    render(<AuxiliaryLinksPage bootstrap={bootstrap} path="/participants" search={new URLSearchParams()} nav={[]} view="participants"/>);
+    fireEvent.change(screen.getByRole("combobox",{name:"대조 여행 선택"}),{target:{value:"trip-b"}});
+    expect(window.location.pathname).toBe("/participants");
+    expect(new URLSearchParams(window.location.search).get("trip")).toBe("trip-b");
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("links");
+  });
   it("keeps desktop/mobile navigation and encoded trip links on existing addresses", () => {
     render(<AppShell role="owner" trips={[{id:"trip a&b",title:"합성 여행"}]} path="/trips"><h1>합성</h1></AppShell>);
     const links = screen.getAllByRole("link").map(link=>link.getAttribute("href"));
