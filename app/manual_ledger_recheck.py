@@ -17,14 +17,30 @@ def merchant_part(left, right):
     generic = {'hotel', 'hotels', '호텔', '주식회사', '유한회사', '이니시스',
                '나이스', '나이스정보통신', '숙박', '숙박비', '식당', '식비',
                '택시', '교통비', '항공료', '기타', '온라인', '주', 'the', 'and',
-               'nice', 'payments', 'payment', 'gateway', 'pg', 'inc', 'ltd', 'com'}
+               'nice', 'payments', 'payment', 'gateway', 'pg', 'inc', 'ltd', 'com',
+               'internet', 'tokyo', 'japan', 'jpn', 'jp', 'sgp'}
+    ordered = sorted(generic, key=len, reverse=True)
+    def distinctive(token):
+        # Card exports often concatenate PG/industry words without separators.
+        # Strip those boundary words before looking for any common fragment.
+        while token:
+            previous = token
+            for word in ordered:
+                if token.startswith(word):
+                    token = token[len(word):]
+                    break
+                if token.endswith(word):
+                    token = token[:-len(word)]
+                    break
+            if token == previous:
+                break
+        return token
     def normalize(value):
         value = unicodedata.normalize('NFKC', str(value or '')).casefold()
         for old, new in (('trip.com', '트립닷컴'), ('agoda', '아고다'),
                          ('rakuten', '라쿠텐'), ('booking.com', '부킹닷컴')):
             value = value.replace(old, new)
-        return ''.join(token for token in re.findall(r'[a-z0-9]+|[가-힣]+', value)
-                       if token not in generic)
+        return ''.join(distinctive(token) for token in re.findall(r'[a-z0-9]+|[가-힣]+', value))
     a, b = normalize(left), normalize(right)
     for size in range(min(len(a), len(b)), 1, -1):
         for index in range(len(a) - size + 1):

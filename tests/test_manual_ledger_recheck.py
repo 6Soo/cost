@@ -108,6 +108,10 @@ def test_matching_accepts_date_or_distinctive_merchant_with_same_amount():
     assert not same_transaction(dict(card,merchant='ONE HOTEL'),dict(original,cells=dict(B='26.05.01',C='OTHER HOTEL')))
     assert not same_transaction(dict(card,merchant='THE HOTEL'),dict(original,cells=dict(B='26.05.01',C='THE HOTELS')))
     assert not same_transaction(dict(card,merchant='NICE PAYMENT GATEWAY'),dict(original,cells=dict(B='26.05.01',C='OTHER PAYMENT GATEWAY')))
+    assert not same_transaction(dict(card,merchant='NICEPAYMENTGATEWAY'),dict(original,cells=dict(B='26.05.01',C='PAYMENTGATEWAY')))
+    assert not same_transaction(dict(card,merchant='THEHOTEL'),dict(original,cells=dict(B='26.05.01',C='THEHOTELS')))
+    assert not same_transaction(dict(card,merchant='THEHOTELALPHA'),dict(original,cells=dict(B='26.05.01',C='THEHOTELBETA')))
+    assert not same_transaction(dict(card,merchant='ONE TOKYO JPN'),dict(original,cells=dict(B='26.05.01',C='OTHER TOKYO JP')))
 
 
 def test_short_year_is_explicit_not_inferred_from_current_date():
