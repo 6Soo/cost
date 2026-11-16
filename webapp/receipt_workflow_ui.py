@@ -92,6 +92,7 @@ def render_panel(data: dict, csrf: str, trips: list[dict] | None = None) -> str:
         "<div class='rw-model-controls'><label for='rw-provider'>Provider</label><select id='rw-provider'><option value=''>Provider 선택</option></select>"
         "<label for='rw-model'>Model</label><select id='rw-model' disabled><option value=''>Provider를 먼저 선택하세요</option></select></div>"
         "<p id='rw-model-reason' class='rw-hint' aria-live='polite'>목록 탐색은 모델을 실행하지 않습니다.</p>"
+        "<p id='rw-selected-model' class='rw-hint' role='status' aria-live='polite'>선택 모델을 불러오는 중입니다.</p>"
         "<button type='button' id='rw-run-model' class='rw-button rw-primary' disabled>이 모델로 처리</button>"
         "<p class='rw-hint'>승인된 사진 처리 경로만 실행할 수 있습니다. 분석 지시는 관리되는 기본 설정을 사용합니다.</p>"
         "</section>"

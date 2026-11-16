@@ -6,7 +6,7 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
-| RCP-A: Paseo runtime | PARTIAL (운영 배포 완료·실모델 로그인 차단) | 최종11267cd0 배포, catalog 연결·합성 검증 통과. Claude loggedIn=false/subscriptionAuth=false로 실제 사진 판독 성공은 로그인 복구 후 검증 |
+| RCP-A: Paseo runtime | PARTIAL (Terra 실제 판독 성공·새 기본값 배포 전) | 후속 사용자 지시로 기본 codex/gpt-6.1-terra high. 합성 사진의 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 운영은11267cd0이며 새 기본값 영향 검사·독립 검수·배포 진행 |
 | RCP-B: 영속 작업·장부 | COMPLETE (구현·검사·운영 배포) | 영속 결과·revision·원자적 반영·멱등·인증 API를11267cd0로 배포. 실제 고객 장부 apply는 미실행 |
 | RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 모델 선택·사진/결과 교정·복귀·선택 반영·PDF 원본 UI 통합. 기존 TaskSpace44 합성 근거 보존, 현재 사용자 제어라 재조작 없음 |
 | RCP-Q: 통합·검수 | COMPLETE (배포 게이트) | broad1443+107subtests, receipt delta217, release guard delta32, 실패0/skip0; 정확 SHA별 sol medium APPROVE. 실모델 성공은 RCP-A 외부 차단 |
