@@ -69,6 +69,10 @@ python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --request-i
 - 여행 목적지는 열린 여행(시작일 2026-06-30 이후, 삭제·보관 아님)이어야 한다.
 - 분기 목적지는 `quarter:YYYY:Q` 형식이고 2026년 3분기 이후이며 그 거래의 결제일 분기와 같아야 한다. 항목은 `분기 기타비용`으로 강제한다.
 - 현재 귀속도 열린 분기(열린 여행 또는 2026년 3분기 이후 분기 목적지)여야 한다. 닫힌 분기 여행에서 꺼내거나 넣지 않는다. 같은 여행 안의 항목만 바꾸는 교정도 허용한다.
+- **PROC-073 원문 재대조 예외:** 사용자가 지시한 과거 Q2 자동 귀속의 명시적 재검수는 manifest의 `scope="q2_source_recheck"`와 `--source-review <보호 폴더>`를 함께 사용한다. `source_recheck.load`가 보호 폴더의 `manifest.json`에 나열한 원본 해시·원본 카드 파일 재파싱·카드 필드·이전 여행을 검증하고 공통 판정 규칙으로 목적지를 재계산한다. 교정 manifest의 목적지·항목·근거가 재계산 결과와 다르면 제외한다. 근거 문서의 `version=1`, `review_id`, `reviews` 및 각 행의 `transaction_id`, `card`, `before_tab`, `kind`, `basis`, `originals`는 필수다. `originals`는 보호 폴더 내부 상대 `path`, `sha256`, `role`을 가진다. 원본 역할은 `card_original`, `payment_confirmation`, `cancellation_confirmation`, `counter_evidence`, `manual_ledger`다.
+  - `payment_outside_trip`: 카드 이용일이 7월 이후이면서 기존 Q2 여행 종료 뒤인 자동 추론만 공통 날짜·지역 규칙으로 재판정한다. 실제 서비스 기간을 생성하지 않는다.
+  - `cancelled_booking_payment`: 실제 결제 원문과 취소 완료 원문, 같은 `booking_ref`/`cancelled_booking_ref`, `reservation_status="cancelled"`가 필요하다. 양수 결제 원액을 결제일 분기 기타비용으로 분류한다. Q2 목적지는 이 취소 사례에서만 허용된다. 메일 환불 안내를 실제 환불 원행으로 만들지 않는다.
+  - 원행 최초 생성의 자동 확인 표기와 이후 실제 사용자 수정 부재까지 확인한다. `actor=owner`와 `confirmed_by=owner`인 기장은 제외한다. 닫힌 Q1·실제 수동·P2·환불·원본·투영 보호 및 동일한 백업/복원/감사/재실행 게이트는 유지한다. 원본 지문은 교정 감사 이력에 포함된다.
 - 행별 제외 사유(미리보기 요약에 사유별 건수, 식별값·금액 없음):
   - `STALE` — source_hash·revision 불일치(검수 뒤 행이 바뀜).
   - `MANUAL_OR_USER_EXCEPTION` — 수동 결정·수동 출처·활성 검수 결정·화면 수동 덮어쓰기.

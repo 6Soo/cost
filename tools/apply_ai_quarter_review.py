@@ -29,6 +29,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host-root', type=Path, required=True)
     parser.add_argument('--manifest', type=Path)
+    parser.add_argument('--source-review', type=Path,
+                        help='Protected original-bound source recheck directory (PROC-073)')
     parser.add_argument('--request-id', required=True)
     parser.add_argument('--restore', action='store_true')
     parser.add_argument('--apply', action='store_true')
@@ -61,12 +63,19 @@ def main(argv=None):
                 plan = repair.restore_preview(conn, args.request_id)
             else:
                 trips, _ = load_context(conn, host)
-                plan = repair.preview(conn, trips, manifest)
+                evidence = None
+                if args.source_review:
+                    from app.source_recheck import load
+                    if args.source_review.resolve().is_relative_to(REPO_ROOT):
+                        raise ValueError('MANIFEST_IN_REPOSITORY')
+                    evidence = load(conn, trips, args.source_review)
+                plan = repair.preview(conn, trips, manifest, evidence=evidence)
             if args.apply and plan['digest'] != args.expected_digest:
                 raise ValueError('AI_REVIEW_PREVIEW_STALE')
             # Preview never runs a repair, even on an in-memory database.
             result = (repair.restore(conn, plan, args.request_id) if args.restore else
-                      repair.apply(conn, plan, trips, manifest, request_id=args.request_id)) if args.apply else plan['summary']
+                      repair.apply(conn, plan, trips, manifest, request_id=args.request_id,
+                                   evidence=evidence)) if args.apply else plan['summary']
             report = dict(status='APPLIED' if args.apply else 'PREVIEW', digest=plan['digest'], **result)
         return emit_report(report, args.report)
     except (OSError, ValueError, KeyError, sqlite3.Error, StoreError, OtaSourcesError) as exc:
