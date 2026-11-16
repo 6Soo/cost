@@ -133,7 +133,7 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
   const navItems = navWithTrip(nav, tripId);
   const legacyWorkflowHref = tripId
     ? `/participants?${new URLSearchParams({ trip: tripId }).toString()}`
-    : "/participants";
+    : "/participants?legacy=1";
 
   async function write(path: string, payload: Record<string, unknown>, success: string) {
     if (busy) return;
@@ -162,6 +162,7 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
     if (nextTrip) url.searchParams.set("trip", nextTrip);
     else url.searchParams.delete("trip");
     url.searchParams.delete("tab");
+    url.searchParams.set("view", "links");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 

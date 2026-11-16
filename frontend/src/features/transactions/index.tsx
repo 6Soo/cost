@@ -93,7 +93,7 @@ export function queryForSearch(path: string, view: string, query: URLSearchParam
 }
 
 function uiPathWithQuery(path: string, params: URLSearchParams) {
-  const target = path.startsWith("/") ? `/ui${path}` : `/ui/${path}`;
+  const target = path.startsWith("/") ? path : `/${path}`;
   return [...params.keys()].length ? `${target}?${params.toString()}` : target;
 }
 
