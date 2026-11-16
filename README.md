@@ -2,10 +2,11 @@
 
 카드 원본을 대사하고 OTA 근거와 여행을 연결해 지출 검토·교정·XLSX 출력을 돕는다. 최종 회계 정본은 Google 시트이며 COST가 자동으로 쓰지 않는다.
 
-[운영 장부](https://ledger.foresttour.kr/) · [카드 검토](https://ledger.foresttour.kr/import)
+[운영 장부](https://ledger.foresttour.kr/) · [카드 내역](https://ledger.foresttour.kr/import)
 
 | 필요한 정보 | 문서 |
 | --- | --- |
+| 전체 문서와 역할 찾기 | [문서 지도](docs/README.md) |
 | 처음 읽기·현재 정책·상세 명세 찾기 | [시작 안내](docs/COST_V3_START_HERE.md) |
 | 완료한 일·남은 일·다음 작업 경계 | [현재 상태](docs/session_handoff.md) |
 | 마지막 검증 릴리스·배포·복구 원칙 | [운영 기록](docs/operations.md) |

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python, SQLite, 기존 jsonschema, Codex CLI, Windows PowerShell.
 
-**Spec:** [통합 명세 §6](../../SPEC.md#6-p2-런타임), 2026-11-11 Fable D1 결정. 이 문서는 해당 승인 범위의 구현 순서이며 별도 정책 정본이 아니다.
+**Spec:** [통합 명세 §6](../../SPEC.md#6-서버-밖-p2-일괄-판정), 2026-11-11 Fable D1 결정. 이 문서는 해당 승인 범위의 구현 순서이며 별도 정책 정본이 아니다.
 
 ## 공통 제약
 
