@@ -6,14 +6,14 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
-| RCP-A: Paseo runtime | PARTIAL | SDK bridge 통합·합성 검사 통과. 11/16 재조회에서 Claude 구독 로그인 미확인으로 선택 차단. 실제 사진 판독 성공은 로그인 복구 후 검증 |
-| RCP-B: 영속 작업·장부 | COMPLETE (구현·합성 검사) | 서버 주도 처리·영속 결과·revision·원자적 반영·멱등·인증 API 통합, runtime/backend/UI/PDF 표적 98건·subtest15 통과 |
-| RCP-C: 웹 UI | IN_PROGRESS | Luna xhigh C: 모델 선택·복귀·사진과 결과 검수·선택 내역 반영 |
-| RCP-Q: 통합·검수 | IN_PROGRESS | 감독 세션: 계약 통합·표적/영향 검사·ego-browser 합성 수락·최종 SHA 별도 검수. 운영 배포는 요청 범위 밖 |
+| RCP-A: Paseo runtime | PARTIAL (운영 배포 완료·실모델 로그인 차단) | 최종11267cd0 배포, catalog 연결·합성 검증 통과. Claude loggedIn=false/subscriptionAuth=false로 실제 사진 판독 성공은 로그인 복구 후 검증 |
+| RCP-B: 영속 작업·장부 | COMPLETE (구현·검사·운영 배포) | 영속 결과·revision·원자적 반영·멱등·인증 API를11267cd0로 배포. 실제 고객 장부 apply는 미실행 |
+| RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 모델 선택·사진/결과 교정·복귀·선택 반영·PDF 원본 UI 통합. 기존 TaskSpace44 합성 근거 보존, 현재 사용자 제어라 재조작 없음 |
+| RCP-Q: 통합·검수 | COMPLETE (배포 게이트) | broad1443+107subtests, receipt delta217, release guard delta32, 실패0/skip0; 정확 SHA별 sol medium APPROVE. 실모델 성공은 RCP-A 외부 차단 |
 | 영수증 변경 요구와 질문 | COMPLETE | 사용자 요청·3개 답변 반영. 승인된 사진 지원 구독 모델·관리 프롬프트·선택 내역 일괄 반영 확정 |
 | 영수증 흐름 설계 | COMPLETE (구현 승인) | [설계](../design/receipt-paseo-workflow-20261116.md): 동적 목록·사진 첨부·영속 작업·복귀 검수·실제 장부 반영·수락 기준. 사용자가 다수 Luna xhigh 병렬 구현을 승인했으며 실제 구현 상태는 RCP-A~Q를 따른다 |
 | 판정 규칙·정본 연결 | COMPLETE (문서 작성) | SPEC §7.1, RCPT-020·022 개정/031 신설, CODE_GAPS에 현 코드 차이와 미구현 상태 기록 |
-| 영수증 운영 배포 | IN_PROGRESS | 최신 사용자 지시로 승인. PDF 원본 endpoint·운영 설정 opt-in 연결 통합, 신선 백업/복원·최종 SHA 독립 검수·배포 진행. 고객 원본 변경·Rust 전환 없음 |
+| 영수증 운영 배포 | COMPLETE | PR970·972, 공식 도구로11267cd0/8752 배포. 별도 신선 범위 백업·복원 PASS, 보호14표 불변,1764파일 blob불일치0, health/ready200·비인증 영수증API401. 첫 시도 실패와 공식 rollback은 운영 기록에 명시 |
 
 ## 이전 요청 완료
 
