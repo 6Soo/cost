@@ -28,7 +28,8 @@ if((Get-Content -LiteralPath (Join-Path $previous 'DEPLOYED_COMMIT') -Raw).Trim(
 $prior=Get-Content -LiteralPath (Join-Path $releaseRoot "deploy-evidence-$PreviousSha.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 if(-not $prior.runtime_sha_verified -or $prior.blob_mismatches -ne 0){throw 'PRIOR_RELEASE_UNVERIFIED'}
 $protected=Get-Content -LiteralPath (Join-Path $evidenceDir 'protection-before.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if(@($protected.PSObject.Properties | Where-Object {$_.MemberType -eq 'NoteProperty'}).Count -ne 13){throw 'PROTECTION_BASELINE_INVALID'}
+& 'D:\WebLedgerHost\venv\Scripts\python.exe' (Join-Path $PSScriptRoot 'verify_protected_release_state.py') --evidence-dir $evidenceDir --phase validate-baseline
+if($LASTEXITCODE -ne 0){throw 'PROTECTION_BASELINE_INVALID'}
 $task=Get-ScheduledTask -TaskName WebLedger-Board
 if($task.State -ne 'Running' -or !$task.Actions[0].Arguments.Contains($PreviousSha)){throw 'TASK_SHA_INVALID'}
 $backendPort=8751
@@ -64,7 +65,11 @@ try {
         $http[$route]=$code
         if(($route -in @('/healthz','/readyz') -and $code -ne 200) -or ($route -like '/api/*' -and $code -ne 401)){throw 'HTTP_SMOKE_FAILED'}
     }
-    & 'D:\WebLedgerHost\venv\Scripts\python.exe' (Join-Path $PSScriptRoot 'verify_protected_release_state.py') --evidence-dir $evidenceDir --phase after
+    $protectionArguments=@('--evidence-dir',$evidenceDir,'--phase','after')
+    foreach($table in @($review.allowed_empty_protected_tables)) {
+        if($table){$protectionArguments+=@('--allow-empty-table',[string]$table)}
+    }
+    & 'D:\WebLedgerHost\venv\Scripts\python.exe' (Join-Path $PSScriptRoot 'verify_protected_release_state.py') @protectionArguments
     if($LASTEXITCODE -ne 0){throw 'PROTECTED_TABLES_CHANGED'}
     if($sourceWasRunning -and (Get-ScheduledTask -TaskName WebLedger-SourceRefresh).State -ne 'Running'){throw 'SOURCE_TASK_NOT_RESUMED'}
     if($BackupProducts) {
@@ -72,7 +77,9 @@ try {
         $restore=Get-Content -LiteralPath (Join-Path $backup.FullName 'restore-evidence.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         if(!$restore.live_state_unchanged -or $restore.restored_server_started){throw 'FRESH_RESTORE_INVALID'}
     }
-    $evidence=[ordered]@{release_sha=$CandidateSha;prior_sha=$PreviousSha;tracked_files=$audit.tracked_files;blob_mismatches=0;runtime_sha_verified=$true;listener_count=1;backend_port=$backendPort;http_codes=$http;fresh_backup_restore=[bool]$BackupProducts;protected_tables=13;protected_tables_unchanged_after_deploy=$true;financial_apply='NOT_RUN';recorded_at=(Get-Date).ToUniversalTime().ToString('o')}
+    $afterProtection=Get-Content -LiteralPath (Join-Path $evidenceDir 'protection-after.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $protectedCount=@($afterProtection.PSObject.Properties | Where-Object {$_.MemberType -eq 'NoteProperty'}).Count
+    $evidence=[ordered]@{release_sha=$CandidateSha;prior_sha=$PreviousSha;tracked_files=$audit.tracked_files;blob_mismatches=0;runtime_sha_verified=$true;listener_count=1;backend_port=$backendPort;http_codes=$http;fresh_backup_restore=[bool]$BackupProducts;protected_tables=$protectedCount;protected_tables_unchanged_after_deploy=$true;financial_apply='NOT_RUN';recorded_at=(Get-Date).ToUniversalTime().ToString('o')}
     $json=$evidence|ConvertTo-Json -Depth 6
     [IO.File]::WriteAllText((Join-Path $releaseRoot "deploy-evidence-$CandidateSha.json"),$json,[Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $evidenceDir 'deploy-evidence.json'),$json,[Text.UTF8Encoding]::new($false))
