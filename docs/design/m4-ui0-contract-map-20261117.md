@@ -12,6 +12,7 @@
 | 의존성 설치 | `npm ci` — 179개 패키지 |
 | 단위·통합 시험 | `vitest run` — **18개 파일 / 121개 시험 통과, 실패 0** |
 | 타입 검사 | `tsc --noEmit` — **오류 0** |
+| 프로덕션 빌드 | `vite build` — **성공**(2.74s, 6228 모듈, `dist/` 산출) |
 | 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건) |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
@@ -71,7 +72,7 @@ npm run typecheck
 | # | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 6 제목·브랜드·식별자 | ✅ 부분 + 🖥 | shell-accessibility: 브랜드 마크(`.cost-brand`) 1회. 화면별 제목은 `titleForPath`+각 페이지 h1. 내부 식별자 대신 라벨 사용. | topbar "COST/제목"은 위치 표시(브랜드 마크 아님) — 모바일 브랜드 중복 여부 렌더 확인(🖥) |
-| 7 글꼴 스택 하나 | 🔎 코드 | tokens.css `--font-sans`·`--plush-font` 단일 Pretendard 스택. | 화면별 계산 글꼴·본문 크기·행간 동일 렌더 시험(🖥) |
+| 7 글꼴 스택 하나 | 🔎 코드 | tokens.css `--font-sans`·`--plush-font` 단일 Pretendard 스택. | 화면별 계산 글꼴·본문 크기·행간 동일 렌더 시험(🖥). 폰트 woff2는 `webapp/static/fonts/`에 있고 CSS는 `/assets/fonts/` 참조 — 호스트 정적 경로 매핑 런타임 확인(🗄), 미로드 시 폴백 스택 |
 | 8 입력 테두리·높이·닫기 | ✅ 대비 + 🔎 코드 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. | 입력 높이 계산 렌더 시험(🖥) |
 | 9 건너뛰기 첫 초점 | ✅ 시험 | shell-accessibility: 건너뛰기 링크가 DOM 순서 첫 초점, `#cost-main`(tabIndex -1)이 본문 포함. | 실제 Tab 순서 브라우저 확인(🖥, jsdom은 Tab 이동 미구현) |
 | 10 없는 여행 404 | 🔎 부분 + ⚠ 서버 | 클라이언트: 없는 주소→"화면을 찾을 수 없습니다" h1(main.tsx). routes.test.ts unknown→missing. | **없는 여행 id의 404 상태 코드는 서버 책임 — 백엔드 시험 필요**(🗄). 제목 문구 '찾을 수 없음' 정합 확인 |
