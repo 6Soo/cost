@@ -4,7 +4,7 @@ import { endpointFor, queryForPage, queryForSearch } from "./index";
 
 describe("transaction source query contracts", () => {
   it.each([
-    ["refunds", "/board", { kind: "partial" }],
+    ["refunds", "/board", { kind: "ex" }],
     ["ota", "/ota", { month: "2026-11", provider: "synthetic-provider", state: "unassigned", sort: "desc" }],
     ["flights", "/flight-passengers", { trip: "synthetic-trip", tab: "synthetic-tab" }],
   ])("keeps %s source filters on reads, paging and search", (view, path, filters) => {
@@ -19,3 +19,4 @@ describe("transaction source query contracts", () => {
     expect(new URL(urls[2], "http://localhost").searchParams.get("q")).toBe("new");
   });
 });
+
