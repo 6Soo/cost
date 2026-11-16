@@ -79,4 +79,3 @@ def test_authorized_viewer_reads_only_granted_google_rows(bound_store, income_co
     google = next(r for r in result['rows'] if r['id'].startswith('google-income|'))
     _, detail = call('/api/plush/row?id='+google['id'], 'syn-viewer', store)
     assert detail['read_only'] and detail['source'] is None and detail['history'] == []
-

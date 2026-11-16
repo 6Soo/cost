@@ -149,4 +149,3 @@ def test_previously_recorded_closed_trip_is_never_recovered(booking, store):
     before = board.conn.total_changes
     assert policy.plan(board.conn, trips, transaction_ids=[tid], evidence=facts)['targets'] == []
     assert board.conn.total_changes == before
-
