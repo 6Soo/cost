@@ -16,7 +16,7 @@
 | 신규 수락 시험 | `tests/acceptance/contrast.test.ts`(38건), `shell-accessibility.test.tsx`(3건), `ledger-primary-action.test.tsx`(2건), `glossary.test.ts`(3건·#12), `ledger-not-found.test.tsx`(2건·#10), `render-prerequisites.test.ts`(4건·#3·#7 전제) |
 | 백엔드 수락 시험 | `webapp/tests/test_plush_api.py::test_unknown_trip_and_row_answer_404`(#10 서버 404), 전체 22건 통과 |
 | 서버 권한·정적 경로 확인 | `test_plush_integration.py` **4 passed**(P-01 viewer 거부·bootstrap allowlist·합계), `test_ledger_design.py::test_only_the_allowed_font_assets_are_served` **1 passed**(#7 폰트 정적 경로 allowlist) — 현재 브랜치 실측 |
-| 브라우저 렌더 수락 시험 | `webapp/tests/test_plush_render_browser.py` **6 passed**(실제 Chromium·합성 미리보기·`WEBLEDGER_PRIMARY_UI=1`): 셸 부팅·브랜드 1회, #3 가로 overflow 0(320·390·640·720px), #7 계산 글꼴 Pretendard 로드, #9 건너뛰기 첫 초점+Tab 본문 이동, #11 행 서랍 Esc 닫기, #13 주 행동 1개 |
+| 브라우저 렌더 수락 시험 | `webapp/tests/test_plush_render_browser.py` **12 passed**(실제 Chromium·합성 미리보기·`WEBLEDGER_PRIMARY_UI=1`): 셸 부팅·브랜드 1회, #3 가로 overflow 0(320·390·640·720px), #7 계산 글꼴 Pretendard 로드, #9 건너뛰기 첫 초점+Tab 본문 이동, #11 행 서랍 Esc 닫기, #13 주 행동 1개, **#2 클립보드 거부→서버 산출 TSV 대체 textarea 복구**(합성 canonical Google 소스 설치·`install_canonical_source` 재사용), #8 입력 높이 48px 계산, LOW 모바일 입력 글꼴 ≥16px·금액 `inputmode=numeric`, #10 없는 주소→"화면을 찾을 수 없습니다"(`/ui/` 미등록 경로), #5 OTA 페이지 매김 구조(펼침 없음) |
 | 렌더 간극 수정 | **#3 잘림**: 320px에서 24px 가로 overflow 실측(일반 금액에서도) → 원인 `.cost-ledger__totals` 2열×`min-width:140px`+gap+padding=328px 최소폭이 320px 내용 영역(288px) 초과. `ledger.css` ≤390px에서 totals 1열로 수정 → 6시험 통과·프런트 130시험 회귀 0 |
 
 > 병렬 실행은 시스템 부하(운영 OTA 대조 등)가 높으면 워커 종료 timeout으로 기존 시험이 간헐 flake할 수 있다. 격리·순차(`--no-file-parallelism`) 재실행으로 전체 121건 통과를 재확인했다(프로젝트 설정 변경 없이 CLI 플래그만).
@@ -66,10 +66,10 @@ npm run typecheck
 | # | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 1 관리 탭 href | ✅ 시험 | shell-accessibility: 계정·권한(`/access/admin`)·Google 장부(`/google-ledger`)·검수 결과(`/review`) 링크가 정확한 href. 따옴표 누락 버그는 Python 문자열 문제였고 React는 정상. | 없음(회귀 시험 유지) |
-| 2 사본 안내 문구 | 🔎 코드 + ✅ API | ledger `copyForGoogle`→`/api/board/tsv`(row_count·total_krw), 클립보드+대체 textarea. client.test.ts가 TSV 계약 검증. 안내가 실제 복구 수단을 가리킴. | 안내 문구·링크 존재 렌더 확인(🖥) |
+| 2 사본 안내 문구 | ✅ 시험+브라우저 | ledger `copyForGoogle`→`/api/board/tsv`(row_count·total_krw), 클립보드+대체 textarea. client.test.ts가 TSV 계약 검증. `test_plush_render_browser.py`: 합성 canonical Google 소스(`install_canonical_source` 재사용) 설치 후 클립보드 거부→서버 산출 TSV가 대체 textarea(`서버가 만든 붙여넣기 내용`)에 렌더됨을 실측. **소스 없으면 서버가 빈 TSV(0건) 반환은 설계 동작**(검증된 Google 원장과 대조해 NEW_EXPENSE만 복사). | 없음(회귀 시험 유지) |
 | 3 표 잘림 | ✅ 전제+브라우저 시험+수정 | `render-prerequisites.test.ts`: 잘림 기법 0건 + 셀 `overflow-wrap:anywhere`. `test_plush_render_browser.py`: 320·390·640·720px에서 가로 overflow 0 실측. **간극 수정**: 320px에서 totals 2열 최소폭 328px가 내용 영역 288px 초과(24px overflow) → `ledger.css` ≤390px totals 1열. | 없음(회귀 시험 유지). 셀 전체값 접근 브라우저 검증 완료 |
 | 4 다크 글자 대비 | ✅ 시험 | contrast.test.ts: 라이트·다크 글자 15쌍 모두 ≥4.5:1(최저 4.57 = 라이트 보조글자/패널). 실패 0. | 없음(정적). 컴포넌트별 렌더 대비는 🖥 |
-| 5 OTA 펼침 단서 | 🔎 코드 | React OTA는 "추가 조회" 펼침 대신 **페이지 매김+상세 링크**로 대체(펼침 패턴 없음). 존재하는 펼침은 `details/summary`(네이티브 단서)·google `aria-expanded`. | OTA 화면 렌더 확인(🖥) |
+| 5 OTA 펼침 단서 | ✅ 코드+브라우저(구조) | React OTA는 "추가 조회" 펼침 대신 **페이지 매김+상세 링크**로 대체(펼침 패턴 없음). 존재하는 펼침은 `details/summary`(네이티브 단서)·google `aria-expanded`. `test_plush_render_browser.py`: `/ota`에서 페이지 매김(`nav[aria-label='페이지 이동']`)·검색 폼 렌더 실측(빈 상태). | 상세 링크(데이터 있음) 렌더는 OTA 시드 필요(🖥) |
 
 ### MEDIUM (8)
 
@@ -77,9 +77,9 @@ npm run typecheck
 | --- | --- | --- | --- |
 | 6 제목·브랜드·식별자 | ✅ 부분 + 🖥 | shell-accessibility: 브랜드 마크(`.cost-brand`) 1회. 화면별 제목은 `titleForPath`+각 페이지 h1. 내부 식별자 대신 라벨 사용. | topbar "COST/제목"은 위치 표시(브랜드 마크 아님) — 모바일 브랜드 중복 여부 렌더 확인(🖥) |
 | 7 글꼴 스택 하나 | ✅ 전제+서버+브라우저 시험 | `render-prerequisites.test.ts`: `--font-sans`==`--plush-font` 단일 Pretendard 스택 + `@font-face`. 폰트 정적 경로 ✅(`test_only_the_allowed_font_assets_are_served`: woff2 200·wOF2·allowlist 404). `test_plush_render_browser.py`: 계산 글꼴 Pretendard + `document.fonts.check` 로드 실측. | 화면별 본문 크기·행간 동일 렌더(🖥)만 남음 |
-| 8 입력 테두리·높이·닫기 | ✅ 대비 + 🔎 코드 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. | 입력 높이 계산 렌더 시험(🖥) |
+| 8 입력 테두리·높이·닫기 | ✅ 대비+브라우저 | contrast.test.ts: 테두리 ≥3:1(최저 3.33). 높이 토큰 일원화(`--plush-h-field` 48px 등). 닫기는 공용 `ActionButton`. `test_plush_render_browser.py`: 장부 검색 입력 계산 높이 48px 실측. | 없음(회귀 시험 유지) |
 | 9 건너뛰기 첫 초점 | ✅ 시험+브라우저 | shell-accessibility: 건너뛰기 링크 DOM 순서 첫 초점, `#cost-main`(tabIndex -1). `test_plush_render_browser.py`: 실제 Tab 첫 초점=건너뛰기, Enter→`#cost-main` 초점 이동 실측. | 없음(회귀 시험 유지) |
-| 10 없는 여행 404 | ✅ 시험 | 서버: `plush_api._trip_for_query`가 없는 여행 id에 **404 RESOURCE_NOT_FOUND**("없는 여행이에요") 반환 — `test_plush_api.py::test_unknown_trip_and_row_answer_404` 검증(없는 행도 404). 클라이언트: ledger가 404 시 h1 **'여행을 찾을 수 없음'** — `ledger-not-found.test.tsx` 검증(404 아닌 오류는 일반 제목 유지). 없는 주소→"화면을 찾을 수 없습니다"(main.tsx). | 브라우저 404 화면 렌더는 UI-6(🖥) |
+| 10 없는 여행 404 | ✅ 시험+브라우저 | 서버: `plush_api._trip_for_query`가 없는 여행 id에 **404 RESOURCE_NOT_FOUND**("없는 여행이에요") 반환 — `test_plush_api.py::test_unknown_trip_and_row_answer_404` 검증(없는 행도 404). 클라이언트: ledger가 404 시 h1 **'여행을 찾을 수 없음'** — `ledger-not-found.test.tsx` 검증(404 아닌 오류는 일반 제목 유지). 없는 주소→"화면을 찾을 수 없습니다"(main.tsx) — `test_plush_render_browser.py`가 `/ui/` 미등록 경로에서 h1 렌더 실측. | 없음(회귀 시험 유지) |
 | 11 menu 역할·Esc | ✅ 코드+브라우저 시험 | Drawer 네이티브 `<dialog>`+`showModal`, `onCancel`→Esc 닫기, Tab 초점 가둠, `role=menu` 없음, 단일 h2+닫기. `test_plush_render_browser.py`: 행 서랍 열기→`dialog[open]`→Esc→닫힘 실측. | 초점 가둠·역할 추가 렌더(🖥) |
 | 12 용어집 통일 | ✅ 시험 | 용어집 정본 [m4-glossary-20261117.md](m4-glossary-20261117.md) 수립(item=항목·kind=구분·category=분류·XLSX=내보내기). 장부 '출력 작업'→'내보내기 작업' 통일. `glossary.test.ts`가 금지 문구(XLSX 출력 혼용·'관리자가 설정' 책임 전가) 0건 + 표준 라벨 대조. | 폐지 링크·책임 전가 문구 금지 시험 유지 |
 | 13 주 행동 1개 | ✅ 시험+브라우저 | ledger-primary-action: 소유자 기본 강조 1개(수기 지출 추가), 복사=secondary·XLSX=ghost. **viewer는 동작 그룹 전체 없음**(owner 전용, P-01). `test_plush_render_browser.py`: 장부 toolbar 주 행동(`data-variant="default"`) 1개 실측. | 빈 상태 문장 수 렌더 확인(🖥) |
@@ -90,8 +90,8 @@ npm run typecheck
 | --- | --- | --- |
 | 거래 서랍 제목·닫기 1회 | 🔎 코드 충족 | Drawer 단일 h2 + 닫기 1개 |
 | 사이드바 여행 이름 잘림·title | 🔎 코드 충족 추정 | `overflow-wrap:anywhere` 줄바꿈. 렌더 확인(🖥) |
-| 모바일 입력 16px | 🖥 | `--plush-text-lg` 16px 등 토큰. 모바일 계산 크기 렌더 확인 |
-| 금액 inputmode numeric·음수 | 🖥 | 입력 방식 코드 확인 + 렌더 |
+| 모바일 입력 16px | ✅ 브라우저 | `--plush-text-lg` 16px 등 토큰. `test_plush_render_browser.py`: 390px에서 장부 검색 입력 계산 글꼴 ≥16px 실측 |
+| 금액 inputmode numeric·음수 | ✅ 코드+브라우저 | 입력 방식 코드 확인. `test_plush_render_browser.py`: 수기 지출 서랍 금액 입력 `inputmode=numeric`·라벨 '금액' 실측 |
 | 업로드 숨긴 입력 width | 🔎 코드 | 확인 필요 |
 | 영수증 직접 입력 라벨 | 🖥 | 가시 라벨·접근 이름 일치(P-06) |
 | 카드 상세 링크 붙어 보임 | 🖥 | 렌더 |
@@ -126,13 +126,13 @@ npm run typecheck
 | 묶음 | 이번 지도가 넘기는 일 |
 | --- | --- |
 | UI-1 토큰·공용 | 대비 시험 완료(전체 색 쌍). 모션 감소·초점 갤러리 브라우저 확인 |
-| UI-2 셸·장부 대표 | 건너뛰기(#9)·관리 링크·주 행동 수(#13) 시험+브라우저 완료. 잘림(#3) 브라우저 검증+간극 수정, 글꼴(#7) 계산 로드 브라우저 완료. 모바일 입력(LOW) 렌더만 남음(🖥) |
-| UI-3 장부·여행·산출물 | 서버 합계·복사·내보내기 일치(P-03) 백엔드 대조(🗄), 사본 안내 문구(#2) 렌더 |
+| UI-2 셸·장부 대표 | 건너뛰기(#9)·관리 링크·주 행동 수(#13) 시험+브라우저 완료. 잘림(#3) 브라우저 검증+간극 수정, 글꼴(#7) 계산 로드 브라우저 완료. 모바일 입력 글꼴·금액 inputmode(LOW) 브라우저 완료. 입력 높이(#8) 브라우저 완료 |
+| UI-3 장부·여행·산출물 | 사본 안내 문구(#2) 클립보드 거부→서버 TSV 대체 복구 브라우저 **완료**(합성 canonical 소스). 서버 합계·복사·내보내기 일치(P-03) 백엔드 대조만 남음(🗄) |
 | UI-4 영수증 | 기존 영속 계약 연결(P-04) 서버 확인(🗄) |
-| UI-5 거래·관리·보조 | 없는 여행 404(#10) 서버+프런트 시험 **완료**, 용어집(#12) 수립+대조 시험 **완료**, viewer 거부(P-01) 서버 시험 **완료**(`test_plush_integration.py`). OTA 단서(#5) 렌더 남음 |
+| UI-5 거래·관리·보조 | 없는 여행 404(#10) 서버+프런트+없는 주소 화면 브라우저 **완료**, 용어집(#12) 수립+대조 시험 **완료**, viewer 거부(P-01) 서버 시험 **완료**(`test_plush_integration.py`). OTA 단서(#5) 페이지 매김 구조 브라우저 완료, 상세 링크(데이터 있음)는 OTA 시드 필요(🖥) |
 | UI-6 최종 검증 | Esc(#11)·Tab(#9) 브라우저 시험 완료. 역할·초점 가둠 추가 렌더, 스크린리더·실기기, 되돌림 절차 남음 |
 
-우선 간극(⚠) **해소**: #10 서버 404, #12 용어집, **#3 잘림(브라우저 실측 24px overflow→totals 1열 수정)**. 13결함 중 11건(#1·#3·#4·#6브랜드·#7·#8대비·#9·#10·#11·#12·#13) 시험 검증(브라우저 렌더 포함). #2 사본 안내·#5 OTA 단서·#8 입력 높이·LOW는 🖥 추가 렌더 확인이 남았다. 서버 확인(P-01 viewer 거부·#7 폰트 정적 경로)은 기존 시험으로 완료.
+우선 간극(⚠) **해소**: #10 서버 404, #12 용어집, **#3 잘림(브라우저 실측 24px overflow→totals 1열 수정)**. **13결함 모두 핵심 수락 기준 시험 검증(브라우저 렌더 포함)**: #1·#2·#3·#4·#5(구조)·#6브랜드·#7·#8·#9·#10·#11·#12·#13. 이번 구간 추가 실측: #2 복사 복구(합성 canonical Google 소스)·#5 OTA 페이지 매김·#8 입력 높이 48px·LOW 모바일 글꼴 ≥16px·금액 inputmode·#10 없는 주소 화면. 남은 것은 **부가 렌더**(모바일 브랜드 중복·화면별 본문 크기·초점 가둠·빈 상태 문장 수·OTA 상세 링크 데이터)와 **P-03·P-04 서버 대조**, 스크린리더·실기기다. 서버 확인(P-01 viewer 거부·#7 폰트 정적 경로)은 기존 시험으로 완료.
 
 ## 8. 경계
 

@@ -85,6 +85,36 @@ def render_browser(render_ui):
         playwright.stop()
 
 
+class _Cleanups:
+    """unittest addCleanup sink so install_canonical_source runs under a pytest fixture."""
+
+    def __init__(self):
+        self._stack = []
+
+    def addCleanup(self, fn, *args, **kwargs):
+        self._stack.append((fn, args, kwargs))
+
+    def run(self):
+        while self._stack:
+            fn, args, kwargs = self._stack.pop()
+            fn(*args, **kwargs)
+
+
+@pytest.fixture
+def render_copy_browser(render_browser):
+    # 사본 복구(#2)는 검증된 Google 원장과 대조해 NEW_EXPENSE 행만 내보낸다. 소스가 없으면
+    # 서버가 빈 TSV를 돌려주므로, 합성 canonical 소스를 설치해 실제 복구 경로를 검증한다.
+    from webapp.tests.test_trip_expense_copy_button import install_canonical_source
+
+    port, trip, make_page, open_ledger = render_browser
+    cleanups = _Cleanups()
+    install_canonical_source(cleanups, trip)
+    try:
+        yield port, trip, make_page, open_ledger
+    finally:
+        cleanups.run()
+
+
 def test_react_shell_boots_with_synthetic_seed(render_browser):
     port, trip, make_page, open_ledger = render_browser
     page = make_page(1440)
@@ -152,4 +182,74 @@ def test_owner_primary_action_is_single(render_browser):
     primary = page.locator('.cost-ledger__toolbar button.cost-action-button[data-variant="default"]')
     assert primary.count() == 1
     assert "수기 지출 추가" in primary.first.text_content()
+    page.close()
+
+
+def test_copy_guidance_offers_server_tsv_fallback(render_copy_browser):
+    port, trip, make_page, open_ledger = render_copy_browser
+    page = make_page(1440)
+    open_ledger(page)
+    page.wait_for_selector(".cost-ledger__toolbar")
+    # clipboard 거부는 실제 흔한 경로다 — 대체 복구 수단(서버 산출 textarea)을 검증한다.
+    page.evaluate("() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); }")
+    page.get_by_role("button", name="Google 장부용 복사").click()
+    page.wait_for_selector("#cost-copy-text")
+    notice = page.locator(".cost-ledger__copy-fallback")
+    assert notice.locator("label").inner_text() == "서버가 만든 붙여넣기 내용"
+    value = page.input_value("#cost-copy-text")
+    assert value.strip() != ""
+    assert "합성 렌더 지출" in value
+    page.close()
+
+
+def test_input_height_matches_field_token(render_browser):
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    open_ledger(page)
+    page.wait_for_selector("#cost-ledger-search")
+    height = page.evaluate("parseFloat(getComputedStyle(document.getElementById('cost-ledger-search')).height)")
+    assert height == 48
+    page.close()
+
+
+def test_mobile_input_font_size_at_least_16(render_browser):
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(390)
+    open_ledger(page)
+    page.wait_for_selector("#cost-ledger-search")
+    size = page.evaluate("parseFloat(getComputedStyle(document.getElementById('cost-ledger-search')).fontSize)")
+    assert size >= 16
+    page.close()
+
+
+def test_amount_input_is_numeric_inputmode(render_browser):
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    open_ledger(page)
+    page.wait_for_selector(".cost-ledger__toolbar")
+    page.get_by_role("button", name="수기 지출 추가").click()
+    page.wait_for_selector("#entry-amount")
+    assert page.get_attribute("#entry-amount", "inputmode") == "numeric"
+    assert page.locator("label[for='entry-amount']").inner_text().startswith("금액")
+    page.close()
+
+
+def test_missing_route_shows_not_found_heading(render_browser):
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    # 임의 경로는 레거시로 떨어지므로, React가 항상 부팅하는 /ui/ 아래 미등록 경로로 검증한다.
+    page.goto(f"http://127.0.0.1:{port}/ui/no-such-route")
+    page.wait_for_selector(".cost-app-shell")
+    assert page.get_by_role("heading", name="화면을 찾을 수 없습니다").count() == 1
+    page.close()
+
+
+def test_ota_page_uses_pagination_not_expand(render_browser):
+    port, trip, make_page, open_ledger = render_browser
+    page = make_page(1440)
+    page.goto(f"http://127.0.0.1:{port}/ota")
+    page.wait_for_selector(".cost-app-shell")
+    page.wait_for_selector(".e-feature-pagination")
+    assert page.locator(".e-feature-pagination nav[aria-label='페이지 이동']").count() == 1
+    assert page.locator("form[role='search'], .e-feature-search").count() >= 1
     page.close()
