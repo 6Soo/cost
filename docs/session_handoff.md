@@ -1,3 +1,13 @@
+# 2026-11-17 — M4 UI-0 완전 종료: 수락 검증·간극 종결·병합·운영 배포 완료
+
+- **요청/결과:** “m3닫고 m4도 진행해”의 M4를 닫았다. React 프런트는 이미 main에 있어 화면 재작성이 아니라 **수락 검증 보강·소수 간극 수정**이었고, 13결함 핵심 수락 기준을 시험(브라우저 렌더 포함)으로 검증·간극을 종결·병합·배포했다.
+- **병합/배포:** PR983 병합(main merge `aa9c45e1`), reviewed 후보 `fddbb8c6`(M4 본문 4d338374 + main df636b90 M3 clean re-merge). 공식 `deploy_verified_release.ps1 -Apply` exit0, **actual fddbb8c6/backend8751**·gateway8790(continuous code-only, Previous d5b77717). 추적1902 blob불일치0·dist 3파일 해시 일치·보호14표 불변·health/ready200·보호API401·worker 전환·core writers VERIFIED·금융/Google 쓰기0. Rust costcore-e4e5dd67.exe(1224058b…)·links/rust·config 보존. **다음 PreviousSha=fddbb8c6, 소유권 자유·보류 없음.**
+- **검수/간극 종결:** 독립 gpt-6.1-sol medium 최종 SHA PASS(findings0). #6 화면별 고유 `<title>`(AppShell document.title MutationObserver, 6화면)·#3 셀 수준 전체값 접근 간극을 **1·2·3차 독립검수 FAIL→genuine 강화로 종결**(시험 약화 아님): overflow-wrap 속성만 보고 인정하지 않고 실제 줄바꿈(white-space)·클리핑·스크롤 공개(셀·중간 조상 hidden 클리핑 부재+컨테이너 실제 overflow)·title 전체 값 포함 시만 인정, 잘림 반례 회귀 5변별. #3 잘림 수정(320px totals 1열). 표적 vitest 23파일141·타입0·build·브라우저16·백엔드26·M3 기준8 통과.
+- **검증 구분:** on-disk dist==빌드 해시 일치. 익명 자산 401(인증 활성) — 인증 화면 렌더는 로그인 필요로 미수행, 합성 미리보기 브라우저 수락(16종)과 구분. 고객 원문 Git/보고서 없음(완전 합성 fixture).
+- **근거/남은 일:** [운영 기록](operations.md) 맨 위·[계약 지도](design/m4-ui0-contract-map-20261117.md). worktree `.local-archive/m4-ui-deploy-20261117/`(review-evidence·protection-before/after·verify_deploy). **잔여(부가)**: 동적 제목 화면 전체 고유성·모바일 브랜드 중복·화면별 본문 크기·초점 가둠·빈 상태 문장 수·OTA 상세 링크 데이터·P-03 합계/복사/내보내기 서버 대조·P-04 영수증 서버·스크린리더/실기기. 문서 후속 때문에 재배포하지 않는다.
+- **교훈:** paseo run 검수 위임은 `--cwd`만으로 워크트리 고정 안 됨(호출자 워크스페이스서 실행 가능) — 셸 directory를 워크트리로 두고 프롬프트에 `cd /d` 명시해야 정확 SHA 검수. staging은 검증된 `stage_release.py` 재사용.
+
+
 # 2026-11-17 06:00 — 분기 밖 비용의 과거 자동 귀속 3건 운영 교정 완료
 
 - **현재 요청/완료:** 사용자 “ㅇㅇ 찾은것 코드로 교정해”의 좁은 범위 완료. 앞선 Q2 내부77건은 이번 성과에서 제외한다. 명시적 원문 재대조 경로만 사용해 자동3건을 교정했고 owner 최초기장1건은 보존했다. 목적지는 기존 날짜/지역 규칙의 최선 추론이며 실제 숙박일·보험기간을 확정하거나 새로 생성하지 않았다.
@@ -24,6 +34,14 @@
 - **구현/검사 완료:** 구형I열·표준H열·유럽G열 원행 판독, 원본 지문과 일대일 대응에 근거한 수기 원장 귀속 판정, Python/Rust 공통 planner와 거래·장부·보드의 일관된 교정을 구현했다. GGL-045에 사용자 결정을 반영했다. 정확코드 `e4e5dd67c72ee3b9aa3201167b797010cbb97997` 공식 영향974건·skip0/known0, Rust fmt/clippy/workspace tests/release build PASS. 독립 gpt-6.1-sol medium 정확 SHA APPROVE, CI 시작 전 결제 한도 차단 확인 후 PR982 병합 `a88776e6`.
 - **운영 완료분:** 공식 배포 exit0, actual e4e5dd67/backend8751/gateway8790. 신선4DB 백업·복원과 배포후 board/core 백업·복원을 통과한 뒤 독립 검수된 스크립트로77건·7,813,974원 귀속 교정 완료. 거래·장부·보드 일치, 원본·수동·환불·대상 밖 상태 불변, 재계획0건. `costcore_bin`만 새 e4e5 바이너리로 전환했고 Rust/rust 및 기존888 바이너리와 나머지 설정을 보존했다.
 - **신규 기장/완료:** 예약 원문 이용기간에 따라4건·2,518,357원을 기존 worker가 실제 기장했다(recorded4/failures0/pending0). 오제2건2,077,580원·야마가타145,436원·다테시나295,341원이며 ledger/board 각각 정확1회다. 04:42KST 최종 읽기 전용 검증 PASS:81건 귀속·이용기간·원문 지문 일치, 원본/대상밖 보호 해시 불변,77건 재계획0·검증 DB변경0·Google 쓰기0. 보호 근거 `D:/WebLedgerHost/data/backups/q12-auto-additions-20261116T181539Z/source-recheck/`의 `final-validation.json`, `FINAL-EVIDENCE.md`, `행원본대조_코드교정_운영반영증거.xlsx`에 저장했다. 승인된 요청의 남은 구현·검사·운영 반영 없음. 문서 후속 때문에 재배포하지 않는다.
+
+# 2026-11-17 — M3 완전 종료: 추출기 기준 출력 생산·검증 완료
+
+- **요청/결과:** “m3닫고 m4도 진행해”의 M3 마지막 산출물(설계 §3.4 **facts 기준 출력**)을 생산·검증해 **M3를 닫았다**. 판정(1차)·연결(2차) 운영 전환은 이미 완료·검증됐고(C1~C3·첫 창 OTA 7,965/7,965·환불 486/486 PASS), 남은 기준 출력을 보존 원본에 대해 생산했다.
+- **생산(검증됨):** origin/main `750e4a65aea5f5603fc04199046d5e64e8a7e45c`(PR980) detached worktree `C:/AX/cost-m3-baseline`에서 `python -I tools/core_bridge/cli.py extract-baseline` 실행. `ok=true`, **events 7,965건**, **baseline sha256 `a26d446510faabe4cbdfd5d8cf114b0903e6b87b8453fdb3380d529e605cbaf6`**, input_digest `1e9613eb…`, events.json 28,637,104B·stderr 0B. 디스크 해시==보고 해시·건수 일치 독립 검증.
+- **보호/원본:** 고객 기준 출력은 보호 경로 `D:/WebLedgerHost/data/backups/extractor-baseline-main-20261117/events.json`에만. 입력은 라이브 아닌 완전 스냅샷 사본(1.76GB)이며 라이브 OTA evidence DB는 같은 크기·2026-11-15 23:20 불변 → 스냅샷==보존 원본, 운영 무접근 읽기 전용. `app/ota_payments.py`는 root/main/worktree 바이트 동일·의존 16모듈 PR980 변경 9파일 밖 → canonical. Git에는 명령·SHA·건수·해시만(고객 원문 없음).
+- **검사/커밋:** 표적 `tests/test_core_bridge_extract_baseline.py` 8 passed. 도구 4파일(cli·commands·extract_baseline·test)+기록을 main 기반 브랜치에 커밋. [생산 기록](agents/artifacts/m3-extractor-baseline-20261117.md).
+- **M6 인수/남은 일:** 이 고정값(7,965·`a26d4465…`·python_sha `750e4a65`)이 **M6 Rust 추출기 병합 수락 기준표**. 매일 Python 대조는 M3 완료 조건이 아니라 M6까지 회귀 안전망이며 주기 축소는 소유자 정책 결정 전 유지. 병합·운영 배포는 별도 게이트(이 생산은 읽기 전용이라 운영 반영 불필요). M4는 React 프런트가 이미 main에 존재해 UI-0 계약·기능 지도·수락 갭 평가와 검증 테스트를 완료했으며(별도 worktree `cost-m4-ui0`, 121 tests), 남은 렌더 검증·간극 2건(#10 서버 404·#12 용어집)을 이어간다.
 
 # 2026-11-17 — 1·2분기 P1/P2 자동 추가 조사 완료（읽기 전용·이전 요청 기록）
 

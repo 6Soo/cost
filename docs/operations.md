@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-17 — M4 UI-0 React 프런트 수락 검증·간극 종결 운영 배포 완료
+
+- **배포:** 공식 도구 `tools/deploy_verified_release.ps1 -Apply` exit0, actual `fddbb8c600800b0612300514daea3a7a70c5f217`, Previous `d5b77717ccfb9d50242b6e29464f8bd59766a71c`. **continuous code-only**(ledger-route.json 존재→switch_continuous_release, -BackupProducts 미사용). backend8752→**8751**·gateway8790. 추적1902파일 blob불일치0·dist 3파일(index-BwmfHmXQ.css·index-0E-k9Uco.js·index.html) 복사 전후 SHA-256 일치·runtime SHA verified·listener1·보호14표 전환 후 불변·health/ready200·비인증 보호API401. prepared_before_stop·drained·worker_switched·core_writers VERIFIED. 금융 apply NOT_RUN·마이그레이션·Google 자동 쓰기 없음.
+- **후보/검수:** M4 본문 `4d338374`(독립 검수 PASS)에 main `df636b90`(M3 PR985, 이미 승인)을 clean re-merge한 `fddbb8c6`. PR983 병합 `aa9c45e1`. 독립 gpt-6.1-sol medium 최종 SHA **PASS(findings0)**. 병합 무결성: 4d338374 대비 프런트·브라우저 수락 시험 diff 없음, df636b90 대비 M3 core_bridge·기준 시험 diff 없음. 표적: vitest 23파일141·타입0·build·브라우저 렌더16·백엔드26·M3 기준8 통과(검수자 독립 재실행).
+- **수락 간극 종결(1·2·3차 독립검수 FAIL→genuine 강화, 약화 아님):** #6 화면별 고유 `<title>`(AppShell document.title MutationObserver, 주요 6화면 실측). #3 셀 수준 전체값 접근 — overflow-wrap 속성만 보고 인정하지 않고 실제 줄바꿈(white-space)·클리핑·스크롤 공개(셀·중간 조상 hidden 클리핑 부재+컨테이너 실제 overflow 시만)·title 전체 값 포함 시만 인정. 잘림 반례 회귀 5변별. #3 잘림 수정(320px totals 2열 328px>288px → ≤390px 1열). 검수자 별도 Chromium 반례 5종 거부·실제 장부/여행 5폭 genuine 통과 확인.
+- **Rust/설정 보존:** `costcore-e4e5dd67.exe` SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c`·links_producer=rust·classification_writer=rust·나머지 config 불변.
+- **화면 검증 구분:** on-disk dist 해시==빌드 일치 확인. 익명 자산 프로브는 401(인증 활성, 우회 금지) — 인증 화면 렌더는 로그인 필요로 미수행, 합성 미리보기 브라우저 수락 검증(16종)과 구분.
+- **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-fddbb8c6….json`·`continuous-switch-fddbb8c6….json`·`release-audit-fddbb8c6….json`, worktree `.local-archive/m4-ui-deploy-20261117/`(review-evidence·protection-before/after·verify_deploy). staging은 검증된 `stage_release.py`(git archive+blob 검증+dist 복사) 재사용. **다음 PreviousSha=fddbb8c6**(다른 배포 없으면). 소유권 자유·보류 없음. 문서 후속 때문에 재배포하지 않는다. 잔여 부가 렌더·P-03/P-04 서버 대조·스크린리더/실기기는 [계약 지도](design/m4-ui0-contract-map-20261117.md) 참조.
+
 ## 2026-11-17 06:00 — 원문 재대조 코드 배포·과거 자동 귀속3건 교정 완료
 
 - 코드/actual `d5b77717ccfb9d50242b6e29464f8bd59766a71c`, PR984/merge `9f0cdc3a`, Previous e4e5dd67. 공식배포 exit0, backend8752/gateway8790, 1890blob불일치0·보호14표불변·health/ready200·보호API401. Rust/rust·기존e4e5 bin/hash·나머지config 보존.
@@ -13,6 +22,13 @@
 - **Rust/설정:** 별도 `costcore-e4e5dd67.exe` SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c`. 의미상 설정 변경은 costcore_bin 하나다. Rust/rust·나머지 설정·기존888 바이너리 SHA256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4` 보존.
 - **검증/금융 반영:** 원본 카드4개81행 및 수기 원장77행 대조, 공식 영향974/skip0/known0·Rust 검사 PASS·정확SHA 독립 sol medium APPROVE. CI 결제 차단 annotation 확인. 신선4DB 복원 검증 후 배포했고, 배포후 board/core 복원 검증도 통과했다. 첫 postdeploy 백업 실패는 성공으로 세지 않고 진단 재시도 PASS 근거를 별도 보존했다. 독립 승인 스크립트로77건7813974원 귀속을 Rust writer로 교정해3투영 일치·원본/대상밖 불변·재계획0건 확인. 원문 이용기간4건2518357원도 표준 worker가 실제 기장 완료(recorded4/failures0/pending0), ledger/board 각각 정확1회·귀속/기간 일치다. 최종 읽기 전용 검증19:42:36Z PASS, 원본/대상밖 보호 해시 `7119b9d9c3bd07eefb9225ea845280d99c70cb4adc1e0b805eaeec9569c5463f` 불변·검증DB변경0·직접 금융 SQL/Google 쓰기0.
 - **근거/다음:** `releases/deploy-evidence-e4e5dd67c72ee3b9aa3201167b797010cbb97997.json`과 보호 `data/backups/q12-auto-additions-20261116T181539Z/source-recheck/`의 backup/deploy/apply-journal/rehearsal, `final-validation.json`, `FINAL-EVIDENCE.md`, 실제81행 증거 엑셀. 운영 쓰기 작업 종료, 이후 PreviousSha는 다른 배포가 없으면 e4e5dd67이다. 문서 후속은 재배포하지 않는다.
+
+## 2026-11-17 — M3 추출기 기준 출력 생산 (읽기 전용, 운영 배포 없음)
+
+- **실행:** M3 마지막 산출물(설계 §3.4 facts 기준 출력)을 origin/main `750e4a65aea5f5603fc04199046d5e64e8a7e45c`(PR980) detached worktree `C:/AX/cost-m3-baseline`에서 `python -I tools/core_bridge/cli.py extract-baseline`으로 생산했다. `ok=true`·python_sha `750e4a65…`·input_digest `1e9613ebe30aacde13a647de81d9f662d03939d2909764f9621b273f45539f7b`·**events 7,965건**·**baseline sha256 `a26d446510faabe4cbdfd5d8cf114b0903e6b87b8453fdb3380d529e605cbaf6`**. events.json 28,637,104B·stderr 0B. 디스크 해시==보고 해시·건수 7,965 일치 독립 검증.
+- **보호/원본 불변:** 고객 기준 출력은 `D:/WebLedgerHost/data/backups/extractor-baseline-main-20261117/events.json` 보호 경로에만. 입력은 라이브 아닌 완전 스냅샷 사본(1,761,828,864B)이며 `is_live=false`로 라이브 무접근. 라이브 `D:/WebLedgerHost/data/ota-evidence.sqlite`는 같은 크기·2026-11-15 23:20 불변 → 스냅샷==보존 원본. 운영 DB·금융·Google 장부 쓰기 없음, 운영 포트(8751/8752/8790) 접근 없음. 이전 시도 `extractor-baseline-20261117/`는 response 0B(중단)로 성공 생산은 main 디렉터리뿐.
+- **canonical/검사:** `app/ota_payments.py` root·main·worktree 바이트 동일, 의존 16모듈은 PR980 변경 9파일 밖. 표적 `tests/test_core_bridge_extract_baseline.py` 8 passed. 도구 4파일+기록을 main 기반 브랜치 커밋(병합·배포는 별도 게이트, 읽기 전용 생산이라 운영 반영 불필요).
+- **근거/인수:** [생산 기록](agents/artifacts/m3-extractor-baseline-20261117.md), 보호 디렉터리 `request.json`·`response.json`·`events.json`·`stderr.log`. 이 고정값이 M6 Rust 추출기 병합 수락 기준표. 매일 Python 대조는 M6까지 회귀 안전망(주기 축소 소유자 결정 전 유지). 고객 원문은 Git·보고서에 넣지 않았다.
 
 ## 2026-11-17 03:05 — Plush UI 전수 감사 수정 운영 배포 완료
 
