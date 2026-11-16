@@ -6,10 +6,22 @@ import type { Bootstrap } from "../api/types";
 import { AppShell } from "./AppShell";
 import { FeatureNav, DataRows } from "../features/transactions/feature-ui";
 import { queryForSearch } from "../features/transactions";
+import { TripsPage } from "../features/trips";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("canonical existing URLs", () => {
+  it("preserves owner metadata editing through the original detailed form", () => {
+    window.history.replaceState(null,"","/trips?state=previous");
+    const trip={id:"trip-a",title:"Synthetic trip",kind:"trip" as const,previous:true,starts_on:"2026-01-10",ends_on:"2026-01-20",income:"0",expense:"0",profit:"0",closed:false,archived:false};
+    render(<TripsPage bootstrap={{role:"owner",csrf:"synthetic",trips:[trip],capabilities:[],receipt_enabled:false}} path="/trips" search={new URLSearchParams("state=previous")}/>);
+    const href=screen.getByRole("link",{name:"여행 정보 수정"}).getAttribute("href")!;
+    const url=new URL(href,"http://localhost");
+    expect(url.pathname).toBe("/trips");
+    expect(url.searchParams.get("legacy")).toBe("1");
+    expect(url.searchParams.get("state")).toBe("previous");
+    expect(url.hash).toBe("#manage-trip-a");
+  });
   it("keeps participant linking mode in the bookmark after selecting a trip", async () => {
     window.history.replaceState(null,"","/participants");
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify({participants:[],income_rows:[],configured:false}),{headers:{"content-type":"application/json"}})));
