@@ -4,7 +4,7 @@
 
 ## 소유권
 
-- A runtime: `app/receipt_paseo.py`, `tools/receipt_paseo_bridge*`, `tests/card_pipeline/test_receipt_paseo_runtime.py` 및 해당 신규 helper/fixture만. 실제 설치 Paseo SDK/CLI를 조사해 사진 첨부·동적 목록·공식 결과 회수·도구 차단을 구현한다.
+- A runtime: `app/receipt_paseo.py`, `tools/receipt_paseo_bridge*`, 필요 시 `tools/receipt_paseo_plugin/`, `tests/card_pipeline/test_receipt_paseo_runtime.py` 및 해당 신규 helper/fixture만. 실제 설치 Paseo SDK/CLI를 조사해 사진 첨부·동적 목록·공식 결과 회수·도구 차단을 구현한다. 플러그인은 공식 문서·타입으로 기능을 확인하고 영수증 실행에만 범위를 제한한다. 다른 에이전트나 전역 제공자 설정을 변경하지 않는다.
 - B backend: `app/receipt_workflow_store.py`, `app/receipt_ledger.py`, `webapp/receipt_workflow.py`, `webapp/tests/test_receipt_workflow*.py`, `webapp/tests/test_receipt_ledger*.py`. 필요한 `ledger_store_schema.py`/`ledger_store*.py` 변경과 `ledger_board.py`의 서버 시작 worker hook도 B 소유. 영속화·재연결·검수·멱등/원자적 장부 반영·인증 API 담당.
 - C UI: `webapp/receipt_review.py`, `webapp/receipt_workflow_ui.py`, `webapp/static/js/receipt_workflow.js`, `webapp/static/css/receipt_workflow.css`, UI 전용 신규 검사. 기존 원본 업로드·수동 입력·후보 보호는 유지하고 신규 흐름을 기본 화면으로 연결한다.
 - 통합 감독: docs·test-impact-map·통합 검사·독립 검수·브랜치 통합/정리. 같은 파일에 동시 작성하지 않는다. 계약 변경은 먼저 감독과 관련 작업자에게 알린다.
@@ -14,6 +14,8 @@
 `app.receipt_paseo`: `PaseoError(code)`, `catalog(provider=None)` → `{connected,host_label,checked_at,providers:[{id,label,available}],models:[{provider,id,label,selectable,reason,thinking_options,default_thinking}]}`.
 
 `start(image_path, provider, model, *, run_key)` → 영속 가능한 handle `{agent_id,workspace_id,provider,model,...}`. 고정 관리 프롬프트와 실제 사진을 전송하고 신속 반환한다. `inspect_run(handle)` → `{status:'running'|'done'|'failed',result?:<기존 validate_response 호환 결과>,code?}`. `find_run(run_key)` → handle 또는 None(실제 없음); 통신 실패는 None 대신 예외. `archive_run(handle)`은 해당 작업 자원만 공식 정리한다. 이미지를 모르는 모델/OCR·자동 모델 대체·프롬프트 자유 편집 없음. 사진 hash는 런타임이 계산해 결과 원본 대응을 검증한다. 필요하면 handle에 원본 hash를 보존한다.
+
+감독 검수 후 추가 계약: `prompt_metadata()`는 `{prompt_version,prompt_sha256,schema_version,schema_sha256}`를 반환한다. `start`는 `expected_prompt_metadata=None,thinking=None` 키워드를 추가로 받는다. B는 배치 생성 시 관리 지시·스키마 해시와 목록의 기본 추론 옵션을 고정하고 재시도에도 보존한다. A는 실행 직전 실제 관리 파일 해시·실제 추론 옵션을 검증하며, 변경된 지시를 조용히 보내지 않고 `PASEO_PROMPT_CHANGED`로 종료한다. handle에 실제 해시·추론 옵션을 기록한다. 이미 시작된 실행의 재조회에는 최신 파일과의 불일치를 이유로 원래 결과를 버리지 않는다. 프롬프트가 변경돼 접수 작업을 실행할 수 없으면 명시적인 새 분석으로 처리한다.
 
 ## 인증 HTTP 계약(B→C)
 
