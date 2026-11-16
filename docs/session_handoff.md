@@ -10,7 +10,8 @@
 
 ## 2026-11-16 — 영수증 Paseo 병렬 구현·감독
 
-- **감독 승계:** Paseo `77abc586-a18e-4b57-94f7-c9c8c3fa210e`가 인계 기록과 실제 worktree를 대조했다. 통합 HEAD `9f3c08d9`, 아직 신규 구현을 통합하지 않았다. 아래 최초 A/B native 작업자는 사용 한도로 실패했고, 같은 폴더의 미커밋 작업을 보존해 Luna xhigh `/root/receipt_runtime_recovery`, `/root/receipt_backend_recovery`가 이어 구현한다. UI의 현재 소유자는 이어진 Paseo `1c99e24a-c577-488a-a0d4-48f8bea45095`이며 기존 UI worktree를 유지한다. 완료 검수·PR·배포를 주장하지 않는다.
+- **감독 승계:** Paseo `77abc586-a18e-4b57-94f7-c9c8c3fa210e`가 인계 기록과 실제 worktree를 대조했다. 아래 최초 A/B native 작업자는 사용 한도로 실패했다. 복구 native `/root/receipt_runtime_recovery`, `/root/receipt_backend_recovery`도 초기화 대기에 머물러 중단한 뒤, 동일 worktree를 실제 실행 중인 Paseo Luna xhigh A `985d6162-2527-489c-991a-8d3165fc3013`, B `59274ce4-4e19-450a-8bb1-e98f64b99163`에 넘겼다. UI의 현재 소유자는 이어진 Paseo `1c99e24a-c577-488a-a0d4-48f8bea45095`다. 원래 폴더와 B의 미커밋 6개를 보존했다. 통합 HEAD는 아래 후속 커밋을 따르며 아직 신규 구현을 통합하지 않았다. 완료 검수·PR·배포를 주장하지 않는다.
+- **감독 추가 검사:** HTTP 수락 검사에 사진별 성공·실패·0건, 원본 결과 불일치 차단, 장부 커밋 후 workflow 응답 유실 복구를 추가했다(`d173bd85`). 현재는 문법 검사만 통과했으며 runtime 미도착으로 실행 전이다. UI 검수에서 편집 시작 revision 고정·저장 실패 자동 무한 재전송 문제를 지적해 C가 수정 중이다. ego-browser TaskSpace `44`, C의 합성 미리보기 `8799`를 재사용하며 감독 통합 preview 스크립트는 `.local-archive/receipt-paseo-implementation-20261116/supervisor_preview.py`에 준비했다(아직 미실행).
 - **최신 승인:** 사용자가 작성 명세의 빠른 구현과 다수 Luna xhigh 병렬 위임을 지시했다. 이전의 문서까지만 범위는 갱신됐다. 이번에는 구현·합성 검사·PR 검수까지 진행하며 운영 배포·실제 고객 원본/운영 DB 변경은 하지 않는다.
 - **기준/통합:** 명세 완료 `7b0a37ef`, 병렬 계약 `33ef9112`, 통합 branch `integration/receipt-paseo-20261116`. 실행 명세는 [영수증 처리 변경](design/receipt-paseo-workflow-20261116.md), [파일/API 계약](agents/artifacts/receipt-paseo-implementation-contract-20261116.md)이다.
 - **A runtime:** native 협업 `/root/receipt_runtime_luna`, gpt-6-luna/xhigh, 공식 workspace `wks_543d5980ddf9a7e5`, branch `feat/receipt-paseo-runtime-20261116`. 동적 목록·사진 첨부·제한 실행·결과 회수 담당.
