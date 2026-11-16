@@ -139,7 +139,7 @@
 .receipt-batch li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; border-top: 1px dashed color-mix(in srgb, var(--receipt-border) 30%, transparent); }
 .receipt-status--failed,
 .receipt-status--error { color: var(--receipt-danger); }
-.receipt-status--applied { color: #17643b; }
+.receipt-status--applied { color: var(--cost-success-text, #17643b); }
 .receipt-results-pane { min-width: 0; }
 .receipt-active-photo { color: var(--receipt-muted); font-size: 12px; margin: -8px 0 12px; }
 .receipt-result-list { display: grid; gap: 10px; }
@@ -256,3 +256,6 @@
   .receipt-page *,
   .receipt-zoom * { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Leave room for the sticky selection bar when moving to a form control. */
+.receipt-page :is(button, input, select, a) { scroll-margin-block: 120px; }

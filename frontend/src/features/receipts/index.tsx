@@ -296,7 +296,6 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const pendingRequestsRef = useRef(pendingRequests);
   const pendingApply = pendingRequests.apply;
   const pendingRun = pendingRequests.run;
-  const retryRequests = pendingRequests.retries;
   const [applying, setApplying] = useState(false);
   const [retryingJob, setRetryingJob] = useState('');
   const [mobilePane, setMobilePane] = useState<'source' | 'results'>('source');
