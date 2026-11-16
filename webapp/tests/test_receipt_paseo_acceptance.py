@@ -357,6 +357,8 @@ def test_corporate_receipt_attaches_evidence_without_repricing_or_creating_expen
     fixture, runtime = receipt_http
     board = fixture.server.card_store
     flow = CardFlow(board)
+    # The fixture owns one synthetic trip and has no live Google workbook.
+    flow.trip_valid = lambda value, **kwargs: value == fixture.trip
     card_data = (
         "Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,"
         "Date,Post Date,Authorization Code,Cancel,Status\n"
