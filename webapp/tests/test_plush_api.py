@@ -598,6 +598,106 @@ def test_admin_review_projects_only_existing_state_payload(bound_store, monkeypa
     assert review["actions"][0]["csrf"] == "none"
 
 
+def test_admin_accounts_projects_pending_decisions_and_connection_revoke(bound_store):
+    store, access = bound_store
+    access.create_account(
+        user_id="pending-viewer", role="viewer", display_name="신청자",
+        email="pending@example.test",
+    )
+    pending = access.create_application(
+        user_id="pending-viewer", requested_name="신청 이름", nickname="별칭",
+        description="PRIVATE APPLICATION DESCRIPTION",
+        client_request_id="synthetic-pending-create",
+    )
+    access.create_account(
+        user_id="connected-viewer", role="viewer", display_name="연결 사용자",
+    )
+    connected_application = access.create_application(
+        user_id="connected-viewer", requested_name="연결 사용자",
+        client_request_id="synthetic-connected-create",
+    )
+    connected_person = access.register_reservation_person(
+        reservation_person_id="person-linked-1", display_name="기존 연결 담당",
+        is_active=True,
+    )
+    access.register_reservation_person(
+        reservation_person_id="person-active-1", display_name="예약 담당",
+        disambiguator="서울 지점", is_active=True,
+    )
+    access.register_reservation_person(
+        reservation_person_id="person-inactive-1", display_name="비활성 담당",
+        is_active=False,
+    )
+    access.approve_application(
+        application_id=connected_application["application_id"],
+        owner_id="syn-owner", expected_revision=connected_application["revision"],
+        reservation_person_id=connected_person["reservation_person_id"],
+        client_request_id="synthetic-connected-approve",
+    )
+
+    status, result = call("/api/plush/admin?view=accounts", "syn-owner", store)
+
+    assert status == 200
+    connected_row = next(row for row in result["rows"] if row["user_id"] == "connected-viewer")
+    assert connected_row["connection_status"] == "active"
+    assert connected_row["reservation_person_label"] == "기존 연결 담당"
+    data = result["data"]
+    pending_projection = next(item for item in data["pending_applications"]
+                              if item["application_id"] == pending["application_id"])
+    assert pending_projection == {
+        "application_id": pending["application_id"],
+        "user_id": "pending-viewer",
+        "requested_name": "신청 이름",
+        "nickname": "별칭",
+        "status": "pending",
+        "revision": pending["revision"],
+    }
+    assert "PRIVATE APPLICATION DESCRIPTION" not in json.dumps(result, ensure_ascii=False)
+
+    decision = next(action for action in result["actions"]
+                    if any(field.get("name") == "application_id"
+                           and field.get("value") == pending["application_id"]
+                           for field in action.get("fields", [])))
+    decision_fields = {field["name"]: field for field in decision["fields"]}
+    assert (decision["method"], decision["href"], decision["encoding"], decision["csrf"]) == (
+        "POST", "/access/decision", "json", "header",
+    )
+    assert decision_fields["action"]["type"] == "select"
+    assert decision_fields["action"]["options"] == [
+        {"value": "approve", "label": "승인"},
+        {"value": "reject", "label": "거절"},
+    ]
+    assert decision_fields["application_id"]["type"] == "hidden"
+    assert decision_fields["expected_revision"]["type"] == "hidden"
+    assert decision_fields["expected_revision"]["value"] == pending["revision"]
+    assert decision_fields["reservation_person_id"]["type"] == "select"
+    assert decision_fields["reservation_person_id"]["options"] == [{
+        "value": "person-active-1", "label": "예약 담당 (서울 지점)",
+    }]
+    assert len(decision_fields["client_request_id"]["value"]) == 32
+
+    connection = next(item for item in data["connections"]
+                      if item["user_id"] == "connected-viewer")
+    assert connection["status"] == "active"
+    revoke = next(action for action in result["actions"]
+                  if any(field.get("name") == "connection_id"
+                         and field.get("value") == connection["connection_id"]
+                         for field in action.get("fields", [])))
+    revoke_fields = {field["name"]: field for field in revoke["fields"]}
+    assert revoke["href"] == "/access/decision"
+    assert revoke_fields["action"]["value"] == "revoke"
+    assert revoke_fields["expected_revision"]["value"] == connection["revision"]
+    assert len(revoke_fields["client_request_id"]["value"]) == 32
+
+
+def test_admin_accounts_projection_remains_owner_only(bound_store):
+    store, access = bound_store
+    access.create_account(user_id="viewer-admin-attempt", role="viewer")
+    status, result = call("/api/plush/admin?view=accounts", "viewer-admin-attempt", store)
+    assert status == 403
+    assert "pending_applications" not in json.dumps(result)
+
+
 def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_store, monkeypatch, tmp_path):
     store, _ = bound_store
     from webapp import google_ledger_page

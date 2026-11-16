@@ -1045,15 +1045,105 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
         raise _ProjectionError("INVALID_VALUE", "관리 화면이 올바르지 않아요", 400)
     if view == "accounts":
         accounts = []
+        connections = []
+        connection_actions = []
+        connected_person_ids = set()
         for item in access.list_accounts():
-            accounts.append({key: item.get(key) for key in (
+            account_row = {key: item.get(key) for key in (
                 "user_id", "display_name", "email", "role", "is_active",
-                "session_generation", "created_at", "updated_at") if key in item})
+                "session_generation", "created_at", "updated_at") if key in item}
+            connection = access.active_connection(item["user_id"])
+            account_row.update({
+                "connection_status": connection.get("status") if connection else "unlinked",
+                "connection_id": connection.get("connection_id") if connection else None,
+                "connection_revision": connection.get("revision") if connection else None,
+                "reservation_person_id": connection.get("reservation_person_id") if connection else None,
+                "reservation_person_label": connection.get("reservation_person_label") if connection else None,
+            })
+            accounts.append(account_row)
+            if not connection:
+                continue
+            connection_id = str(connection.get("connection_id") or "")
+            connected_person_id = str(connection.get("reservation_person_id") or "")
+            connected_person_ids.add(connected_person_id)
+            connections.append({key: connection.get(key) for key in (
+                "connection_id", "user_id", "reservation_person_id",
+                "reservation_person_label", "status", "revision",
+            )})
+            connection_actions.append(_descriptor(
+                action_id=f"connection-revoke-{_quote(connection_id)}",
+                label="연결 해지", method="POST", href="/access/decision", fields=[
+                    {"name": "action", "label": "동작", "type": "hidden", "value": "revoke",
+                     "required": True},
+                    {"name": "connection_id", "label": "연결 ID", "type": "hidden",
+                     "value": connection_id, "required": True},
+                    {"name": "expected_revision", "label": "revision", "type": "hidden",
+                     "value": connection.get("revision"), "required": True},
+                    {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
+                     "required": True},
+                ],
+            ))
+
+        pending = access.pending_applications()
+        pending_applications = [{key: application.get(key) for key in (
+            "application_id", "user_id", "requested_name", "nickname", "status", "revision",
+        )} for application in pending]
+        people = access.list_reservation_persons()
+        reservation_persons = []
+        reservation_options = []
+        for person in people:
+            person_id = person.get("reservation_person_id")
+            display_name = str(person.get("display_name") or "")
+            disambiguator = str(person.get("disambiguator") or "")
+            label = f"{display_name} ({disambiguator})" if disambiguator else display_name
+            reservation_persons.append({
+                "reservation_person_id": person_id,
+                "display_name": display_name,
+                "disambiguator": disambiguator,
+                "is_active": person.get("is_active") is True,
+                "label": label,
+            })
+            if (person.get("is_active") is True and person_id
+                    and person_id not in connected_person_ids):
+                reservation_options.append({"value": person_id, "label": label})
+
+        decision_actions = []
+        for application in pending:
+            application_id = str(application.get("application_id") or "")
+            if not application_id:
+                continue
+            decision_actions.append(_descriptor(
+                action_id=f"application-decision-{_quote(application_id)}",
+                label="접근 신청 결정", method="POST", href="/access/decision", fields=[
+                    {"name": "action", "label": "결정", "type": "select", "value": "approve",
+                     "required": True, "options": [
+                         {"value": "approve", "label": "승인"},
+                         {"value": "reject", "label": "거절"},
+                     ]},
+                    {"name": "application_id", "label": "신청 ID", "type": "hidden",
+                     "value": application_id, "required": True},
+                    {"name": "expected_revision", "label": "revision", "type": "hidden",
+                     "value": application.get("revision"), "required": True},
+                    {"name": "reservation_person_id", "label": "예약 담당자", "type": "select",
+                     "value": reservation_options[0]["value"] if reservation_options else None,
+                     "options": reservation_options},
+                    {"name": "reason", "label": "거절 사유", "type": "text"},
+                    {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
+                     "required": True},
+                ],
+            ))
+
         return {
             "title": "계정·권한", "columns": [
                 {"key": "display_name", "label": "이름"}, {"key": "role", "label": "역할"},
                 {"key": "is_active", "label": "활성"},
-            ], "rows": accounts, "actions": [
+                {"key": "connection_status", "label": "연결 상태"},
+                {"key": "reservation_person_label", "label": "예약 담당자"},
+            ], "rows": accounts, "data": {
+                "pending_applications": pending_applications,
+                "reservation_persons": reservation_persons,
+                "connections": connections,
+            }, "actions": [
                 _descriptor(action_id="application-create", label="접근 신청", method="POST",
                              href="/access/applications", fields=[
                                  {"name": "requested_name", "label": "이름", "type": "text", "required": True},
@@ -1061,17 +1151,8 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
                                  {"name": "description", "label": "설명", "type": "text"},
                                  {"name": "client_request_id", "label": "요청 ID", "type": "hidden", "required": True},
                              ]),
-                _descriptor(action_id="application-decision", label="접근 결정", method="POST",
-                             href="/access/decision", fields=[
-                                 {"name": "action", "label": "동작", "type": "select", "required": True,
-                                  "options": [{"value": "approve", "label": "승인"}, {"value": "reject", "label": "거절"}, {"value": "revoke", "label": "해지"}]},
-                                 {"name": "application_id", "label": "신청 ID", "type": "text"},
-                                 {"name": "connection_id", "label": "연결 ID", "type": "text"},
-                                 {"name": "expected_revision", "label": "revision", "type": "number", "required": True},
-                                 {"name": "reservation_person_id", "label": "예약자 ID", "type": "text"},
-                                 {"name": "reason", "label": "사유", "type": "text"},
-                                 {"name": "client_request_id", "label": "요청 ID", "type": "hidden", "required": True},
-                             ]),
+                *decision_actions,
+                *connection_actions,
             ]
         }
     if view == "profile":
