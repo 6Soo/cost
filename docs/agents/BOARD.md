@@ -6,7 +6,7 @@
 
 | 항목 | 상태 | 실제 근거 / 다음 행동 |
 | --- | --- | --- |
-| PLUSH UI-0~6 | IN_PROGRESS | 최신 사용자 승인: 모든 작업 재개와 운영 배포. UI/API 통합, 프런트 10건·Python 30건 통과, 합성 390/1440px 두 테마 확인. B/D/C/E 계약 보완·영수증 선행 배포 SHA 통합·영향 검사·최종 SHA 독립 검수·배포 대기. [실행 계약](artifacts/plush-ui-implementation-contract-20261116.md), [검증 현황](artifacts/plush-ui-validation-20261116.md). 고객 원본 변경 제외 |
+| PLUSH UI-0~6 | IN_PROGRESS (최종 검수 보완) | UI/API·Terra main 통합. 영향778+35subtests 및 delta565+26subtests 실패0/skip0, 프런트43·타입·빌드 통과. 독립 검수 발견 Google계약은05ae7d19 수정12pass; E 규칙/연결 보완·최종SHA 재검수·공식배포 대기. 운영1f436426 유지. [실행 계약](artifacts/plush-ui-implementation-contract-20261116.md), [검증 현황](artifacts/plush-ui-validation-20261116.md) |
 | RCP-A: Paseo runtime | COMPLETE (Terra high 운영 기본값·실제 합성 판독 검증) | 1f436426 배포. 운영 catalog Codex/Terra/high/selectable=true. 합성 사진 실제 판독·스키마 검증·동일 handle 복구·archive 성공, tool event0. 일반 Codex/기존 Claude 이력 보존 |
 | RCP-B: 영속 작업·장부 | COMPLETE (구현·검사·운영 배포) | 영속 결과·revision·원자적 반영·멱등·인증 API를11267cd0로 배포. 실제 고객 장부 apply는 미실행 |
 | RCP-C: 웹 UI | COMPLETE (구현·합성 검수·운영 배포) | 1f436426에서 선택 모델/추론과 과거 작업 실제값을 동적으로 표시. 기존 사진/결과 교정·복귀·선택 반영·PDF 원본 UI 유지. TaskSpace44 사용자 제어 보존, 신규 동작은 JS 실행 합성 검증 |

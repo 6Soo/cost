@@ -1,5 +1,18 @@
 # Plush UI 구현·검증 현황
 
+## 2026-11-16 최종 통합 검증 (운영 전환 전)
+
+- 선행 Terra 운영 SHA는 `1f43642605e72794452b71e38337829a9983c202`이다. 영수증 감독의 공식 배포 성공·보호14표 불변·health/ready200과 배포 소유권 해제를 확인했다. 해당 코드와 main PR973을 병합했고 완료 문서 `279eba41`은 `84f8d32e`로 반영했다.
+- D 원본 `5e2aaacf` / `5e2bd55c` / `1c888f37`은 통합 `1b9e7487` / `5b94e67b` / `fd13cbee`다. 실제 원천 계약·월 정수 키·수입/지출 합계·장부 항목·allocation allowlist·Google 문자열 금액·만료 snapshot을 확인했다. 직접 Python Plush **41 passed**.
+- 기준 `origin/main`→`1b9e7487` 영향 검사는 **778 passed, 35 subtests passed, skip0, 실패0, exit0**. 후속 `1b9e7487`→`50318f5f` 영향 검사는 **565 passed, 26 subtests passed, skip0, 실패0, exit0**, Python 컴파일과 Rust release build 통과다. 후속 실행 중 병합된 main 코드는 이미 통합한 Terra와 동일하며 이후 Python 변경은 없다. 원본 결과는 `.agents/quality-origin-1b9-preserved/`와 `.agents/quality-final-delta-v9/`에 보존했다.
+- E `50318f5f`의 규칙·내보내기·GET 결과와 C `511df99`→`67dce2fd` Google 화면, `7a75d603` 경로 통합 후 프런트 **43 passed**, 타입 검사·빌드 통과. 글꼴 경고는 기존 런타임 경로이며 실제 font 응답200을 별도 확인했다.
+- 독립 `gpt-6.1-sol` medium 검수는 `7a75d603`에서 Google 숫자 금액/연결 revision과 규칙 사례 전환 미리보기 오류, 참가자·예약 기존 쓰기 누락을 발견해 CHANGES_REQUIRED였다. Google은 실제 reconciliation 정수 금액과 객체 revision/정수 links_revision 응답으로 회귀5건 실패를 재현한 뒤 `05ae7d19`로 수정했다. Google **12 passed**, 타입 검사 통과. 대조 요약의 정밀 문자열은 숫자로 바꾸지 않으며 안전한 정수 응답만 문자열로 받아 표시한다. 나머지 보완과 최종 SHA 재검수 전까지 운영 배포를 하지 않는다.
+- 새 임시 DB의 실제 서버+ego-browser53에서 내보내기·규칙·참가자·보험·예약 화면을 열었다. XLSX 생성은 서버 ready를 확인하고 다운로드 GET200, XLSX MIME·ZIP signature·36,837bytes를 확인했다. 연결된 원천이 없는 TSV·참가자/보험/예약은 실제 이유를 표시하며 성공으로 만들지 않는다. 합성 자료만 사용했다.
+- Google 화면은 owner1440/390px 가로 넘침0·연결 없음 사유를 표시하고 viewer 직접 화면에서 관리자료를 노출하지 않으며 API403을 확인했다. Google 실데이터 동기화·최종 시트 쓰기·실제 금융 apply는 수행하지 않았다.
+- P-08 자동화 성능 한계와 실기기·스크린리더 미검증은 아래 측정대로 유지한다. graph.json·graphify CLI가 없어 `graphify update .`는 명령 미발견으로 실패했다.
+
+아래는 단계별 검사 이력이다. 현재 상태는 이 절과 최신 운영 기록을 우선한다.
+
 ## 2026-11-16 승계 후 직접 검증
 
 - 통합 작업 폴더와 기존 C/D/E 소유권을 유지했다. 영수증 선행 운영 배포 `11267cd0`를 포함한 main을 `8d39ef5a`로 병합했고, 영수증 완료 문서 `27e15d74`는 `a9c31f7e`로 통합했다. Plush 운영 배포는 아직 하지 않았다.

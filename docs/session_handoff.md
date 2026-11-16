@@ -1,14 +1,14 @@
 # 현재 상태
 
-## 2026-11-16 — Plush UI 운영 배포 요청 재개 (진행 중)
+## 2026-11-16 — Plush UI 최종 통합·검수 (배포 전)
 
-- **현재 승인:** 사용자 지시 “모든 작업 재개하고 운영배포까지해”. 실행 명세는 [Plush 설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)이다. Rust 전환·고객 원본 변경·Google 자동 쓰기는 포함하지 않는다.
-- **작업 폴더:** `C:/Users/kkokk/.paseo/worktrees/28lt5mey/plush-ui-integration-20261116`, `integration/plush-ui-20261116`. 승계 감독은 기존 C Google/D API/E 보조 후속 소유권과 미커밋 자료를 보존한다. 영수증 운영 `11267cd0`의 보호 수정은 `8d39ef5a`, 완료 기록은 `a9c31f7e`로 통합했다. 원본 폴더의 사용자·성능 작업은 변경하지 않는다.
-- **검증:** 기존 broad `b46e4a92`는 1,475 passed·기존 간헐 실패1·106 subtests passed·skip0(품질 도구 요약 PASSED, pytest exit1). 해당 업로드 복구 검사는 같은 구현/테스트 blob인 현재 통합본과 기준 main에서 각각 1 passed·2 subtests passed로 재확인했다. 기대값이나 코드를 변경하지 않았다. 후속 `a9c31f7e` 영향 검사62건·skip0/새 실패0, 별도 서버/배포 표적41건, 프런트18건·타입·빌드 통과. [검증 현황](agents/artifacts/plush-ui-validation-20261116.md)에 범위와 근거를 구분한다.
-- **브라우저:** TaskSpace53, 합성 DB1,003행. 앞선 390/1440 light/dark·viewer·검색·정확 합계·응답 유실/충돌/선택 반영 근거 보존. 승계 후 원본 너비 키보드50%·확대 Tab/ShiftTab/Esc/초점 복귀·320/390/720/1440 가로 넘침0을 직접 재확인했다. 실제 기기·스크린리더 실청취·실모델 판독 성공은 주장하지 않는다.
-- **추가 영수증 계약:** 별도 영수증 감독이 전달한 사용자 요청에 따라 React에 서버 기본 provider/model·effective thinking과 영속 batch의 실제 모델/추론을 표시했다(`8d332330`, 표적2건·타입·빌드 통과). 서버 Terra high 기본 계약과 최종 SHA는 해당 감독 소유이며 통합 대기다. 모델 목록 조회나 기본 선택으로 실행하지 않는다.
-- **남은 일/다음 행동:** 기존 C Google 비교·연결·복사, D 실제 원천/편집/보조 projection, E 규칙 대화·내보내기 후속을 통합한다. 최종 영향 검사와 정확 SHA 독립 검수 뒤 PR971 병합·검증 배포·운영 smoke를 수행한다. 현재 운영은 선행 영수증11267cd0이며 Plush 배포는 미실행이다. 배포 직전 실제 운영 SHA와 다른 배포 세션을 재확인한다.
-- **복구:** `.agents/plush-integration-checkpoint.json`, `.agents/quality-b46-preserved/`, `.agents/*v8*`, `quality-artifacts/`. graphify graph/CLI가 이 worktree에 없어 query/update를 실행하지 못했다. 현재 실행 가능한 후속 작업을 계속하며 전체 완료로 표시하지 않는다.
+- **승인/범위:** “모든 작업 재개하고 운영배포까지해”. [Plush 설계](design/m4-plush-ui-20261116.md)와 [실행 계약](agents/artifacts/plush-ui-implementation-contract-20261116.md)을 실행한다. 원본 폴더의 사용자·성능 변경을 보존하고 지정 integration worktree에서 작업한다.
+- **통합:** A/B/C/D/E 결과와 영수증 Terra backend/main PR973을 통합했다. D 세 후속의 mapping은 `5e2aaacf→1b9e7487`, `5e2bd55c→5b94e67b`, `1c888f37→fd13cbee`, C Google `511df99→67dce2fd`, E 규칙/내보내기 `50318f5f`다. 현재 운영은 영수증 감독이 공식 배포한 `1f436426`이며 배포 소유권 해제 확인. Plush 배포는 미실행이다.
+- **직접 검사:** 기준 영향778건+35subtests, 후속 영향565건+26subtests, 모두 실패0/skip0/exit0 및 컴파일·Rust release build 통과. 프런트43건·타입·빌드 통과. 이전 broad1475건의 간헐 실패1건 및 현재/main 재실행 결과는 [검증 기록](agents/artifacts/plush-ui-validation-20261116.md)에 별도 보존했다.
+- **검수 보완:** 독립 sol medium이 Google 실제 숫자 금액과 links_revision 계약, 규칙 사례 변경 preview, 참가자/예약 쓰기 누락을 발견했다. Google `05ae7d19` 수정은 회귀5실패→12통과/타입 통과. E 후속 수정·최종 정확 SHA 재검수 후 공식 배포한다. 기존 반려 SHA를 승인으로 표현하지 않는다.
+- **브라우저:** ego53 합성 DB, 영수증 응답 유실·revision충돌·원자 반영·재복귀, PDF 원본/중복 방지, Tab/ShiftTab/Esc/초점복귀·320~1440px·모션 감소 검사. 새 합성 실제 XLSX ready/GET200/ZIP, Google owner390/1440·viewerAPI403 확인. 운영 인증 읽기는 상태 코드만 확인했고 고객 화면 캡처·원문 로그·금융 apply는 없다. 실제 전경paint 목표·실기기·스크린리더는 미검증/한계 기록을 유지한다.
+- **다음:** E 최종 보완과 독립 정확SHA 승인, 최종 프런트 검사·빌드 자산해시, 현재 PreviousSha 재확인 후 [공식 배포 절차](playbooks/plush-ui-release.md), 운영 smoke, 같은 PR971에 완료 근거 기록·통합. 로컬 복구 `.agents/plush-integration-checkpoint.json`. graphify는 graph/CLI 없어 갱신 미실행이다.
+
 ## 2026-11-16 21:05 — 영수증 기본 Terra high·선택 모델 동적 표시 운영 완료
 
 - **최신 요청:** Claude 대신 `codex/gpt-6.1-terra` high를 기본으로 하고 선택 모델을 UI에 동적으로 표시한다. catalog의 기본값·모델별 실제 추론 수준으로 초기 선택과 버튼/상태를 표시하며, 기존 작업은 저장된 provider/model/thinking을 보존한다. 목록 로딩 경쟁·새로고침은 분석을 자동 실행하지 않는다.
