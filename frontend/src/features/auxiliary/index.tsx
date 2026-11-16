@@ -1,6 +1,7 @@
 import type { AuxiliaryResponse } from "../../api/types";
 import { StructuredFeaturePage, type PageProps } from "../transactions/feature-ui";
 import { ExportPage } from "./export";
+import { AuxiliaryLinksPage } from "./links";
 import { RulesPage } from "./rules";
 
 const AUXILIARY_NAV = [
@@ -62,6 +63,9 @@ export function AuxiliaryPage(props: PageProps) {
 
   if (view === "rules") return <RulesPage {...props} nav={AUXILIARY_NAV} />;
   if (view === "export") return <ExportPage {...props} nav={AUXILIARY_NAV} />;
+  if (view === "participants" || view === "reserve-links") {
+    return <AuxiliaryLinksPage {...props} nav={AUXILIARY_NAV} view={view} />;
+  }
 
   const params = new URLSearchParams({ view });
   const trip = props.search.get("trip") || props.search.get("tab");
