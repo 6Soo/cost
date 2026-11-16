@@ -410,6 +410,12 @@
   flex-wrap: wrap;
 }
 
+/* Inactive tab ink (--plush-ink-2) meets 4.5:1 on the panel surface, not on the
+   darker fill-strong bar; keep the white pill + shadow as the active cue. */
+.cost-tabs-list[data-variant="default"] {
+  background: var(--cost-panel);
+}
+
 .cost-amount {
   display: inline-block;
   color: var(--cost-text);
@@ -613,18 +619,10 @@
   font-weight: 600;
 }
 
-.cost-nav-mark,
-.cost-trip-mark {
-  width: 8px;
-  height: 8px;
+.cost-nav-icon,
+.cost-trip-icon {
   flex: 0 0 auto;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-}
-
-.cost-nav-link[aria-current="page"] .cost-nav-mark,
-.cost-trip-link[aria-current="page"] .cost-trip-mark {
-  background: currentColor;
+  color: currentColor;
 }
 
 .cost-sidebar-section {
@@ -720,6 +718,7 @@
   display: inline-flex;
   min-height: 44px;
   align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border: 1px solid var(--cost-line);
   border-radius: 999px;
@@ -932,6 +931,53 @@
   .cost-topbar {
     min-height: 56px;
     padding: 8px 16px;
+    gap: 8px;
+  }
+
+  .cost-topbar-location {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .cost-topbar-actions {
+    flex: 0 0 auto;
+  }
+
+  .cost-trip-switcher > summary .cost-topbar-label,
+  .cost-mobile-theme .cost-theme-label {
+    display: none;
+  }
+
+  .cost-trip-switcher > summary,
+  .cost-mobile-theme .cost-theme-toggle {
+    min-width: 44px;
+    justify-content: center;
+    gap: 0;
+    padding: 8px;
+  }
+
+  /* Viewport-anchored popovers: an absolute right:0 panel escapes the left edge on
+     narrow screens, so anchor both to the viewport rather than to the trigger. */
+  .cost-trip-switcher-panel {
+    position: fixed;
+    top: 68px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-height: min(70dvh, 520px);
+  }
+
+  .cost-bottom-more-panel {
+    position: fixed;
+    top: auto;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-height: min(60dvh, 420px);
   }
 
   .cost-main {

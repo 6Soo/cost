@@ -18,6 +18,7 @@ type LedgerPayload = {
   filtered_total: string;
   total: string;
   closed: boolean;
+  income_source?: { available: boolean; verified: boolean; reason: string };
 };
 type CopyPayload = { tsv: string; row_count: number; total_krw: string; message?: string };
 type ExportJob = { job_id?: string; id?: string; status?: string; message?: string };
@@ -335,6 +336,16 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </InlineNotice>
       )}
 
+      {data?.income_source?.available && !data.income_source.verified && (
+        <InlineNotice tone="warning" title="수입 원장 대조 정보">
+          Google 수입 원장의 대사가 완료되지 않았습니다. 표시된 수입과 차액은 잠정 금액입니다. 빈 금액은 미확인으로 표시합니다.
+        </InlineNotice>
+      )}
+      {data?.income_source && !data.income_source.available && data.income_source.reason !== 'NOT_CONNECTED' && (
+        <InlineNotice tone="warning" title="Google 수입 내역을 불러오지 못했습니다">
+          현재 표시된 COST 수입 외에 연결된 원장의 수입이 있을 수 있습니다.
+        </InlineNotice>
+      )}
       {loading && <Loading label="장부 조회 중" />}
       {!loading && !loadError && data && (
         <>

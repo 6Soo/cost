@@ -72,7 +72,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
 #: 파서 세대. 이름 인덱스를 만들기 전 세대(`quarter-expense-v1`)는 같은 workbook
 #: 해시여도 다시 읽어야 이름 인덱스가 생긴다.
-PARSER_VERSION = 'quarter-expense-v4'
+PARSER_VERSION = 'quarter-expense-v5'
 
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
@@ -241,8 +241,12 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
         elif labels == EXPENSE_HEADER:
             expense_rows.append(row)
     if len(income_rows) != 1 or len(expense_rows) != 1 or income_rows[0] >= expense_rows[0]:
+        from .google_expense_rows import read
+        original = read(ws_f, ws_v)
         return {"layout": "nonstandard", "flags": ["LAYOUT_NOT_STANDARD"], "income": None, "expense": None,
                 "net": None, "verified": False, "income_rows": None, "expense_rows": None,
+                "expense_source_status": original['status'],
+                "rows": {"income": [], "expense": original['rows']},
                 "name_index": {"income": [], "available": False}}
 
     income_header, expense_header = income_rows[0], expense_rows[0]
@@ -403,8 +407,12 @@ def parse_quarter_sheet(ws_f, ws_v, quarter: int) -> dict:
     base = {'kind': 'quarter', 'quarter': quarter,
             'ledger_year': int(year_match[1]) if year_match else None}
     if len(headers) != 1:
+        from .google_expense_rows import read
+        original = read(ws_f, ws_v)
         return {**base, 'layout': 'nonstandard', 'flags': ['LAYOUT_NOT_STANDARD'],
                 'income': None, 'expense': None, 'net': None, 'verified': False,
+                'expense_source_status': original['status'],
+                'rows': {'income': [], 'expense': original['rows']},
                 'name_index': {'income': [], 'available': False}}
     first = headers[0] + 1
     formulas = _sum_formulas(ws_f)

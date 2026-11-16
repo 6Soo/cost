@@ -19,7 +19,7 @@ def context(flow):
 
 
 def completed_period_evidence(board, trips=None, flow=None):
-    """Read only the fresh published core; no match recomputation or source writes."""
+    """Fresh central links or a source-checked original review; never recompute matches."""
     from app.closed_period import completed_period, formal_facts
     dates = board.conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
     completed = {r[0] for r in dates if completed_period(dict(zip(('approval_date','posting_date'),r[1:])))}
@@ -27,13 +27,22 @@ def completed_period_evidence(board, trips=None, flow=None):
         return {}
     from .card_flow import CardFlow
     flow = flow or CardFlow(board)
-    current,fresh = flow._held_ota_snapshot()
-    if not current or not fresh:
-        return {}
     if trips is None:
         trips = [dict(t,trip_id=t['tab_id']) for t in board.list_trips() if flow.trip_valid(t['tab_id'])]
-    return {k:v for k,v in formal_facts(flow._canonical_snapshot_report(current).get('matches',[]),trips).items()
-            if k in completed}
+    reviewed = reviewed_booking_facts(board, trips)
+    current,fresh = flow._held_ota_snapshot()
+    central = formal_facts(flow._canonical_snapshot_report(current).get('matches',[]),trips) if current and fresh else {}
+    for tid, fact in reviewed.items():
+        if tid in central and any(central[tid].get(k) != fact.get(k) for k in ('source_hash','trip_id','service_period')):
+            raise ValueError('REVIEWED_BOOKING_CORE_CONFLICT')
+    return {k:v for k,v in {**central, **reviewed}.items() if k in completed}
+
+
+def reviewed_booking_facts(board, trips=None):
+    from app.reviewed_booking_evidence import load
+    from pathlib import Path
+    return load(board.conn, trips if trips is not None else board.list_trips(),
+                Path(board.path).parent / 'reviewed-bookings')
 
 
 def open_period_evidence(board, trips=None, flow=None):
@@ -58,7 +67,10 @@ def open_period_evidence(board, trips=None, flow=None):
 
 def classification_evidence(board, trips=None, flow=None):
     """Closed-period exceptions plus open-period booking evidence; the two key sets are disjoint."""
-    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow)}
+    from app.manual_google_evidence import load
+    from pathlib import Path
+    manual = load(board.conn, board.list_trips(), Path(board.path).parent / 'reviewed-manual-ledger')
+    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow), **manual}
 
 
 def complete(flow, batch_id, transaction_ids=None):

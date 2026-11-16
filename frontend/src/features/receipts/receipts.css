@@ -13,7 +13,7 @@
   color: var(--receipt-text);
   min-width: 0;
   max-width: 100%;
-  padding: 24px clamp(16px, 2vw, 32px) 112px;
+  padding: 0 0 96px;
 }
 
 [data-theme='dark'] .receipt-page,
@@ -191,7 +191,7 @@
 }
 
 @media (max-width: 767px) {
-  .receipt-page { padding: 16px 12px calc(100px + env(safe-area-inset-bottom)); }
+  .receipt-page { padding: 0 0 24px; }
   .receipt-page__header { align-items: flex-start; gap: 8px; }
   .receipt-page__header .receipt-button { flex: 0 0 auto; padding-inline: 11px; font-size: 12px; }
   .receipt-lede { font-size: 14px; }
@@ -213,7 +213,7 @@
   .receipt-model__reason { grid-column: 1 / -1; margin: 0; }
   .receipt-connection { white-space: normal; font-size: 11px; }
   .receipt-mobile-tabs { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 4px auto 10px; max-width: 100%; padding: 5px; border: 1px solid color-mix(in srgb, var(--receipt-border) 40%, transparent); border-radius: 999px; background: var(--receipt-surface); }
-  .receipt-mobile-tabs button { border: 0; border-radius: 999px; background: transparent; min-height: 42px; color: var(--receipt-muted); }
+  .receipt-mobile-tabs button { border: 0; border-radius: 999px; background: transparent; min-height: 44px; color: var(--receipt-muted); }
   .receipt-mobile-tabs button[aria-pressed='true'] { background: var(--receipt-green); color: #102215; font-weight: 700; }
   .receipt-workspace { display: block; }
   .receipt-workspace > .receipt-card { display: none; }
@@ -227,7 +227,7 @@
   .receipt-result { padding: 12px; }
   .receipt-result__identity { align-items: flex-start; flex-direction: column; gap: 3px; }
   .receipt-result__amount { overflow-wrap: anywhere; }
-  .receipt-apply-bar { bottom: calc(6px + env(safe-area-inset-bottom)); margin-inline: -8px; padding: 10px; }
+  .receipt-apply-bar { bottom: calc(72px + env(safe-area-inset-bottom)); margin-inline: -8px; padding: 10px; }
   .receipt-apply-bar .receipt-button { max-width: 54%; text-align: center; padding-inline: 10px; font-size: 12px; }
   .receipt-pending-run { align-items: stretch; }
   .receipt-pending-run .receipt-button { flex: 1; }
@@ -242,7 +242,7 @@
 }
 
 @media (max-width: 360px) {
-  .receipt-page { padding-inline: 8px; }
+  .receipt-page { padding-inline: 0; }
   .receipt-page__header { flex-direction: column; }
   .receipt-page__header .receipt-button { align-self: flex-end; }
   .receipt-form-grid,

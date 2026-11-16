@@ -264,7 +264,64 @@ pub fn plan_with_periods(
             } else {
                 fact
             };
-            match classify_new_row(&ctx, &resolved, row, &mut chosen, &tid, row_evidence)? {
+            let google = fresh::manual_google_choice(&ctx, row, &tid, row_evidence);
+            let outcome = if let Some(google) = google {
+                let board_payload: Value = input
+                    .boards
+                    .get(&format!("card-{tid}"))
+                    .map(|b| serde_json::from_str(&b.payload_json))
+                    .transpose()
+                    .map_err(|_| PlanError::Json {
+                        id: tid.clone(),
+                        what: "board payload".into(),
+                    })?
+                    .unwrap_or(Value::Null);
+                let current_tabs: BTreeSet<String> = [
+                    text(row, "display_tab_id"),
+                    text(row, "trip_id"),
+                    input
+                        .ledger
+                        .get(&tid)
+                        .map(|r| text(r, "trip_id"))
+                        .unwrap_or_default(),
+                    board_payload
+                        .get("display_tab_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    board_payload
+                        .get("trip_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    input
+                        .ledger
+                        .get(&tid)
+                        .map(|r| text(r, "display_tab_id"))
+                        .unwrap_or_default(),
+                    input
+                        .boards
+                        .get(&format!("card-{tid}"))
+                        .map(|b| b.display_tab_id.clone())
+                        .unwrap_or_default(),
+                ]
+                .into_iter()
+                .filter(|s| !s.is_empty() && s != "unclassified")
+                .collect();
+                if current_tabs.len() > 1 {
+                    Fresh::Protected
+                } else {
+                    chosen = google;
+                    Fresh::Changed
+                }
+            } else if row_evidence.is_some_and(|f| {
+                f.get("kind").and_then(Value::as_str) == Some("google_manual_expense")
+            }) {
+                Fresh::Protected
+            } else {
+                classify_new_row(&ctx, &resolved, row, &mut chosen, &tid, row_evidence)?
+            };
+            match outcome {
                 Fresh::Protected => {
                     protected += 1;
                     let reason = Judgement::Protected(ProtectionReason::Unattributable);
@@ -295,8 +352,9 @@ pub fn plan_with_periods(
         let correction = !has_history
             && input.reconsider
             && fact.is_some_and(|f| f.as_object().is_none_or(|m| !m.is_empty()))
-            && text(&chosen, "trip_id") != text(row, "trip_id")
-            && basis.contains("예약 이용기간 근거 우선:")
+            && text(&chosen, "display_tab_id") != text(row, "display_tab_id")
+            && (basis.contains("예약 이용기간 근거 우선:")
+                || basis.starts_with("GOOGLE_MANUAL_ROW · "))
             && (input.boards.contains_key(&format!("card-{tid}"))
                 || input.ledger.contains_key(&tid));
         let judged = decide(row, &chosen, &tid, has_history, fact);

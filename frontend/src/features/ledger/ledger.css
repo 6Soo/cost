@@ -1,7 +1,7 @@
 .cost-ledger { display: grid; gap: 18px; min-width: 0; color: var(--cost-text); }
 .cost-ledger__header { display: grid; gap: 16px; min-width: 0; }
 .cost-ledger__breadcrumbs { display: flex; align-items: center; gap: 8px; color: var(--cost-text-secondary); font-size: .875rem; }
-.cost-ledger__breadcrumbs a { color: inherit; min-height: 32px; display: inline-flex; align-items: center; }
+.cost-ledger__breadcrumbs a { color: inherit; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .cost-ledger__title-row { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
 .cost-ledger__title-row h1 { margin: 0 0 6px; font-size: clamp(1.65rem, 3vw, 1.95rem); line-height: 1.25; overflow-wrap: anywhere; }
 .cost-ledger__title-row p { margin: 0; color: var(--cost-text-secondary); }

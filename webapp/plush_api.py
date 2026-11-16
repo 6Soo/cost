@@ -132,6 +132,17 @@ def _trip_for_query(board: Any, access: Any, session: Any, owner: bool,
     return trip, list(board.list_tab_rows(tab_id))
 
 
+def _source_income(board, access, session, owner, tab_id):
+    from . import plush_income
+    return plush_income.load(tab_id, owner=owner, session=session,
+                             visible_tabs=set() if owner else set(access.visible_tabs(session.user_id)))
+
+
+def _with_income(rows, source):
+    ids = {row.get('row_id') for row in rows}
+    return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
+
+
 def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     # The store's displayed amount/date projection is authoritative.  This
     # fallback is only for test doubles that expose plain rows.
@@ -148,7 +159,11 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
     summaries = []
     for trip in trips:
         rows = list(board.list_tab_rows(trip["tab_id"]))
-        summaries.append(_trip_summary(board, trip, rows))
+        income = _source_income(board, access, session, owner, trip['tab_id'])
+        rows = _with_income(rows, income)
+        summary = _trip_summary(board, trip, rows)
+        summary['income_source'] = {key: value for key, value in income.items() if key != 'rows'}
+        summaries.append(summary)
     capabilities = ["ledger.read", "row.read", "transactions.read"]
     if owner:
         capabilities.extend(("ledger.write", "admin.read", "export.write", "receipt.read"))
@@ -197,6 +212,8 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
             query: dict[str, list[str]]) -> dict[str, Any]:
     owner = _owner(ledger_board, access, session)
     trip, rows = _trip_for_query(board, access, session, owner, query)
+    income = _source_income(board, access, session, owner, str(trip.get('tab_id') or ''))
+    rows = _with_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
     all_rows = list(rows)
@@ -240,7 +257,8 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     read_only = (not owner) or closed
     return {
         "trip": _trip_summary(board, trip, all_rows),
-        "rows": [projection.ledger_row(row, read_only=read_only) for row in selected],
+        "income_source": {key: value for key, value in income.items() if key != 'rows'},
+        "rows": [projection.ledger_row(row, read_only=read_only or row.get('google_income', False)) for row in selected],
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
@@ -256,6 +274,12 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     if not row_id or board is None:
         raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 행이에요", 404)
     row = board.get_row(unquote(row_id)) if hasattr(board, "get_row") else None
+    if row is None and row_id.startswith('google-income|'):
+        parts = row_id.split('|')
+        if len(parts) == 4:
+            owner = _owner(ledger_board, access, session)
+            source = _source_income(board, access, session, owner, parts[1])
+            row = next((r for r in source['rows'] if r['row_id'] == row_id), None)
     if row is None:
         raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 행이에요", 404)
     owner = _owner(ledger_board, access, session)
@@ -305,7 +329,7 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         "row": projection.ledger_row(display_row, read_only=read_only),
         "source": projection.safe_source(row) if owner else None,
         "decision": projection.safe_decision(row) if owner else None,
-        "history": list(board.list_history(row_id)) if owner and hasattr(board, "list_history") else [],
+        "history": list(board.list_history(row_id)) if owner and not row.get('google_income') and hasattr(board, "list_history") else [],
         "lineage": [projection.safe_source(row)] if owner else [],
         "detail": projection.safe_detail(row) if owner else {},
         "expected_revision": row.get("revision"),

@@ -88,7 +88,7 @@ export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {
           <span>{humanDate(trip.starts_on)}–{humanDate(trip.ends_on)}</span>
         </a>
         {bootstrap.role === 'owner' && trip.kind !== 'quarter' && (
-          <a href={`/trips?${new URLSearchParams({ state: stateFor(trip), legacy: '1' })}#manage-${encodeURIComponent(trip.id)}`}>여행 정보 수정</a>
+          <a className="cost-trips__edit-link" href={`/trips?${new URLSearchParams({ state: stateFor(trip), legacy: '1' })}#manage-${encodeURIComponent(trip.id)}`}>여행 정보 수정</a>
         )}
         </>
       ),
