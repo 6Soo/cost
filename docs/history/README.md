@@ -4,6 +4,8 @@
 
 ## 최근 보관
 
+- [2026-11-16 브랜치·작업공간 통합 및 보존 근거](workspace-integration-20261116.md)
+
 - [2026-11-16 정리 전 인계](session_handoff-through-20261116.md)
 - [2026-11-16 정리 전 작업판](BOARD-through-20261116.md)
 - [2026-11-14까지 인계](session_handoff-through-20261114.md)
