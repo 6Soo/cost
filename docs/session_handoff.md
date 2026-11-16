@@ -9,6 +9,15 @@
 - **최종 검사 중 발견/보완:** 공식 영향 검사에서 기존 `manual_rows`의 row_id-only 구형 스키마 계약 2실패가 나왔다. origin/main과 성능 이전 코드에도 동일한 문제가 있어 성능 회귀가 아님을 확인했다. 담당과 소유권을 조정해 `8fbf60f0`로 원행 ID만 읽도록 보완했고, 새 red→기존 포함8 passed. 기존 테스트를 완화하지 않았다. 공식 재검사는 Python923/Rust191 passed·skip0/known0, build/fmt/clippy exit0. 독립 sol medium 코드 검수 APPROVE·표적42 passed. 최신 UI main 통합 뒤 실제 환불/Plush 교차 검사97 passed. [검증 근거](agents/artifacts/rust-exaone-validation-20261116.md)에 SHA와 한계를 기록했다. 최종 SHA 검수 판정은 동일 PR에 남긴다.
 - **운영/남은 일:** Rust 전환·배포 없음. 다른 세션이 UI 기존 URL 연결/배포를 맡으며 현재 전달받은 운영 SHA는 `c77eaa2bcfd04d8a553122330ebbda914a78cef0`. UI main `d088e1cb`를 통합 `ddc22536`에 보존했다. 코드·합성 검증은 완료했고 PR 최종 검수/병합을 진행한다. C1/C2/승인①②·운영 전환은 별도 미완이다. graphify update는 CLI 미설치로 실행 불가했다.
 
+# 2026-11-16 — 전체 회계 대사 경로 보강·전수 감사 도구
+
+- **요청/범위:** 0712 몽골 누락을 계기로 전체 원문·기장·보드의 회계 불일치를 찾고, 같은 원인이 재발하지 않도록 코드·규칙을 보강했다. 운영 DB·Google 장부·고객 원문은 쓰지 않았다.
+- **구현:** 완료 기간의 미기장 거래는 원문 해시와 실제 예약 이용기간이 일치하는 정식 예약 근거가 있을 때만 열린 여행으로 복구하도록 Python/Rust 판정 경로를 맞췄다. 전달 메일·소유자 증거 라벨의 과거 수집 범위를 보강했고, Google 수입 행의 예약금·잔금·추가금 구성요소 불일치를 합계 미검증으로 표시한다. `app/accounting_audit.py`와 `tools/audit_accounting_consistency.py`로 수동 교정 포함 원문·ledger·board 대사를 읽기 전용으로 수행하며 장부·보드 귀속 분리와 누락 원문 식별자도 보고한다.
+- **커밋:** `50823317` (`fix: reconcile unrecorded bookings and audit projections`).
+- **검사:** 신규·직접 영향 Python 24건 통과, Rust `plan_judgement` 5건 통과, 운영 `D:/WebLedgerHost/data/board.sqlite` 읽기 전용 대사 `database_changes=0`. 대사 집계는 원문 7,336건·기장 3,359건·보드 3,359건, 미기장 3,678건(완료기간 3,653·열린 기간 25), 귀속 차이 694건, 환불 원문 확인 필요 109건이다. 완료기간 미기장 대부분은 과거 보호 경계에 속하므로 자동 기장하지 않았다.
+- **검증 한계:** 기존 `webapp/tests/test_automatic_plan_refactor.py`의 합성 기준선 비교 2건은 현재 HEAD에 이미 존재한 예약근거 동작 차이로 실패했으며 이번 변경의 완료기간 복구 분기와 무관하다. 운영 재배포·금융 반영·Google 쓰기는 실행하지 않았다.
+- **다음 작업:** 운영 반영 전 독립 검수와 승인된 배포 절차를 거친다. 재개 시 이 커밋의 표적 검사와 읽기 전용 대사를 먼저 재실행한다.
+
 # 현재 상태
 
 # 현재 상태
