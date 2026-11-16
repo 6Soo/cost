@@ -1,5 +1,14 @@
 # 현재 상태
 
+## 2026-11-16 — Plush UI 운영 배포 요청 재개 (진행 중)
+
+- **현재 승인:** 사용자 지시 “모든 작업 재개하고 운영배포까지해”. 기존 문서의 운영 배포 제외 문구는 이 Plush 요청에 한해 갱신됐다. Rust 작성자 전환·고객 원본 변경은 포함하지 않는다.
+- **작업 폴더:** `C:/Users/kkokk/.paseo/worktrees/28lt5mey/plush-ui-integration-20261116`, `integration/plush-ui-20261116`. 통합 `58fd9143`·API `670cc2ad`를 재사용하고 `dfe6bc4f`에서 합성 viewer 연결과 Node 웹 API 검사 환경을 바로잡았다. `088b1731`은 바이너리 다운로드 바이트 보존·계정 POST 3개 exact allowlist, `648d5a13`은 기존 라이선스 글꼴 경로 재사용이다.
+- **직접 검증:** API 6건·정적 UI 20건 통과; 연결 누락을 고친 HTTP 4건 통과; 프런트 10건·타입·빌드 통과. 합성 1,003행 DB, ego-browser TaskSpace 53에서 1440/390px light/dark 캡처, 모바일 가로 넘침 0, viewer 다른 여행/쓰기 버튼 비노출, 상세 Esc 닫기·초점 복귀 확인. 키보드 Tab 순환 보완 후 재검증 중이다. 실기기·스크린리더 실청취는 미실행이다.
+- **남은 일:** B/D/C/E의 기존 작업 폴더에서 후속 API 계약 수정·검증 진행. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`은 `webapp/tests/test_receipt_workflow_ui.py` 누락으로 selector 단계 실패; 통과로 기록하지 않는다. 영수증 최신 SHA 통합 후 재실행한다. Git 자료 보호 검사 차단 0건.
+- **배포 순서:** 별도 영수증 감독 `73dfaca3-7c22-4d37-897b-66f088af068e`가 `C:/AX/cost`의 영수증·배포·상태 문서를 소유하고 먼저 배포한다. 그 배포 SHA와 실제 API 계약을 받은 뒤 Plush에 통합, 영향 검사·최종 SHA 독립 검수·PR·`deploy_verified_release.ps1`·운영 smoke를 수행한다. 아직 Plush 운영 배포·완료를 주장하지 않는다. 원본 폴더와 사용자 변경은 보존한다.
+- **복구:** `.agents/plush-integration-checkpoint.json`, 합성 preview `.agents/plush_preview_v5.py`와 `.agents/plush-preview-v5/`, 브라우저 스크립트 `.agents/ego-*-v5.mjs`. preview는 임시 DB·임의 loopback 포트·worker/model 비활성 상태다. graphify 그래프와 실행 파일이 이 worktree에 없어 query/update는 실행할 수 없었다.
+
 ## 2026-11-16 — Plush UI 전체 화면 설계 (문서 완료)
 
 - **현재 요청/답변:** 사용자가 Dominik Martin의 Plush UI를 특정한 뒤 COST 전체 UI 설계를 요청했다. 주 사용 환경은 PC 장부 업무, 모바일은 조회·영수증 등록이다. 시각 선택지의 차이를 설명한 뒤 Plush의 외형·탄성 조작과 촘촘한 장부 표를 결합하는 기본안을 작성했다. 사용자가 선택지 1을 명시 승인했다고 기록하지 않는다.
