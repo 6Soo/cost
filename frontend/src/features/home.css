@@ -1,0 +1,65 @@
+.cost-home {
+  display: grid;
+  gap: 32px;
+  min-width: 0;
+  color: var(--cost-text);
+}
+
+.cost-home__header,
+.cost-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cost-home h1,
+.cost-home h2,
+.cost-home p { margin-top: 0; }
+.cost-home h1 { margin-bottom: 8px; font-size: clamp(1.65rem, 3vw, 1.95rem); line-height: 1.25; }
+.cost-home h2 { margin-bottom: 0; font-size: 1.2rem; line-height: 1.35; }
+.cost-eyebrow { margin-bottom: 6px; color: var(--cost-text-secondary); font-size: .8125rem; font-weight: 600; }
+.cost-home__updated,
+.cost-home__role-note { margin-bottom: 0; color: var(--cost-text-secondary); }
+.cost-home__all-trips,
+.cost-section-heading > a { min-height: 44px; display: inline-flex; align-items: center; color: var(--cost-text); font-weight: 600; }
+.cost-home__section { display: grid; gap: 16px; min-width: 0; }
+.cost-home__trip-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cost-home__trip-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--cost-border);
+  border-radius: 20px;
+  background: var(--cost-surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+.cost-home__trip-card:hover { border-color: var(--cost-selection); transform: translateY(-1px); }
+.cost-home__trip-card:focus-visible,
+.cost-home a:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
+.cost-home__trip-status { color: var(--cost-text-secondary); font-size: .8125rem; }
+.cost-home__trip-card strong { min-width: 0; overflow-wrap: anywhere; }
+.cost-home__trip-period { grid-column: 1 / -1; color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-home__trip-profit-label { align-self: end; color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-home__trip-profit { display: flex; justify-content: end; gap: 3px; font-size: 1.15rem; font-variant-numeric: tabular-nums; font-weight: 700; }
+.cost-home__jobs { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cost-home__job { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 12px 16px; border: 1px solid var(--cost-border); border-radius: 16px; background: var(--cost-surface); }
+.cost-home__job-status { min-width: 0; }
+.cost-home__job a { flex: 0 0 auto; min-height: 44px; display: inline-flex; align-items: center; color: var(--cost-text); }
+
+@media (max-width: 900px) {
+  .cost-home__trip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .cost-home { gap: 24px; }
+  .cost-home__header { align-items: start; flex-direction: column; }
+  .cost-home__trip-grid { grid-template-columns: 1fr; }
+  .cost-home__job { align-items: start; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cost-home__trip-card { transition: none; }
+}

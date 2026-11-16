@@ -52,3 +52,10 @@
 - **단계:** M2 종료, M3 진행. 구현 정본은 [SPEC](SPEC.md), 판정 정본은 [규칙집](DECISION_POLICY.md)과 `policy/`다. 이후 Rust·React·클라우드 순서와 데이터 보호는 그대로 유지한다.
 
 이전 상세 인계와 완료 근거는 [정리 전 인계](history/session_handoff-through-20261116.md), [과거 배정표](history/BOARD-through-20261116.md), [문서 지도](README.md)에서 찾는다.
+## 2026-11-16 — Plush UI 구현 통합 체크포인트
+
+- **승인 범위:** 사용자가 Plush 전체 UI 구현을 병렬 위임하고 중단 후 재개를 지시했다. 설계 `73bd96be` 이후 공용 React 기반, 인증 API 클라이언트, 홈·여행·장부·거래·관리·영수증 화면을 통합 worktree `integration/plush-ui-20261116`에 반영했다.
+- **실제 반영:** `frontend/src` 공용 컴포넌트·토큰·AppShell, `frontend/src/api` DTO/클라이언트, feature 폴더와 `main.tsx`의 `/ui/*` 경로 라우팅을 통합했다. 타입 호환 수정과 GET action 필드 순서·blob 응답 처리를 반영했다.
+- **검증 근거:** `npm run typecheck` 통과, `npm run build` 통과(폰트 경로는 런타임 `/ui/fonts/...`로 남음). Vitest는 8건 중 7건 통과, blob fixture 1건은 Windows Node/jsdom Response가 Blob 본문을 `[object Blob]`로 직렬화하는 환경 불일치로 실패했다.
+- **미완료/차단:** `webapp/plush_ui.py`는 정적 셸만 제공하고 `/api/plush/*` dispatcher가 아직 없다. 통합 HTTP 테스트는 `dist` fixture를 찾지 못해 4건이 setup error이며, API 구현 부재 검증까지 진행하지 못했다. 인증·ledger·receipt 서버 API와 운영 배포는 미완료다.
+- **다음 명령:** D 작업 결과에서 실제 `plush_api` 서버 dispatcher를 찾아 `ledger_board` GET/POST hook에 통합한 뒤, frontend build 산출물로 `pytest -q webapp/tests/test_plush_integration.py`를 재실행한다. API가 없으면 해당 범위를 별도 구현 작업으로 기록하고 배포하지 않는다.
