@@ -1,3 +1,10 @@
+# 2026-11-17 06:00 — 분기 밖 비용의 과거 자동 귀속 3건 운영 교정 완료
+
+- **현재 요청/완료:** 사용자 “ㅇㅇ 찾은것 코드로 교정해”의 좁은 범위 완료. 앞선 Q2 내부77건은 이번 성과에서 제외한다. 명시적 원문 재대조 경로만 사용해 자동3건을 교정했고 owner 최초기장1건은 보존했다. 목적지는 기존 날짜/지역 규칙의 최선 추론이며 실제 숙박일·보험기간을 확정하거나 새로 생성하지 않았다.
+- **코드/검사:** 코드 `d5b77717ccfb9d50242b6e29464f8bd59766a71c`, PR984 병합 `9f0cdc3a2d5805f8a0f89d4942269b5abfc54b9f`. 인계된 정확SHA 독립 gpt-6.1-sol medium APPROVE와 공식609건 PASS/skip0/known0·costcore build를 대조했다. GitHub2job은 결제 문제로 시작전 차단(annotation 직접확인). graphify 파일/CLI 없음은 기존 확인 결과를 재사용한다.
+- **실제 배포/반영:** 공식 도구 exit0, actual d5b77717/backend8752·gateway8790, Previous e4e5dd67. 추적1890 blob불일치0·코드배포 보호14표 불변·health/ready200·비인증 보호API401. Rust/rust·e4e5 바이너리 및 설정 해시 보존. 이후 별도 hidden 프로세스에서 board/core 신선 백업·복원 검증→exact3 apply→REPLAYED 변경0→3투영 일치·원문/대상밖/금융/core불변을 확인했다. 서비스 재시작 후21:00:20Z 읽기전용 재검증도 PASS, Python/Rust 후속대상0·검증DB쓰기0·Google쓰기0다.
+- **실패 구분:** 초기 운영 wrapper의 Worker 파일 동일성 검사와 백업 scope 인자 오류는 실제 쓰기 전 게이트에서 중지됐으며 각각 runtime 복구를 확인했다. 역할별 실행파일 검증과 `--scope board core.sqlite`로 수정해 통과했다. 실패를 성공으로 집계하지 않는다. 보호 호스트의 최종 financial_verified/runtime_restored 모두 true.
+- **근거/남은 일:** 보호 `D:/WebLedgerHost/data/backups/q12-auto-additions-20261116T181539Z/q34-leakage/code-repair/`의 financial-backup-restore/applied/replay/final-validation/maintenance-lifecycle JSON과 실제교정 증거 XLSX. source/금융 원문은 Git 밖에만 보존했다. 승인 범위의 남은 구현·검사·운영반영 없음. 운영 소유권 해제 통지 후 다른 세션이 다음 배포를 맡는다. 문서 때문에 재배포하거나 문서전용 PR을 만들지 않는다.
 # 2026-11-17 — 분기 밖 비용의 과거 자동 귀속 교정 구현·사본 검증, 운영 반영 준비
 
 - **사용자 승인:** “ㅇㅇ 찾은것 코드로 교정해”. PROC-073에 원문 재대조의 좁은 Q2 자동 귀속 예외를 반영했다. 기존 분기 검수의 미리보기/digest·백업·3투영 원자 교정·감사 원복 도구에 원본 카드 파일 재파싱·원문 해시·이전 귀속·자동 생성 이력을 검증하는 `--source-review` 경로를 추가했다. 일반 P1 조회/재시작에는 연결하지 않았다.
