@@ -125,6 +125,37 @@
   inline-size: 1.15rem;
 }
 
+.e-feature-fieldset {
+  border: 1px solid var(--e-border);
+  border-radius: .75rem;
+  display: grid;
+  gap: .4rem;
+  min-inline-size: 0;
+  padding: .5rem .75rem .75rem;
+}
+
+.e-feature-fieldset legend {
+  color: var(--e-muted);
+  font-size: .8125rem;
+  font-weight: 600;
+  padding-inline: .25rem;
+}
+
+.e-feature-choice-list {
+  display: grid;
+  gap: .25rem;
+  max-block-size: 14rem;
+  overflow: auto;
+}
+
+.e-feature-choice-list .e-feature-check {
+  min-inline-size: 0;
+}
+
+.e-feature-choice-list .e-feature-check > span {
+  overflow-wrap: anywhere;
+}
+
 .e-feature-page .cost-panel,
 .e-feature-table-wrap,
 .e-feature-actions,

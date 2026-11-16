@@ -9,7 +9,6 @@ import {
   transactionPath,
   transactionView,
   useResource,
-  withQuery,
   type FeaturePayload,
   type PageProps,
 } from "./feature-ui";
@@ -29,33 +28,88 @@ const TITLES: Record<string, string> = {
   flights: "항공권 연결",
 };
 
-function endpointFor(view: string, query: URLSearchParams) {
-  const params = new URLSearchParams({
-    view,
-    page: query.get("page") || "1",
-    page_size: query.get("page_size") || "50",
-  });
-  const term = query.get("q");
-  if (term) params.set("q", term);
-  return `/api/plush/transactions?${params.toString()}`;
-}
-
-function queryForPage(path: string, view: string, query: URLSearchParams, page: number) {
-  const values: Record<string, string> = { view, page: String(page), page_size: query.get("page_size") || "50" };
-  if (query.get("q")) values.q = query.get("q")!;
-  if (view === "refunds") values.tab = "refunds";
-  return withQuery(path, values);
-}
+// Keep the card history filters used by the existing /cards/all URLs. Cursor
+// values are forwarded for deep links, while React page navigation starts a
+// fresh offset page and therefore drops those old cursor values.
+const CARD_FILTER_KEYS = ["year", "month", "period", "card", "card_kind", "q", "undated"];
+const CARD_CURSOR_KEYS = ["cursor", "undated_cursor"];
+const DEFAULT_PAGE_SIZE = 50;
+const CARD_PAGE_SIZE = 100;
 
 function validPage(search: URLSearchParams) {
   const value = Number(search.get("page") || "1");
   return Number.isSafeInteger(value) && value > 0 ? value : 1;
 }
 
+function validPageSize(search: URLSearchParams, view: string) {
+  const fallback = view === "cards" ? CARD_PAGE_SIZE : DEFAULT_PAGE_SIZE;
+  const value = Number(search.get("page_size") || String(fallback));
+  return Number.isSafeInteger(value) && value > 0 && value <= 200 ? value : fallback;
+}
+
+function copyQueryKeys(target: URLSearchParams, source: URLSearchParams, keys: string[]) {
+  for (const key of keys) {
+    for (const value of source.getAll(key)) {
+      if (value !== "") target.append(key, value);
+    }
+  }
+}
+
+function endpointFor(view: string, query: URLSearchParams) {
+  const params = new URLSearchParams();
+  params.set("view", view);
+  params.set("page", String(validPage(query)));
+  params.set("page_size", String(validPageSize(query, view)));
+  if (view === "cards") {
+    copyQueryKeys(params, query, [...CARD_FILTER_KEYS, ...CARD_CURSOR_KEYS]);
+  } else {
+    copyQueryKeys(params, query, ["q"]);
+  }
+  return `/api/plush/transactions?${params.toString()}`;
+}
+
+function queryForPage(path: string, view: string, query: URLSearchParams, page: number, pageSize: number) {
+  const params = new URLSearchParams({ view, page: String(page), page_size: String(pageSize) });
+  if (view === "cards") copyQueryKeys(params, query, CARD_FILTER_KEYS);
+  else copyQueryKeys(params, query, ["q"]);
+  if (view === "refunds") params.set("tab", "refunds");
+  return uiPathWithQuery(path, params);
+}
+
+function queryForSearch(path: string, view: string, query: URLSearchParams, pageSize: number, term: string) {
+  const params = new URLSearchParams({ view, page: "1", page_size: String(pageSize) });
+  if (view === "cards") copyQueryKeys(params, query, CARD_FILTER_KEYS.filter((key) => key !== "q"));
+  if (term) params.set("q", term);
+  if (view === "refunds") params.set("tab", "refunds");
+  return uiPathWithQuery(path, params);
+}
+
+function uiPathWithQuery(path: string, params: URLSearchParams) {
+  const target = path.startsWith("/") ? `/ui${path}` : `/ui/${path}`;
+  return [...params.keys()].length ? `${target}?${params.toString()}` : target;
+}
+
+function OwnerOnlyTransactions() {
+  return (
+    <main className="e-feature-page">
+      <section className="cost-panel e-feature-state" role="alert">
+        <h1>거래 화면은 소유자 전용입니다</h1>
+        <p>현재 계정에서 사용할 수 있는 거래 자료가 없습니다.</p>
+      </section>
+    </main>
+  );
+}
+
 export function TransactionsPage(props: PageProps) {
+  if (props.bootstrap.role !== "owner") return <OwnerOnlyTransactions />;
+  return <OwnerTransactionsPage {...props} />;
+}
+
+function OwnerTransactionsPage(props: PageProps) {
   const path = pagePath(props);
   const view = transactionView(path, props.search);
   const page = validPage(props.search);
+  const requestedPageSize = validPageSize(props.search, view);
   const endpoint = endpointFor(view, props.search);
   const { state, reload } = useResource<TransactionsResponse>(endpoint);
   const [notice, setNotice] = useState("");
@@ -71,11 +125,11 @@ export function TransactionsPage(props: PageProps) {
     return !/\/api\/user-actions\/answer/.test(target);
   }), [payload, props.bootstrap.role]);
   const currentPath = transactionPath(view);
-  const pageSize = state.kind === "ready" ? Math.max(1, state.payload.page_size) : 50;
+  const pageSize = state.kind === "ready" ? Math.max(1, state.payload.page_size) : requestedPageSize;
   const totalCount = state.kind === "ready" ? Math.max(0, state.payload.total_count) : 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const previousHref = queryForPage(currentPath, view, props.search, Math.max(1, page - 1));
-  const nextHref = queryForPage(currentPath, view, props.search, Math.min(totalPages, page + 1));
+  const previousHref = queryForPage(currentPath, view, props.search, Math.max(1, page - 1), pageSize);
+  const nextHref = queryForPage(currentPath, view, props.search, Math.min(totalPages, page + 1), pageSize);
 
   if (!isKnownView) {
     return (
@@ -96,10 +150,7 @@ export function TransactionsPage(props: PageProps) {
     setSearchError("");
     try {
       // Keep filtering and pagination on the server; only the query state is placed in the URL.
-      const values: Record<string, string> = { view, page: "1", page_size: String(pageSize) };
-      if (q) values.q = q;
-      if (view === "refunds") values.tab = "refunds";
-      window.location.assign(withQuery(currentPath, values));
+      window.location.assign(queryForSearch(currentPath, view, props.search, pageSize, q));
     } catch (error) {
       setSearchError(featureError(error));
     }
@@ -122,7 +173,8 @@ export function TransactionsPage(props: PageProps) {
             autoComplete="off" placeholder="내용·예약·가맹점 검색" />
         </label>
         <button type="submit" className="cost-button">검색</button>
-        {props.search.has("q") ? <a className="cost-button cost-button-quiet" href={withQuery(currentPath, { view, ...(view === "refunds" ? { tab: "refunds" } : {}) })}>초기화</a> : null}
+        {props.search.has("q") ? <a className="cost-button cost-button-quiet"
+          href={queryForSearch(currentPath, view, props.search, pageSize, "")}>초기화</a> : null}
       </form>
       {searchError ? <p className="e-feature-error" role="alert">{searchError}</p> : null}
       {notice ? <p className="e-feature-notice" role="status">{notice}</p> : null}

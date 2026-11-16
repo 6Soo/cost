@@ -45,24 +45,20 @@ export function AdminPage(props: PageProps) {
     );
   }
 
-  // Google comparison can be read under the server's assigned-trip scope. Other
-  // admin material is never requested for a viewer session.
-  if (props.bootstrap.role === "viewer" && view !== "google") return <OwnerOnly />;
+  // The current /api/plush/admin projection is owner-only for every view.
+  // Keep direct viewer URLs from issuing a request the server will forbid.
+  if (props.bootstrap.role !== "owner") return <OwnerOnly />;
 
   const params = new URLSearchParams({ view });
   const trip = safeQuery(props.search.get("trip") || props.search.get("tab"));
   if (trip) params.set("trip", trip);
   const endpoint = `/api/plush/admin?${params.toString()}`;
-  const nav = props.bootstrap.role === "owner"
-    ? ADMIN_NAV
-    : ADMIN_NAV.filter((item) => item.id === "google");
-
   return (
     <StructuredFeaturePage
       bootstrap={props.bootstrap}
       endpoint={endpoint}
       pageTitle={view === "google" ? "Google 장부 비교·복사" : view === "review" ? "AI 분기 검수 결과" : view === "profile" ? "기본 정보" : "계정·권한"}
-      nav={nav}
+      nav={ADMIN_NAV}
       currentNav={view}
       readOnly={view === "review" || props.bootstrap.role === "viewer"}
       hideReviewWrites={view === "review"}

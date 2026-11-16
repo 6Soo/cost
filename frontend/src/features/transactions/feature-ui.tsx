@@ -95,7 +95,11 @@ export function FeatureNav({
   );
 }
 
-function FieldControl({ field }: { field: FieldDescriptor }) {
+function FieldControl({ field, bootstrap, requestId }: {
+  field: FieldDescriptor;
+  bootstrap: Bootstrap;
+  requestId: string;
+}) {
   const id = useId();
   const inputId = `${id}-${field.name.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const readOnly = Boolean(field.read_only);
@@ -109,10 +113,63 @@ function FieldControl({ field }: { field: FieldDescriptor }) {
   };
   const stringValue = field.value == null ? "" : String(field.value);
 
+  if (field.type === "hidden" && field.multiple && field.name === "tab_ids") {
+    const options = field.options?.length
+      ? field.options
+      : bootstrap.trips.map((trip) => ({ value: trip.id, label: trip.title }));
+    return (
+      <fieldset className="e-feature-fieldset" disabled={readOnly}>
+        <legend>{field.label}{required ? <span aria-hidden="true"> *</span> : null}</legend>
+        {options.length ? (
+          <div className="e-feature-choice-list">
+            {options.map((option, index) => (
+              <label className="e-feature-check" key={`${option.value}-${index}`}>
+                <input
+                  type="checkbox"
+                  name={field.name}
+                  value={option.value}
+                  defaultChecked={stringValue === option.value}
+                  disabled={readOnly}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="e-feature-hint">내보낼 수 있는 여행이 없습니다.</p>
+        )}
+      </fieldset>
+    );
+  }
+
   if (field.type === "hidden") {
-    return <input type="hidden" name={field.name} value={stringValue} />;
+    const hiddenValue = field.name === "client_request_id" && !stringValue.trim()
+      ? requestId
+      : stringValue;
+    return <input type="hidden" name={field.name} value={hiddenValue} readOnly />;
   }
   if (field.type === "checkbox") {
+    if (field.multiple && field.options?.length) {
+      return (
+        <fieldset className="e-feature-fieldset" disabled={readOnly}>
+          <legend>{field.label}{required ? <span aria-hidden="true"> *</span> : null}</legend>
+          <div className="e-feature-choice-list">
+            {field.options.map((option, index) => (
+              <label className="e-feature-check" key={`${option.value}-${index}`}>
+                <input
+                  type="checkbox"
+                  name={field.name}
+                  value={option.value}
+                  defaultChecked={stringValue === option.value}
+                  disabled={readOnly}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      );
+    }
     const checked = field.value === true || field.value === 1 || field.value === "1" || field.value === "true";
     return (
       <label className="e-feature-check" htmlFor={inputId}>
@@ -125,8 +182,12 @@ function FieldControl({ field }: { field: FieldDescriptor }) {
     return (
       <label className="e-feature-field" htmlFor={inputId}>
         <span>{field.label}{required ? <span aria-hidden="true"> *</span> : null}</span>
-        <select {...common} defaultValue={stringValue}>
-          <option value="">선택하세요</option>
+        <select
+          {...common}
+          multiple={field.multiple || undefined}
+          defaultValue={field.multiple ? (stringValue ? [stringValue] : []) : stringValue}
+        >
+          {!field.multiple ? <option value="">선택하세요</option> : null}
           {(field.options ?? []).map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
@@ -217,9 +278,13 @@ function ActionForm({
   onComplete: (message: string) => void;
 }) {
   const [state, setState] = useState<{ busy: boolean; error: string }>({ busy: false, error: "" });
+  const [requestId, setRequestId] = useState(clientRequestId);
   const href = validActionPath(action.href);
-  const disabled = Boolean(action.disabled) || state.busy || !href;
   const fields = action.fields?.length ? action.fields : fallbackFields ?? [];
+  const tripIdsUnavailable = fields.some((field) =>
+    field.name === "tab_ids" && field.type === "hidden" && field.multiple &&
+    !field.options?.length && bootstrap.trips.length === 0);
+  const disabled = Boolean(action.disabled) || state.busy || !href || tripIdsUnavailable;
   const effectiveAction = fields === action.fields ? action : { ...action, fields };
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -232,21 +297,41 @@ function ActionForm({
       const values: Record<string, ActionValue> = {};
       for (const field of fields) {
         if (field.read_only) continue;
-        if (field.type === "hidden") {
-          values[field.name] = field.value ?? "";
+        if (field.name === "client_request_id" && field.type === "hidden") {
+          const submitted = formData.get(field.name);
+          const value = typeof submitted === "string" ? submitted.trim() : "";
+          values[field.name] = value || requestId;
+        } else if (field.type === "hidden" && field.multiple) {
+          values[field.name] = formData.getAll(field.name)
+            .filter((value): value is string => typeof value === "string" && value !== "");
+        } else if (field.type === "hidden") {
+          const submitted = formData.get(field.name);
+          values[field.name] = typeof submitted === "string" ? submitted : field.value ?? "";
         } else if (field.type === "checkbox") {
-          values[field.name] = formData.has(field.name);
+          values[field.name] = field.multiple
+            ? formData.getAll(field.name).filter((value): value is string => typeof value === "string")
+            : formData.has(field.name);
         } else if (field.type === "file") {
           const files = formData.getAll(field.name).filter((value): value is File => value instanceof File && value.size > 0);
           values[field.name] = field.multiple ? files : files[0] ?? null;
         } else {
           const entries = formData.getAll(field.name).filter((value): value is string => typeof value === "string");
-          if (entries.length > 1) values[field.name] = entries;
+          if (field.multiple) values[field.name] = entries;
+          else if (entries.length > 1) values[field.name] = entries;
           else if (entries.length === 1) values[field.name] = entries[0];
+        }
+        if (field.required) {
+          const value = values[field.name];
+          const missing = value == null ||
+            (Array.isArray(value) && (value.length === 0 || value.every((item) => String(item).trim() === ""))) ||
+            (typeof value === "string" && value.trim() === "") ||
+            (field.type === "checkbox" && !field.multiple && value === false);
+          if (missing) throw new Error(`${field.label} 항목을 입력하거나 선택해 주세요.`);
         }
       }
       const result = await executeAction<ActionReply>(effectiveAction, values, bootstrap.csrf);
       if (result.kind === "redirect") {
+        setRequestId(clientRequestId());
         setState({ busy: false, error: "" });
         onComplete(`서버가 다음 경로를 요청했습니다: ${result.location}`);
         return;
@@ -267,6 +352,7 @@ function ActionForm({
         return;
       }
       const message = actionMessage(reply);
+      setRequestId(clientRequestId());
       setState({ busy: false, error: "" });
       onComplete(message);
     } catch (error) {
@@ -276,7 +362,14 @@ function ActionForm({
 
   return (
     <form className="e-feature-action" onSubmit={submit}>
-      {fields.map((field) => <FieldControl key={`${field.name}-${field.type}`} field={field} />)}
+      {fields.map((field) => (
+        <FieldControl
+          key={`${field.name}-${field.type}`}
+          field={field}
+          bootstrap={bootstrap}
+          requestId={requestId}
+        />
+      ))}
       <button type="submit" className="cost-button cost-button-secondary" disabled={disabled}>
         {state.busy ? "처리 중…" : action.label}
       </button>
