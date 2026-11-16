@@ -2968,6 +2968,13 @@ class LedgerStore:
             valid = board.valid_tab_ids() | {None, REFUND_TAB}
             if target not in valid and not quarter_tab.parse_tab(target):
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
+            if str(current.get('row_id') or '').startswith('card-'):
+                from app.trip_selection import past_trip
+                source = self.conn.execute('SELECT approval_date,posting_date FROM transactions WHERE transaction_id=?',
+                                           (current['row_id'][5:],)).fetchone()
+                trip = self.get_trip(target) or {}
+                if source and past_trip(dict(approval_date=source[0], posting_date=source[1]), trip):
+                    raise SaveError('PAST_TRIP', '결제일보다 7일 넘게 전에 끝난 여행에는 배정할 수 없어요')
 
         validate_row_changes(
             current,

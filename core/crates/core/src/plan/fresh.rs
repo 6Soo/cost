@@ -49,6 +49,14 @@ pub(super) fn manual_google_choice(
     if !quarter && !in_valid(ctx, target) {
         return None;
     }
+    if !quarter
+        && ctx
+            .valid
+            .get(target)
+            .is_some_and(|trip| crate::trips::past_trip(&txn_of(row), trip))
+    {
+        return None;
+    }
     let mut chosen = row.clone();
     if quarter || text(&chosen, "item").is_empty() || text(&chosen, "item") == "분기 기타비용"
     {

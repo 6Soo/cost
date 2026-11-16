@@ -135,10 +135,24 @@ pub fn fukutake_trips<'a>(t: &Txn, trips: &[&'a Trip]) -> Option<Vec<&'a Trip>> 
     Some(chosen)
 }
 
-/// 2026년 9월 제주 여행은 지정 카드(끝 4자리 4813)만 쓴다.
+/// TRIP-099: 원본 결제일보다 7일 넘게 전에 끝난 여행에는 귀속할 수 없다.
+pub fn past_trip(t: &Txn, trip: &Trip) -> bool {
+    let day = if t.approval_date.is_empty() {
+        &t.posting_date
+    } else {
+        &t.approval_date
+    };
+    let (Ok(paid), Some(Ok(ended))) = (parse_iso(day), trip.ends_on.as_deref().map(parse_iso))
+    else {
+        return false;
+    };
+    (paid - ended).whole_days() > 7
+}
+
+/// 공통 날짜 제약과 2026년 9월 제주 여행의 지정 카드 경계.
 pub fn card_trip_allowed(t: &Txn, trip: &Trip) -> bool {
     let restricted = trip.display_key == "0909_제주" && trip.starts_on == "2026-09-09";
-    !restricted || t.card_tail == "4813"
+    !past_trip(t, trip) && (!restricted || t.card_tail == "4813")
 }
 
 /// 카드 사용 지역과 맞는 여행. `booking_agnostic`이면 예약·온라인 결제는 지역을 보지 않는다.

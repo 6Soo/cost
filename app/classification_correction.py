@@ -99,6 +99,9 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False, completed_evid
             quarter = same_quarter and _open_p2_tab(trips, trip)
         if (trip not in valid and not quarter) or not correction['item'] or not correction['basis']:
             raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
+        from .trip_selection import past_trip
+        if trip in valid and past_trip(row, valid[trip]):
+            raise ValueError('CORRECTION_PAST_TRIP')
         ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)
         if ledger and source == 'ai_inference':
             same_trip = (trip == (row.get('display_tab_id') or row.get('trip_id')))

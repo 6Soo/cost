@@ -70,11 +70,41 @@ def canonical_trip_periods(trips):
     return {str(trip['trip_id']): trip for _, trip in rows}
 
 
+def past_trip(transaction, trip):
+    """TRIP-099: compare the source payment day with the real trip's end.
+
+    Exactly seven days is allowed. An unknown date proves no elapsed interval;
+    source/date protection remains the caller's responsibility.
+    """
+    try:
+        paid = date.fromisoformat(transaction.get('approval_date') or transaction.get('posting_date') or '')
+        ended = date.fromisoformat(trip.get('ends_on') or '')
+    except (TypeError, ValueError):
+        return False
+    return (paid - ended).days > 7
+
+
 def card_trip_allowed(transaction, trip):
-    """Owner exception applies only to the 2026 September Jeju trip."""
+    """Shared temporal constraint and the owner's September Jeju card scope."""
     restricted = (trip.get('display_key') == '0909_제주'
                   and str(trip.get('starts_on') or '') == '2026-09-09')
-    return not restricted or str(transaction.get('card_tail') or '') == '4813'
+    return (not past_trip(transaction, trip)
+            and (not restricted or str(transaction.get('card_tail') or '') == '4813'))
+
+
+def limit_past_trip(transaction, values, trips):
+    """Final automatic-assignment guard, including inherited refund trips."""
+    target = values.get('display_tab_id') or values.get('trip_id')
+    trip = next((t for t in trips if (t.get('trip_id') or t.get('tab_id')) == target), None)
+    if not trip or not past_trip(transaction, trip):
+        return values
+    from .card_destination import observed_quarter
+    quarter = observed_quarter(transaction)
+    if not quarter:
+        raise ValueError('PAST_TRIP_PAYMENT_DATE_INVALID')
+    return dict(values, display_tab_id=quarter[0], trip_id='', classification_state='classified',
+                classification_source='inference',
+                classification_basis='TRIP-099 · 결제일보다 7일 넘게 전에 종료된 여행 제외 · 결제일 분기 기타비용')
 
 
 def regional_trips(transaction, trips, *, booking_agnostic=False):

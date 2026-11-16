@@ -551,6 +551,9 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                 continue
             if chosen is None:
                 continue
+        if not has_history:
+            from .trip_selection import limit_past_trip
+            chosen = limit_past_trip(row, chosen, trips)
         values = tuple(chosen.get(k) or '' for k in FIELDS)
         if values != current:
             correction = bool(not has_history and reconsider and evidence.get(tid)

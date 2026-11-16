@@ -94,6 +94,10 @@ def preview(conn, trips, manifest, *, evidence=None):
             elif protection:
                 reason = 'SOURCE_PROTECTED'
         state = _state(conn, tid) if row else None
+        from .trip_selection import past_trip
+        if (not reason and correction['display_tab_id'] in valid
+                and past_trip(row, valid[correction['display_tab_id']])):
+            reason = 'PAST_TRIP'
         from .source_recheck import allowed as source_recheck_allowed
         source_fact = (evidence or {}).get(tid)
         source_exception = bool(not reason and source_recheck_allowed(

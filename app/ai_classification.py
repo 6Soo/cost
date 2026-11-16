@@ -70,6 +70,8 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None, comple
             candidates = [valid[row['trip_id']]]
         if completed_target:
             candidates = [valid[completed_target]]
+        from .trip_selection import card_trip_allowed
+        candidates = [trip for trip in candidates if card_trip_allowed(row, trip)]
         allowed = {trip['trip_id'] for trip in candidates}
         from .quarter_costs import _tab_of
         quarter = None if completed_target else _tab_of(row)

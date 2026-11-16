@@ -140,6 +140,9 @@ def choose(row, fact, *, valid, recorded=False, reconsider=False, refund=False):
     quarter = target in ('quarter:2026:1', 'quarter:2026:2')
     if not quarter and target not in valid:
         return None
+    from .trip_selection import past_trip
+    if not quarter and past_trip(row, valid[target]):
+        return None
     chosen = dict(row)
     from .automatic_classification import infer_item
     if quarter:
