@@ -9,6 +9,13 @@
 - **화면 검증 구분:** on-disk dist 해시==빌드 일치 확인. 익명 자산 프로브는 401(인증 활성, 우회 금지) — 인증 화면 렌더는 로그인 필요로 미수행, 합성 미리보기 브라우저 수락 검증(16종)과 구분.
 - **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-fddbb8c6….json`·`continuous-switch-fddbb8c6….json`·`release-audit-fddbb8c6….json`, worktree `.local-archive/m4-ui-deploy-20261117/`(review-evidence·protection-before/after·verify_deploy). staging은 검증된 `stage_release.py`(git archive+blob 검증+dist 복사) 재사용. **다음 PreviousSha=fddbb8c6**(다른 배포 없으면). 소유권 자유·보류 없음. 문서 후속 때문에 재배포하지 않는다. 잔여 부가 렌더·P-03/P-04 서버 대조·스크린리더/실기기는 [계약 지도](design/m4-ui0-contract-map-20261117.md) 참조.
 
+## 2026-11-17 06:00 — 원문 재대조 코드 배포·과거 자동 귀속3건 교정 완료
+
+- 코드/actual `d5b77717ccfb9d50242b6e29464f8bd59766a71c`, PR984/merge `9f0cdc3a`, Previous e4e5dd67. 공식배포 exit0, backend8752/gateway8790, 1890blob불일치0·보호14표불변·health/ready200·보호API401. Rust/rust·기존e4e5 bin/hash·나머지config 보존.
+- 정확SHA 독립sol medium APPROVE·공식609 PASS/skip0/known0·build PASS. CI2job 결제차단으로 시작전 실패를 직접확인했다. UI/core 소스변경이 없어 기존검증dist와 바이너리를 보존했다.
+- 별도프로세스에서 board/core 신선백업·복원 후 원문해시/자동생성이력 검증을 통과한 exact3건만 apply했다. owner1건제외·재실행REPLAYED/변경0·3투영일치·원문/대상밖/금융/core불변. 실제서비스기간은 미확정 추론으로 기록하며 새기간0·Google쓰기0다. 재시작후21:00:20Z 재검증PASS·Python/Rust plan0·health/ready200, maintenance financial_verified/runtime_restored=true.
+- 초기wrapper의 프로세스 동일성/백업인자 오류는 금융쓰기 전에 중지·서비스복구됐고 수정후 통과했다. 최종근거는 보호 `data/backups/q12-auto-additions-20261116T181539Z/q34-leakage/code-repair/`의 financial-backup-restore/applied/replay/final-validation/maintenance-lifecycle 및 증거XLSX다. 운영쓰기 종료·소유권해제, 다음 PreviousSha는 직전actual을 다시확인한다. 기록때문에 재배포하지 않는다.
+
 ## 2026-11-17 04:42 — 원행 대조 공통 코드 배포·77건 교정·4건 신규 기장 완료
 
 - **코드 배포:** PR982/merge `a88776e6`, 검수 코드·실제 운영 `e4e5dd67c72ee3b9aa3201167b797010cbb97997`, Previous `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`. 공식 도구 exit0, backend8751/gateway8790, Board·Worker 같은 릴리스. 추적1888 blob불일치0·보호14표 불변·health/ready200·보호API401. 프런트 소스는 이전 actual과 동일해 검증된 dist를 보존했다.

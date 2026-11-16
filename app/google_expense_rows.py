@@ -29,6 +29,12 @@ def day(value, year=None):
     if isinstance(value, (int, float)) and not isinstance(value, bool) and 40000 < value < 60000:
         return from_excel(value).date().isoformat()
     text = str(value or '').strip()
+    short = re.fullmatch(r'(\d{2})[./-](\d{1,2})[./-](\d{1,2})\.?', text)
+    if short and year and int(short[1]) == int(year) % 100:
+        try:
+            return dt.date(int(year), int(short[2]), int(short[3])).isoformat()
+        except ValueError:
+            return None
     match = re.fullmatch(r'(?:(\d{4})[./년\s-]+)?(\d{1,2})[./월\s-]+(\d{1,2})[.일\s]*', text)
     if not match or not (match[1] or year):
         return None
