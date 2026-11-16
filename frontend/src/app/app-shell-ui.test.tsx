@@ -103,6 +103,21 @@ describe("Plush UI audit regressions", () => {
     expect(details.open).toBe(false);
   });
 
+  it("closes shell popovers when the route changes", () => {
+    const { rerender } = renderShell("/trips");
+    const switcher = document.querySelector("details.cost-trip-switcher") as HTMLDetailsElement;
+    const more = document.querySelector("details.cost-bottom-more") as HTMLDetailsElement;
+    switcher.open = true;
+    more.open = true;
+    rerender(
+      <AppShell role="owner" trips={trips} path="/cards">
+        <h1>합성 본문</h1>
+      </AppShell>,
+    );
+    expect((document.querySelector("details.cost-trip-switcher") as HTMLDetailsElement).open).toBe(false);
+    expect((document.querySelector("details.cost-bottom-more") as HTMLDetailsElement).open).toBe(false);
+  });
+
   it("does not leave shell popover listeners attached after unmount", () => {
     const { unmount } = renderShell();
     const details = document.querySelector("details.cost-trip-switcher") as HTMLDetailsElement;
