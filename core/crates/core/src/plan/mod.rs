@@ -341,14 +341,20 @@ pub fn plan_with_periods(
         }
         if !has_history {
             let target = text(&chosen, "display_tab_id");
-            let approval = text(row, "approval_date");
+            let payment_row = ctx
+                .links
+                .link(&tid)
+                .filter(|link| !link.inferred)
+                .and_then(|link| resolved.get(&link.original_id))
+                .unwrap_or(row);
+            let approval = text(payment_row, "approval_date");
             let payment = if approval.is_empty() {
-                text(row, "posting_date")
+                text(payment_row, "posting_date")
             } else {
                 approval
             };
             if let Some(trip) = typed.iter().find(|trip| trip.trip_id == target)
-                && crate::trips::past_trip(&input::txn_of(row), trip)
+                && crate::trips::past_trip(&input::txn_of(payment_row), trip)
                 && let Ok(day) = crate::dates::parse_iso(&payment)
             {
                 let (year, quarter) = crate::dates::quarter_of(day);

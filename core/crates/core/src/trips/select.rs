@@ -137,6 +137,13 @@ pub fn fukutake_trips<'a>(t: &Txn, trips: &[&'a Trip]) -> Option<Vec<&'a Trip>> 
 
 /// TRIP-099: 원본 결제일보다 7일 넘게 전에 끝난 여행에는 귀속할 수 없다.
 pub fn past_trip(t: &Txn, trip: &Trip) -> bool {
+    if matches!(
+        t.transaction_direction.as_deref(),
+        Some("cancellation" | "refund")
+    ) || t.amount_krw.is_some_and(|n| n < 0)
+    {
+        return false; // Refund eligibility uses its verified original in the plan/write boundary.
+    }
     let day = if t.approval_date.is_empty() {
         &t.posting_date
     } else {

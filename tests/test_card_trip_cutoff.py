@@ -27,7 +27,10 @@ def test_existing_automatic_trip_and_refund_inheritance_cannot_bypass_cutoff():
     row=dict(approval_date='2026-10-03',transaction_direction='purchase',trip_id='old',display_tab_id='old')
     assert infer_trip(row,[TRIP])[0]==''
     refund=dict(row,transaction_direction='cancellation',amount_krw=-1000)
-    fixed=limit_past_trip(refund,dict(trip_id='old',display_tab_id='old',item='숙박비'),[TRIP])
+    values=dict(trip_id='old',display_tab_id='old',item='숙박비')
+    assert limit_past_trip(refund,values,[TRIP])==values
+    assert limit_past_trip(refund,values,[TRIP],original=dict(approval_date='2026-09-17'))==values
+    fixed=limit_past_trip(refund,values,[TRIP],original=row)
     assert fixed['display_tab_id']=='quarter:2026:4' and fixed['trip_id']==''
     assert fixed['item']=='숙박비'
     assert limit_past_trip(refund,fixed,[TRIP])==fixed
@@ -49,23 +52,28 @@ def test_ledger_final_authority_reads_source_payment_not_display_date(setup):
     assert _authority_block(entry,lambda _:True,lambda _:True,conn=board.conn)[0]=='past_trip'
     assert board.conn.total_changes==before
 
-def test_post_pair_guard_blocks_original_and_refund_together(setup):
+@pytest.mark.parametrize('ended,blocked',[('2026-09-25',False),('2026-09-20',True)])
+def test_post_pair_guard_uses_verified_original_date_and_keeps_pair_atomic(ended,blocked):
     from tests.card_pipeline.test_partial_refund import build, row_of
     pipe,batch=build()
     c=pipe.store.conn
     c.execute('CREATE TABLE trip_tabs(tab_id TEXT PRIMARY KEY, ends_on TEXT)')
-    c.execute("INSERT INTO trip_tabs VALUES ('old','2026-09-25')")
+    c.execute("INSERT INTO trip_tabs VALUES ('old',?)",(ended,))
     original=dict(transaction_id=row_of(pipe,'100')['transaction_id'],trip_id='old',display_tab_id='old')
     refund=dict(transaction_id=row_of(pipe,'200')['transaction_id'],trip_id='old',display_tab_id='old',
                 refund_link=dict(role='refund',counterpart_id=original['transaction_id']))
     original['refund_link']=dict(role='original',counterpart_id=refund['transaction_id'])
-    # Original Oct 1 is within seven days. Only the Oct 3 refund violates it;
-    # the existing verified partial-refund graph must still block both rows.
-    assert _authority_block(original,lambda _:True,lambda _:True,conn=c) is None
+    # Refund Oct 3 uses the original Oct 1 payment, never its cancellation date.
+    from app.card_destination import trip_payment_source
+    source=trip_payment_source(c,dict(transaction_id=refund['transaction_id'],transaction_direction='cancellation'))
+    assert source['approval_date']=='2026-10-01'
     ready=[original,refund];unresolved=[]
     _guard_past_trip_pairs(c,[original,refund],ready,unresolved)
-    assert ready==[] and len(unresolved)==2
-    assert all(r['blocked']=='past_trip' for r in unresolved)
+    if blocked:
+        assert ready==[] and len(unresolved)==2
+        assert all(r['blocked']=='past_trip' for r in unresolved)
+    else:
+        assert len(ready)==2 and unresolved==[]
 
 def test_q2_expired_automatic_attribution_requires_reparsed_originals(setup,tmp_path):
     c,tid,directory,doc,facts,manifest=reviewed(setup,tmp_path,kind='past_trip',day='2026-06-17')

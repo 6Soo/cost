@@ -2970,10 +2970,13 @@ class LedgerStore:
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
             if str(current.get('row_id') or '').startswith('card-'):
                 from app.trip_selection import past_trip
-                source = self.conn.execute('SELECT approval_date,posting_date FROM transactions WHERE transaction_id=?',
+                source = self.conn.execute('SELECT approval_date,posting_date,transaction_direction,amount_krw FROM transactions WHERE transaction_id=?',
                                            (current['row_id'][5:],)).fetchone()
                 trip = self.get_trip(target) or {}
-                if source and past_trip(dict(approval_date=source[0], posting_date=source[1]), trip):
+                from app.card_destination import trip_payment_source
+                payment = trip_payment_source(self.conn, dict(transaction_id=current['row_id'][5:],
+                    approval_date=source[0], posting_date=source[1], transaction_direction=source[2], amount_krw=source[3])) if source else None
+                if payment and past_trip(payment, trip):
                     raise SaveError('PAST_TRIP', '결제일보다 7일 넘게 전에 끝난 여행에는 배정할 수 없어요')
 
         validate_row_changes(

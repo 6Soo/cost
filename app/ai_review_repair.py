@@ -95,8 +95,10 @@ def preview(conn, trips, manifest, *, evidence=None):
                 reason = 'SOURCE_PROTECTED'
         state = _state(conn, tid) if row else None
         from .trip_selection import past_trip
+        from .card_destination import trip_payment_source
+        payment = trip_payment_source(conn, row) if row else None
         if (not reason and correction['display_tab_id'] in valid
-                and past_trip(row, valid[correction['display_tab_id']])):
+                and payment and past_trip(payment, valid[correction['display_tab_id']])):
             reason = 'PAST_TRIP'
         from .source_recheck import allowed as source_recheck_allowed
         source_fact = (evidence or {}).get(tid)

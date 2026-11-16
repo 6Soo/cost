@@ -511,13 +511,18 @@ def _past_trip_block(conn, entry):
     if conn is None or not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trip_tabs'").fetchone():
         return None
     from .trip_selection import past_trip
-    source = conn.execute('SELECT approval_date,posting_date FROM transactions WHERE transaction_id=?',
+    source = conn.execute('SELECT approval_date,posting_date,transaction_direction,amount_krw FROM transactions WHERE transaction_id=?',
                           (entry['transaction_id'],)).fetchone()
     if not source:
         return None
+    from .card_destination import trip_payment_source
+    payment = trip_payment_source(conn, dict(transaction_id=entry['transaction_id'], approval_date=source[0],
+        posting_date=source[1], transaction_direction=source[2], amount_krw=source[3]))
+    if payment is None:
+        return None  # Existing unlinked/excess/held refund protections remain authoritative.
     for target in {entry.get('trip_id'), entry.get('display_tab_id')} - {None, ''}:
         trip = conn.execute('SELECT ends_on FROM trip_tabs WHERE tab_id=?', (target,)).fetchone()
-        if trip and past_trip(dict(approval_date=source[0], posting_date=source[1]), dict(ends_on=trip[0])):
+        if trip and past_trip(payment, dict(ends_on=trip[0])):
             return ('past_trip', 'TRIP-099 · 결제일보다 7일 넘게 전에 끝난 여행에는 기록할 수 없어요')
     return None
 
