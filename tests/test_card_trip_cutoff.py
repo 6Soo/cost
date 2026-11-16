@@ -81,3 +81,67 @@ def test_q2_expired_automatic_attribution_requires_reparsed_originals(setup,tmp_
     assert plan['summary']['to_apply']==1
     assert facts[tid]['purpose']=='past_trip'
     assert plan['targets'][0]['values']['display_tab_id']=='quarter:2026:2'
+
+
+@pytest.mark.parametrize('gap,blocked', [(7, False), (8, True)])
+def test_card_decision_write_checks_cutoff_before_recording_user_authority(setup, gap, blocked):
+    from app.db import StoreError
+    from datetime import date, timedelta
+    board, flow, _, rows = setup
+    ended = (date(2026, 10, 3) - timedelta(days=gap)).isoformat()
+    trip = board.create_trip(starts_on='2026-09-01', ends_on=ended,
+                             destination='synthetic', client_request_id='decision-cutoff')
+    row = rows[0]
+    args = dict(item='식비', trip_id=trip['tab_id'], display_tab_id=trip['tab_id'],
+                trip_validator=lambda _: True, tab_validator=lambda _: True,
+                request_id='synthetic-cutoff-decision')
+    before = board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    if blocked:
+        with pytest.raises(StoreError, match='7일'):
+            flow.pipeline.save_decision(row['transaction_id'], row['revision'], **args)
+        assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
+        assert not board.conn.execute('SELECT 1 FROM review_decisions').fetchone()
+        assert not board.conn.execute("SELECT 1 FROM requests WHERE request_id=?", (args['request_id'],)).fetchone()
+    else:
+        saved = flow.pipeline.save_decision(row['transaction_id'], row['revision'], **args)
+        assert saved['display_tab_id'] == trip['tab_id']
+
+
+def test_verified_full_cancellation_finishes_in_refund_tab_despite_legacy_trip():
+    from tests.card_pipeline.test_partial_refund import build, row_of, OK
+    pipe, batch = build(refunds=(-1000000,))
+    c = pipe.store.conn
+    c.execute("UPDATE transactions SET trip_id='old',display_tab_id='old',item='항공료',"
+              "classification_state='classified',classification_source='user_decision' WHERE approval_number='100'")
+    c.execute('CREATE TABLE trip_tabs(tab_id TEXT PRIMARY KEY, ends_on TEXT)')
+    c.execute("INSERT INTO trip_tabs VALUES ('old','2026-09-10')")
+    result = pipe.preview(batch, trip_validator=OK, tab_validator=OK)
+    assert result['ready'] == 2
+    assert all(x['display_tab_id'] == 'refunds' and x['trip_id'] == '' for x in result['rows'])
+    assert pipe.commit(batch, result['digest'], 'full-cutoff', trip_validator=OK, tab_validator=OK)['applied'] == 2
+    assert c.execute('SELECT SUM(amount_krw),COUNT(*) FROM ledger_entries').fetchone() == (0, 2)
+
+
+def test_refund_cutoff_guard_reuses_one_analysis_in_write_snapshot(monkeypatch):
+    from tests.card_pipeline.test_partial_refund import build
+    from app import partial_refund
+    pipe, _ = build(refunds=(-100000,) * 5)
+    c = pipe.store.conn
+    c.execute('CREATE TABLE trip_tabs(tab_id TEXT PRIMARY KEY, ends_on TEXT)')
+    c.execute("INSERT INTO trip_tabs VALUES ('old','2026-10-01')")
+    entries = [dict(transaction_id=t, trip_id='old', display_tab_id='old')
+               for t, in c.execute("SELECT transaction_id FROM transactions WHERE amount_krw<0")]
+    calls = []
+    analyse = partial_refund._analyse
+    def counted(conn):
+        calls.append(True)
+        return analyse(conn)
+    monkeypatch.setattr(partial_refund, '_analyse', counted)
+    c.execute('BEGIN IMMEDIATE')
+    try:
+        ready = list(entries)
+        _guard_past_trip_pairs(c, entries, ready, [])
+        assert len(ready) == 5
+        assert len(calls) == 1
+    finally:
+        c.rollback()

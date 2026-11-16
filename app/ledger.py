@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from .partial_refund import read_only_scope
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
@@ -123,6 +124,7 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
     return None
 
 
+@read_only_scope()
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
              additional_holds=None, group_original=None,
@@ -244,7 +246,10 @@ def preview(store, batch_id: str, *, trip_validator=None,
             continue
         # Re-verify authority at the moment of the preview. A row whose trip or
         # tab the parent no longer accepts is held, not booked.
-        blocked = _authority_block(entry, trip_validator, tab_validator, conn=store.conn)
+        # Pair normalization may replace a legacy trip with the refunds tab.
+        # The shared post-pair guard validates the actual destination below.
+        blocked = _authority_block(entry, trip_validator, tab_validator, conn=store.conn,
+                                   check_past_trip=False)
         if blocked:
             entry["blocked"] = blocked[0]
             entry["reason"] = blocked[1]
@@ -527,6 +532,7 @@ def _past_trip_block(conn, entry):
     return None
 
 
+@read_only_scope()
 def _guard_past_trip_pairs(conn, rows, ready, unresolved):
     """Recheck inherited destinations after either Python or Rust pair assembly."""
     from .partial_refund import refund_group
@@ -542,7 +548,7 @@ def _guard_past_trip_pairs(conn, rows, ready, unresolved):
         _block_pair([r for r in rows if r['transaction_id'] in ids], *block, ready, unresolved)
 
 
-def _authority_block(entry: dict, trip_validator, tab_validator, *, conn=None):
+def _authority_block(entry: dict, trip_validator, tab_validator, *, conn=None, check_past_trip=True):
     """(blocked_code, reason) when the parent no longer accepts this row."""
     trip = str(entry.get("trip_id") or "")
     if trip:
@@ -556,7 +562,7 @@ def _authority_block(entry: dict, trip_validator, tab_validator, *, conn=None):
             return ("tab_unverified", "항목 구분을 재검증할 함수가 필요해요")
         if not tab_validator(tab):
             return ("tab_no_longer_valid", "지금은 쓸 수 없는 항목 구분이에요")
-    return _past_trip_block(conn, entry)
+    return _past_trip_block(conn, entry) if check_past_trip else None
 
 
 def preview_digest(result: dict) -> str:
@@ -674,6 +680,7 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
     )
 
 
+@read_only_scope()
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
