@@ -13,6 +13,6 @@
 
 ## 현재 기준
 
-국민 국내·해외 매입 원본과 승인 보조 자료의 역할은 [카드 수집 문서](../docs/specs/finance.md#src-docs-card-downloads-md)를 따른다. 실제 비용 전기는 [현재 카드 파이프라인](../docs/specs/finance.md#src-docs-card-pipeline-md)의 미리보기·중복 방지 절차를 사용한다. 사용자 확정과 일정 근거는 [업무 규칙](../docs/specs/finance.md#src-docs-business-rules-md)을 따른다.
+국민 국내·해외 매입 원본과 승인 보조 자료의 역할은 [수집·원본 규칙](../docs/policy/source.md), 실행 절차는 [카드 원본 수집](../docs/playbooks/card-downloads.md)을 따른다. 실제 비용 기록과 수동 교정 보호는 [장부 기록 규칙](../docs/policy/record.md), 일정 근거는 [여행 귀속 규칙](../docs/policy/trip.md)과 [이용기간·날짜 규칙](../docs/policy/date.md)이 기준이다. 과거 CSV 도구의 계약은 [보존 금융 명세](../docs/history/specs-20261110/finance.md)에서 찾는다.
 
-과거 48개 여행 목록과 2026-08-29 대사 보고서는 그 시점의 산출물이다. 현재 여행 40개와 권위 검증 상태, 장부 기록 수는 [운영 문서](../docs/operations.md)를 따른다. 과거 종료용 일정이나 카드 결제일을 새로운 OTA 이용기간으로 사용하지 않는다.
+과거 48개 여행 목록과 2026-08-29 대사 보고서는 그 시점의 산출물이다. 현재 구현 상태는 [현재 상태](../docs/session_handoff.md), 측정 시점별 여행·장부 집계와 실제 반영 근거는 [운영 기록](../docs/operations.md)을 따른다. 과거 종료용 일정이나 카드 결제일을 새로운 OTA 이용기간으로 사용하지 않는다.

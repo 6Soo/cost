@@ -15,15 +15,17 @@
 
 ## 현재 절차서
 
+아래는 절차와 검증 범위 안내다. 최신 병합·배포·실행 상태는 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md)을 따른다.
+
 | 작업 | 문서 | 상태 |
 | --- | --- | --- |
-| 국민 기업카드 매입 내역 수집 | [카드 원본 수집 안내](card-downloads.md) | 에이전트 수행. 스크립트화 대상(M2) |
+| 카드 원본 수집 | [카드 원본 수집 안내](card-downloads.md)·[국민 수집기](kb-script-usage.md) | 국민·하나·IBK 수집기 구현·합성 검증. 실제 화면·선택자·다운로드 검증과 구분 |
 | 카드사 3곳 로그인 자동화 | [카드 로그인 자동화](card-login-automation.md) | 모듈 착수·합성 검증. 라이브 검증은 사용자 자격 증명 등록 후 |
-| OTA 포털 3곳 조회 | [OTA 포털 직접 수집 절차](ota-portal-collection.md) | Agoda만 운영 반영. 스크립트화 대상(M2) |
+| OTA 포털 3곳 조회 | [직접 조회](ota-portal-collection.md)·[수집 스크립트](ota-script-usage.md) | 읽기 전용 수집. 자료 가져오기·운영 반영은 별도 절차 |
 | 분기 검수 | [분기 검수](quarter-review.md) | AI 검수자(Fable 5.2 high) 수행. 사용자는 결과 확인·Google 붙여넣기만 |
 | 코어 1차 전환(P1 작성자 Python→Rust) | [코어 1차 전환](core-cutover.md) | 운영 사본 C1·C2 재측정 통과. Python 유지, 재전환 승인 ① 대기 |
 | OTA 근거 기존 중복 압축 | [OTA 근거 압축](ota-evidence-compaction.md) | 도구·사본 예행까지. 운영 반영은 운영 담당이 배포 창에서 |
-| 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 실행기가 판독 지시 절을 주입해 수행. 합성 사진 검증, 운영 검증 전 |
+| 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 및 Windows OCR→로컬 Paseo Qwen4 경로. #966의 Qwen4 경로는 병합·합성 검증까지이며 운영 배포 전 |
 
 새 절차서는 이 폴더에 `<작업이름>.md`로 만든다. 검증한 범위와 운영 실행 여부를 각 문서에 구분해 적는다.
 

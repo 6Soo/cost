@@ -101,6 +101,11 @@
 
 ## 기술 참조
 
+- [Rust 코어 구성·개발 검사](../core/README.md)
+- [웹 실행기·인증·합성 개발](../webapp/README.md)
+- [과거 CSV 원장 도구와 일정 도메인](../ledger/README.md)
+- [서버 밖 P2 1층 도구](../tools/p2_batch/README.md)
+- [P2 2층 오프라인 도구](../tools/p2_layer2/README.md)
 - [코어 다리(core bridge) 프로토콜](core-bridge-protocol.md)
 - [Reviewed temporary branch integration (2026-10-30)](branch-integration-audit-20261030.md)
 - [Google 지출표 7열 검토 의견 (2026-11-11, 1쪽)](agents/tax-ledger-review-20261111.md)

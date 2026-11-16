@@ -39,7 +39,7 @@ Booking 포함 2번째 영향 검사는 독립 검수가 실제 결함을 재현
 - 남은 임시 폴더3개: `C:/AX/cost-wt-receipt-trip`(시작 시 확인 PID9456), `C:/AX/cost-wt-receipt-paseo`(agy·도구 프로세스), Paseo `receipt-uiux-integrated-20261116`(미리보기 PID11228·22404). 현재 `C:/AX/cost-wt-ota-perf`는 이 세션의 clean 검증 checkout이다(후속 문서 PR 동안 임시 브랜치를 사용하고 병합 뒤 main으로 돌아간다). 그 폴더도 현재 세션을 archive할 때 정리할 수 있도록 인계·검사·복구 근거를 원본 비공개 폴더에 복사해 두었다.
 - 프로젝트 지침의 **내가 시작하지 않은 프로세스를 종료하지 않는다**에 따라 위3개 폴더를 강제 제거하지 않았다. 전체 임시 공간 정리가 완료됐다고 보고하지 않는다.
 
-## 정확한 재개
+## 앞선 정리 시점의 재개 조건 (아래 후속 결과로 갱신)
 
 1. 완료 코드 병합 `d470eee2fc0e4da6481ad409a41944e102d40216`에서 재개한다. 최종 `010a1693383864cab360d3bf7d7b3455f0e430da` 독립 gpt-6.1-sol / medium APPROVE와 동일 트리, #850·#966·#967 MERGED, 통합 원격 브랜치 제거를 확인했다. 실제 CI 검사 실패는 면제하지 않았고 최종 두 check 모두 결제 한도 미시작 annotation을 직접 확인했다.
 2. 남은 것은 아래 사용 중 공간과 미병합 기능이다. 새로운 운영 배포·Rust 전환·원본 DB 쓰기는 하지 않는다.
@@ -47,3 +47,15 @@ Booking 포함 2번째 영향 검사는 독립 검수가 실제 결함을 재현
 4. 미병합 코드를 다시 검토할 때는 bundle을 먼저 검증하고 해당 archive ref에서 새 승인 범위의 브랜치를 만든다. 원본 복원은 별도 폴더에 ZIP을 풀어 `_snapshot/files.json`의 해시를 비교한다. 고객 원문을 추적 파일로 추가하지 않는다.
 
 운영 `77865bfa` 유지, Rust 전환 승인① 대기. 이 요청을 운영 배포·Rust 전환·원본 DB 쓰기 승인으로 해석하지 않았다.
+
+## 후속 완료 — 남은 4개 공간 제거·원본 폴더 최신화
+
+- 사용자가 같은 정리 요청을 이어가며, 별도 질문에 임시 프로세스 종료를 명시 승인했다. 질문의 "8개"는 집계 오류였고 실제 열거·재확인·종료 대상은 **7개**다: Python PID9456·11228·22404, 도구 PID22752·29604·33976·36592. 이름·cwd·생성 시각이 모두 일치하고 운영 포트의 리스너가 아님을 확인했다. 공용 Codex app-server9192와 다른 프로젝트에서 PID가 재사용된 부모25860은 보존했다.
+- `C:/AX/cost-wt-receipt-paseo`는 실행 중인 프로세스가 없음을 확인하고 공식 workspace archive 후 Git worktree 절차로 제거했다. 나머지 프로세스가 종료된 뒤 사용 중인 cwd가 0임을 재확인했다. Paseo `receipt-uiux-integrated-20261116`은 공식 archive로 폴더까지 제거, `cost-wt-ota-perf`는 공식 archive 후 Git 절차로 제거, 수동 `cost-wt-receipt-trip`은 Git 절차로 제거했다. 폴더의 절대 경로·공유 Git 저장소·clean 상태·main 조상·복구 사본 해시를 확인했으며 강제 제거하지 않았다.
+- worktree **5→1**, 처음부터 누적 **23→1**. 원본 `C:/AX/cost`와 그 기존 local workspace 등록2개를 보존했다. 이번 Paseo 임시 workspace archive3개로 누적15개다. 다른 프로젝트 workspace는 정리 대상에 넣지 않았다.
+- 남은 로컬 브랜치4개는 모두 main 조상이며, 기존 tip을 복구 참조와 bundle에 보존한 뒤 제거했다. 사용 중인 worktree는 같은 SHA의 detached 상태로 먼저 바꿔 파일 내용을 바꾸지 않고 브랜치를 해제했다. main은 원본 폴더로 옮겼다. 남은 PR 검수용 추적 참조7개도 `refs/archive/20261116-final/review-tracking/`으로 옮겼다. 이번 문서 PR 자체의 브랜치는 최종 검수·병합 후 제거한다.
+- 원본 폴더의 미커밋15파일을 신선 ZIP에 보존했다. `core-bridge-golden` 영향 맵의 경로·검사 목록은 main 목록의 부분집합임을 확인했다. OTA 취소 예외3곳·설정형 제한시간·시간 초과 처리도 main의 확장된 자식 실행 경로에 반영돼 있다. 미커밋 코드2파일을 재적용해 옛 코드로 되돌리지 않았다. 오래된 로컬 인계와 감사 원문은 비공개 사본으로 보존하고 최신 문서로 맞췄다. 나머지11파일은 원래 경로에서 이전 해시와 동일하다. `.qwen/tmp/board-copy.sqlite` 등 기존 ignored 자료에도 쓰거나 지우지 않았다.
+- 이번 복구 사본은 `D:/CostWorkspaceArchive/20261116-final/`의 `manifest.json`·`refs.bundle`·ZIP, 종료 후 사본은 `after-stop/`이다. ZIP의 파일 해시와 Git bundle을 검증하고, `restore-verified/`에 실제 복원하여 `_snapshot/files.json`의 SHA-256을 대조했다. 원본·작업/index 패치·HEAD도 보존했다. `restore-verification.json`에 결과를 남겼다. 재생성 가능한 `core/target`만 제외했다.
+- 문서 검사는 README·AGENTS·docs뿐 아니라 `core/`·`ledger/`·`webapp/`·`tools/` README까지 추적 Markdown216개 전체로 넓혔다. 판정 정본을 역사적 금융/OTA 계약으로 안내하던 링크, 고정 여행 건수, 개발 당시 계획을 현재 상태로 읽게 하는 문구를 정리했다. 설계의 착수·미결 표시는 그 당시 기록임을 명시했다. 문서만 변경했으므로 앱 검사·브라우저·배포·운영 DB 조회는 실행하지 않았다.
+
+최종 실행 근거는 `C:/AX/cost/.local-archive/workspace-cleanup-final-20261116/`에 보존한다. 이 후속 정리는 위의 Booking·승객 이름·모바일 실패나 중단 실험을 해결·병합한 것으로 간주하지 않는다. 해당 변경을 다시 다루려면 위 bundle과 archive ref에서 별도 폴더로 복원하고 현재 승인 범위·검사를 적용한다. 운영 `77865bfa` 및 Rust 전환 승인① 대기는 그대로다.

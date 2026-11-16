@@ -1,6 +1,6 @@
 # core (M3)
 
-COST 판정 코어의 Rust 작업공간. 설계: `docs/design/m3-core.md` (§6).
+COST 판정 코어의 Rust 작업공간. 설계는 [M3 코어 설계](../docs/design/m3-core.md) §6, 운영 전환은 [코어 전환 절차서](../docs/playbooks/core-cutover.md)를 따른다. 현재 작성자와 전환 검증 상태는 [현재 상태](../docs/session_handoff.md), 배포 근거는 [운영 기록](../docs/operations.md)에서 확인한다. 코드와 실행 파일이 있다는 사실만으로 운영 전환을 뜻하지 않는다.
 
 ## 게이트
 
