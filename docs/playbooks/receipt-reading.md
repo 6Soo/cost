@@ -1,5 +1,7 @@
 # 영수증 사진 판독
 
+> 이 절차서는 현재 구현된 고정 판독 경로의 실행 지침이다. 2026-11-16 추가 요청인 동적 provider/model 선택·사진 첨부·영속 작업·검수 후 COST 장부 반영은 [별도 설계 초안](../design/receipt-paseo-workflow-20261116.md) 작성 단계다. 아래 관리 프롬프트는 이번 문서 작업에서 변경하지 않았다. 신규 흐름이 배포됐다고 간주하지 않는다.
+
 - 목적: 영수증 사진 한 장에서 실물 영수증별 일자·가맹점·통화·금액·결제수단·카드 끝자리·영역과 사진 상단 여행명(`header_text`)을 읽어, 사람이 등록 전에 확인할 **후보**를 만든다.
 - 실행 주체: 소유자가 고른 판독 공급자(`WEBLEDGER_RECEIPT_VISION`). ① 구독 Claude `opus`, 추론 `medium`(`app/receipt_vision.py`가 `claude -p`로 도구 없이 호출, 사진 전송). ② 로컬 Paseo `qwen-code/qwen4-max-preview(openai)`(`app/paseo_receipt_vision.py`) — 이미지는 이 PC의 Windows OCR이 먼저 읽고 텍스트만 QwenCloud로 보내는 하이브리드(사진 원본은 외부로 나가지 않음). 둘 다 실패하면 이 PC의 Windows OCR 참고값이 대신한다.
 - 주기: 소유자가 영수증 화면에서 "체크한 사진 분석" 또는 "다시 분석"을 누를 때마다 사진 한 장씩.
