@@ -521,9 +521,31 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                     (row['issuer'], row['card_tail'], row['approval_number'])).fetchone()
                 if refund:
                     row_evidence = {}
-            chosen, protected_by_policy = _classify_new_row(
-                row, chosen, tid, valid, trips, nets, links, resolved, ledger, boards,
-                reconsider, row_evidence)
+            from .manual_google_evidence import choose as google_choice
+            recorded = tid in ledger or 'card-' + tid in boards
+            manual_choice = google_choice(row, row_evidence.get(tid), valid=valid,
+                recorded=recorded, reconsider=reconsider, refund=bool(links.get(tid)))
+            if manual_choice is not None:
+                # A preexisting projection disagreement is not repaired by choosing
+                # whichever store happens to be read first.
+                ledger_row = ledger.get(tid) or {}
+                board_row = boards.get('card-' + tid)
+                board_payload = json.loads(board_row[1]) if board_row else {}
+                current_tabs = {r for r in (row.get('display_tab_id'), row.get('trip_id'),
+                    ledger_row.get('display_tab_id'), ledger_row.get('trip_id'),
+                    board_row[0] if board_row else '', board_payload.get('display_tab_id'),
+                    board_payload.get('trip_id')) if r not in (None, '', 'unclassified')}
+                if len(current_tabs) > 1:
+                    protected += 1
+                    continue
+                chosen, protected_by_policy = manual_choice, False
+            else:
+                if (row_evidence.get(tid) or {}).get('kind') == 'google_manual_expense':
+                    protected += 1
+                    continue
+                chosen, protected_by_policy = _classify_new_row(
+                    row, chosen, tid, valid, trips, nets, links, resolved, ledger, boards,
+                    reconsider, row_evidence)
             if protected_by_policy:
                 protected += 1
                 continue
@@ -532,8 +554,9 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         values = tuple(chosen.get(k) or '' for k in FIELDS)
         if values != current:
             correction = bool(not has_history and reconsider and evidence.get(tid)
-                and chosen.get('trip_id') != row.get('trip_id')
-                and '예약 이용기간 근거 우선:' in chosen.get('classification_basis', '')
+                and chosen.get('display_tab_id') != row.get('display_tab_id')
+                and ('예약 이용기간 근거 우선:' in chosen.get('classification_basis', '')
+                     or chosen.get('classification_basis', '').startswith('GOOGLE_MANUAL_ROW · '))
                 and ('card-' + tid in boards or tid in ledger))
             targets.append({'id': tid, 'values': values, 'revision': row['revision'],
                             'has_prior_classification': has_history,
@@ -576,6 +599,8 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                 original = _read(conn, {tid})[0]
                 before = {'transaction': {key: original[key] for key in (*FIELDS, 'revision')},
                     'ledger': conn.execute('SELECT display_tab_id,trip_id FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()}
+                if values[2].startswith('GOOGLE_MANUAL_ROW · '):
+                    before['ledger_item'] = conn.execute('SELECT item FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()
             conn.execute('UPDATE transactions SET ' + ','.join(k+'=?' for k in FIELDS)
                          + ',revision=revision+1 WHERE transaction_id=? AND revision=?',
                          (*values, tid, target['revision']))
@@ -588,6 +613,8 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
             if correction:
                 conn.execute('UPDATE ledger_entries SET display_tab_id=?,trip_id=? WHERE transaction_id=?',
                              (tab, trip, tid))
+                if values[2].startswith('GOOGLE_MANUAL_ROW · '):
+                    conn.execute('UPDATE ledger_entries SET item=? WHERE transaction_id=?', (item, tid))
             board = conn.execute('SELECT payload_json,display_tab_id FROM board_rows WHERE row_id=?', ('card-'+tid,)).fetchone()
             if board:
                 payload = json.loads(board[0])
@@ -598,6 +625,9 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                     board_tab = tab
                     payload.update(display_tab_id=tab, classification_source=values[1],
                                    classification_basis=values[2])
+                    if values[2].startswith('GOOGLE_MANUAL_ROW · '):
+                        payload['item'] = item
+                        payload['trip_id'] = trip
                 if payload.get('display_tab_id') in (None,'','unclassified'):
                     payload['display_tab_id'] = board_tab
                 if payload != json.loads(board[0]) or board_tab != board[1]:
@@ -606,13 +636,15 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                         payload['revision'] = old_revision + 1
                         conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                             ('card-'+tid, old_revision+1, board[0], json.dumps(payload,ensure_ascii=False,sort_keys=True),
-                             '', 'rule_change', 'automatic', utc_now(), 'booking-period-'+current['digest'][:24]))
+                             '', 'rule_change', 'automatic', utc_now(),
+                             ('google-row-' if values[2].startswith('GOOGLE_MANUAL_ROW · ') else 'booking-period-')+current['digest'][:24]))
                     conn.execute('UPDATE board_rows SET payload_json=?,display_tab_id=?,revision=revision+1 WHERE row_id=?',
                         (json.dumps(payload,ensure_ascii=False,sort_keys=True), board_tab, 'card-'+tid))
             if correction:
                 conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
-                    (utc_now(), 'card.booking_trip_correction', tid,
-                     json.dumps({'before': before, 'trip_id': trip, 'basis': values[2]},ensure_ascii=False,sort_keys=True)))
+                    (utc_now(), 'card.google_trip_correction' if values[2].startswith('GOOGLE_MANUAL_ROW · ') else 'card.booking_trip_correction', tid,
+                     json.dumps({'before': before, 'trip_id': trip, 'basis': values[2],
+                         **({'evidence': evidence[tid]} if values[2].startswith('GOOGLE_MANUAL_ROW · ') else {})},ensure_ascii=False,sort_keys=True)))
         if current['targets']:
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                 (utc_now(), 'card.automatic_classification', POLICY,

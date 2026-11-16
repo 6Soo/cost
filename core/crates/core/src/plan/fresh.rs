@@ -15,6 +15,58 @@ const USER_SOURCES: [&str; 3] = ["user_decision", "user_exception", "owner_booki
 const CODE_SOURCES: [&str; 3] = ["inference", "auto_inferred", "code_inference"];
 const GENERIC_ITEMS: [&str; 3] = ["기타경비", "현지경비", "여행경비"];
 
+pub(super) fn manual_google_choice(
+    ctx: &Ctx<'_>,
+    row: &Row,
+    tid: &str,
+    fact: Option<&Value>,
+) -> Option<Row> {
+    let fact = fact?;
+    let source = text(row, "classification_source");
+    let basis = text(row, "classification_basis");
+    let calendar_rule = source == "rule"
+        && (basis.contains("AUTO_INFERRED") || basis.contains("AUTO_TRIP_INFERRED"));
+    let recorded = ctx.ledger.contains_key(tid) || ctx.boards.contains_key(&format!("card-{tid}"));
+    if fact_str(fact, "kind") != "google_manual_expense"
+        || text(row, "source_hash").is_empty()
+        || fact_str(fact, "source_hash") != text(row, "source_hash")
+        || ctx.links.link(tid).is_some()
+        || text(row, "transaction_direction") != "purchase"
+        || !row
+            .get("amount_krw")
+            .and_then(Value::as_i64)
+            .is_some_and(|n| n > 0)
+        || !(CODE_SOURCES.contains(&source.as_str())
+            || source == "owner_card_residual"
+            || calendar_rule)
+        || row.get("decided_at").is_some_and(|v| !v.is_null())
+        || (recorded && !ctx.reconsider)
+    {
+        return None;
+    }
+    let target = fact_str(fact, "trip_id");
+    let quarter = matches!(target, "quarter:2026:1" | "quarter:2026:2");
+    if !quarter && !in_valid(ctx, target) {
+        return None;
+    }
+    let mut chosen = row.clone();
+    if quarter || text(&chosen, "item").is_empty() || text(&chosen, "item") == "분기 기타비용"
+    {
+        let item = if quarter {
+            "분기 기타비용".to_string()
+        } else {
+            infer_item(&txn_of(&with_item(&chosen, ""))).0
+        };
+        set(&mut chosen, "item", item);
+    }
+    set(&mut chosen, "classification_state", "classified");
+    set(&mut chosen, "classification_source", "inference");
+    set(&mut chosen, "classification_basis", fact_str(fact, "basis"));
+    set(&mut chosen, "display_tab_id", target);
+    set(&mut chosen, "trip_id", if quarter { "" } else { target });
+    Some(chosen)
+}
+
 pub(super) enum Fresh {
     /// 정책상 보호(3820 정책에도 분기 귀속에도 맞지 않는 거래).
     Protected,

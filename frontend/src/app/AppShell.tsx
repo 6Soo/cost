@@ -1,4 +1,20 @@
-import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import {
+  ArrowLeftRightIcon,
+  Audit01Icon,
+  FileSpreadsheetIcon,
+  Home01Icon,
+  Luggage01Icon,
+  MapPinIcon,
+  Menu01Icon,
+  Moon01Icon,
+  MoreHorizontalIcon,
+  ReceiptIcon,
+  Sun01Icon,
+  TransactionIcon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons";
 import { cn } from "../lib/cn";
 
 export type AppRole = "owner" | "viewer";
@@ -12,18 +28,24 @@ export type AppShellProps = {
   className?: string;
 };
 type ThemeMode = "light" | "dark";
+type NavItem = { label: string; href: string; match: string[]; icon: IconSvgElement };
 
-const ownerNavigation = [
-  { label: "홈", href: "/", match: ["/"] },
-  { label: "여행", href: "/trips", match: ["/trips", "/board", "/participants", "/reserve-links", "/export", "/expense", "/income"] },
-  { label: "거래", href: "/cards/all", match: ["/cards", "/ota", "/flight-passengers"] },
-  { label: "영수증", href: "/receipts", match: ["/receipts"] },
+const ownerNavigation: NavItem[] = [
+  { label: "홈", href: "/", match: ["/"], icon: Home01Icon },
+  { label: "여행", href: "/trips", match: ["/trips", "/board", "/participants", "/reserve-links", "/export", "/expense", "/income"], icon: Luggage01Icon },
+  { label: "거래", href: "/cards/all", match: ["/cards", "/ota", "/flight-passengers"], icon: TransactionIcon },
+  { label: "영수증", href: "/receipts", match: ["/receipts"], icon: ReceiptIcon },
 ];
-const ownerManagement = [
-  { label: "계정·권한", href: "/access/admin", match: ["/access"] },
-  { label: "Google 장부", href: "/google-ledger", match: ["/google-ledger"] },
-  { label: "검수 결과", href: "/review", match: ["/review"] },
+const ownerManagement: NavItem[] = [
+  { label: "계정·권한", href: "/access/admin", match: ["/access"], icon: UserGroupIcon },
+  { label: "Google 장부", href: "/google-ledger", match: ["/google-ledger"], icon: FileSpreadsheetIcon },
+  { label: "검수 결과", href: "/review", match: ["/review"], icon: Audit01Icon },
 ];
+const viewerNavigation: NavItem[] = [
+  { label: "여행", href: "/trips", match: ["/trips", "/board"], icon: Luggage01Icon },
+];
+
+const POPOVER_SELECTOR = "details.cost-trip-switcher, details.cost-bottom-more, .cost-tablet-menu details";
 
 function normalizedPath(path: string): string {
   const withoutPrefix = path.replace(/^\/ui(?=\/|$)/, "");
@@ -51,6 +73,10 @@ function themeButtonLabel(theme: ThemeMode): string {
   return theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환";
 }
 
+function NavIcon({ icon, size = 18, className }: { icon: IconSvgElement; size?: number; className?: string }) {
+  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} aria-hidden="true" className={cn("cost-nav-icon", className)} />;
+}
+
 function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => void }) {
   return (
     <button
@@ -60,8 +86,8 @@ function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => vo
       aria-pressed={theme === "dark"}
       onClick={onToggle}
     >
-      <span aria-hidden="true" className="cost-theme-dot" />
-      <span>{theme === "dark" ? "다크" : "라이트"}</span>
+      <NavIcon icon={theme === "dark" ? Moon01Icon : Sun01Icon} size={16} />
+      <span className="cost-theme-label">{theme === "dark" ? "다크" : "라이트"}</span>
     </button>
   );
 }
@@ -82,12 +108,12 @@ function TripLinks({ trips, onTripSelect, currentPath, className }: {
           <li key={trip.id}>
             {onTripSelect && !trip.href ? (
               <button type="button" className="cost-trip-link" aria-current={selected ? "page" : undefined} onClick={() => onTripSelect(trip.id)}>
-                <span className="cost-trip-mark" aria-hidden="true" />
+                <NavIcon icon={MapPinIcon} size={16} className="cost-trip-icon" />
                 <span>{trip.title}</span>
               </button>
             ) : (
               <a className="cost-trip-link" href={href} aria-current={selected ? "page" : undefined}>
-                <span className="cost-trip-mark" aria-hidden="true" />
+                <NavIcon icon={MapPinIcon} size={16} className="cost-trip-icon" />
                 <span>{trip.title}</span>
               </a>
             )}
@@ -99,7 +125,7 @@ function TripLinks({ trips, onTripSelect, currentPath, className }: {
 }
 
 function NavigationLinks({ items, path, className }: {
-  items: typeof ownerNavigation;
+  items: NavItem[];
   path: string;
   className?: string;
 }) {
@@ -110,7 +136,7 @@ function NavigationLinks({ items, path, className }: {
         return (
           <li key={item.href}>
             <a className="cost-nav-link" href={item.href} aria-current={current ? "page" : undefined}>
-              <span className="cost-nav-mark" aria-hidden="true" />
+              <NavIcon icon={item.icon} />
               <span>{item.label}</span>
             </a>
           </li>
@@ -122,8 +148,9 @@ function NavigationLinks({ items, path, className }: {
 
 export function AppShell({ role, trips, path, children, onTripSelect, className }: AppShellProps) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
+  const shellRef = useRef<HTMLDivElement>(null);
   const currentPath = normalizedPath(path);
-  const mainItems = role === "owner" ? ownerNavigation : [{ label: "여행", href: "/trips", match: ["/trips", "/board"] }];
+  const mainItems = role === "owner" ? ownerNavigation : viewerNavigation;
   const managementItems = role === "owner" ? ownerManagement : [];
 
   useLayoutEffect(() => {
@@ -151,10 +178,49 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
     };
   }, [theme]);
 
+  // Shell popovers (trip switcher, tablet menu, bottom "more") are native <details>:
+  // they do not dismiss on Escape or outside pointer by themselves. Close them here
+  // without touching the modal drawer, which handles its own Escape and focus restore.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const popovers = () => Array.from(shell.querySelectorAll<HTMLDetailsElement>(POPOVER_SELECTOR));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const open = popovers().filter((details) => details.open);
+      if (open.length === 0) return;
+      event.stopPropagation();
+      for (const details of open) details.open = false;
+      open[0].querySelector("summary")?.focus();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      for (const details of popovers()) {
+        if (details.open && !details.contains(target)) details.open = false;
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, []);
+
+  // Selecting a trip or navigating from a popover closes it once the route changes.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    for (const details of Array.from(shell.querySelectorAll<HTMLDetailsElement>(POPOVER_SELECTOR))) {
+      details.open = false;
+    }
+  }, [path]);
+
   const toggleTheme = () => setTheme((previous) => previous === "dark" ? "light" : "dark");
 
   return (
-    <div className={cn("cost-app-shell", className)} data-role={role}>
+    <div className={cn("cost-app-shell", className)} data-role={role} ref={shellRef}>
       <a className="cost-skip-link" href="#cost-main">본문으로 건너뛰기</a>
       <div className="cost-workspace">
         <aside className="cost-sidebar" aria-label="기본 탐색">
@@ -189,7 +255,10 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
             <div className="cost-topbar-actions">
               {trips.length > 0 && (
                 <details className="cost-trip-switcher">
-                  <summary aria-label="여행 전환">여행 전환</summary>
+                  <summary aria-label="여행 전환">
+                    <NavIcon icon={ArrowLeftRightIcon} />
+                    <span className="cost-topbar-label">여행 전환</span>
+                  </summary>
                   <div className="cost-trip-switcher-panel">
                     <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />
                   </div>
@@ -197,7 +266,10 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
               )}
               <div className="cost-tablet-menu">
                 <details>
-                  <summary className="cost-menu-trigger">메뉴</summary>
+                  <summary className="cost-menu-trigger" aria-label="메뉴">
+                    <NavIcon icon={Menu01Icon} />
+                    <span className="cost-topbar-label">메뉴</span>
+                  </summary>
                   <div className="cost-tablet-menu-panel">
                     <NavigationLinks items={mainItems} path={currentPath} />
                     {managementItems.length > 0 && <NavigationLinks items={managementItems} path={currentPath} />}
@@ -212,15 +284,18 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
           <div className="cost-main" id="cost-main" tabIndex={-1}>{children}</div>
 
           <nav className="cost-bottom-nav" aria-label="주요 탐색" style={{ "--cost-nav-count": role === "owner" ? 5 : 1 } as CSSProperties}>
-            {(role === "owner" ? ownerNavigation : [{ label: "여행", href: "/trips", match: ["/trips", "/board"] }]).map((item) => (
+            {mainItems.map((item) => (
               <a key={item.href} className="cost-bottom-link" href={item.href} aria-current={isActive(currentPath, item.match) ? "page" : undefined}>
-                <span className="cost-nav-mark" aria-hidden="true" />
+                <NavIcon icon={item.icon} size={20} />
                 <span>{item.label}</span>
               </a>
             ))}
             {role === "owner" && (
               <details className="cost-bottom-more">
-                <summary className="cost-bottom-link">더보기</summary>
+                <summary className="cost-bottom-link" aria-label="더보기">
+                  <NavIcon icon={MoreHorizontalIcon} size={20} />
+                  <span>더보기</span>
+                </summary>
                 <div className="cost-bottom-more-panel">
                   <NavigationLinks items={ownerManagement} path={currentPath} />
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />

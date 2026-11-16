@@ -354,7 +354,14 @@ fn write_target(
     let (item, tab, trip) = (&values[3], &values[5], &values[6]);
     tx.execute(&Write::LedgerFill.sql(), params![item, tab, trip, tid])?;
     if correction {
-        tx.execute(&Write::LedgerCorrect.sql(), params![tab, trip, tid])?;
+        if values[2].starts_with("GOOGLE_MANUAL_ROW · ") {
+            tx.execute(
+                &Write::LedgerGoogleCorrect.sql(),
+                params![item, tab, trip, tid],
+            )?;
+        } else {
+            tx.execute(&Write::LedgerCorrect.sql(), params![tab, trip, tid])?;
+        }
     }
     let row_id = format!("card-{tid}");
     let board: Option<(String, Option<String>)> = tx
@@ -368,11 +375,18 @@ fn write_target(
         sync_board(tx, &row_id, &old_text, old_tab, target, values, result, now)?;
     }
     if let Some(before) = before {
-        let detail = json!({"before": before, "trip_id": trip, "basis": values[2]});
+        let mut detail = json!({"before": before, "trip_id": trip, "basis": values[2]});
+        if values[2].starts_with("GOOGLE_MANUAL_ROW · ") {
+            detail["evidence"] = input.evidence.get(tid).cloned().unwrap_or(Value::Null);
+        }
         insert_log(
             tx,
             now,
-            "card.booking_trip_correction",
+            if values[2].starts_with("GOOGLE_MANUAL_ROW · ") {
+                "card.google_trip_correction"
+            } else {
+                "card.booking_trip_correction"
+            },
             tid,
             &python_json(&detail),
         )?;
@@ -401,8 +415,25 @@ fn snapshot(tx: &Transaction<'_>, input: &PlanInput, tid: &str) -> Result<Value,
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    Ok(json!({"transaction": transaction,
-        "ledger": ledger.map_or(Value::Null, |(tab, trip)| json!([tab, trip]))}))
+    let mut before = json!({"transaction": transaction,
+        "ledger": ledger.map_or(Value::Null, |(tab, trip)| json!([tab, trip]))});
+    if input
+        .evidence
+        .get(tid)
+        .and_then(|f| f.get("kind"))
+        .and_then(Value::as_str)
+        == Some("google_manual_expense")
+    {
+        let item: Option<String> = tx
+            .query_row(
+                "SELECT item FROM ledger_entries WHERE transaction_id=?",
+                [tid],
+                |r| r.get(0),
+            )
+            .optional()?;
+        before["ledger_item"] = item.map_or(Value::Null, |item| json!([item]));
+    }
+    Ok(before)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -435,6 +466,10 @@ fn sync_board(
         map.insert("display_tab_id".into(), json!(tab));
         map.insert("classification_source".into(), json!(values[1]));
         map.insert("classification_basis".into(), json!(values[2]));
+        if values[2].starts_with("GOOGLE_MANUAL_ROW · ") {
+            map.insert("item".into(), json!(item));
+            map.insert("trip_id".into(), json!(values[6]));
+        }
     }
     if blank_or_unclassified(map.get("display_tab_id")) {
         map.insert("display_tab_id".into(), json!(board_tab));
@@ -460,7 +495,7 @@ fn sync_board(
                 "rule_change",
                 "automatic",
                 now,
-                format!("booking-period-{}", &result.digest[..24])
+                format!("{}{}", if values[2].starts_with("GOOGLE_MANUAL_ROW · ") { "google-row-" } else { "booking-period-" }, &result.digest[..24])
             ],
         )?;
     }

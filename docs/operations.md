@@ -7,6 +7,14 @@
 - **canonical/검사:** `app/ota_payments.py` root·main·worktree 바이트 동일, 의존 16모듈은 PR980 변경 9파일 밖. 표적 `tests/test_core_bridge_extract_baseline.py` 8 passed. 도구 4파일+기록을 main 기반 브랜치 커밋(병합·배포는 별도 게이트, 읽기 전용 생산이라 운영 반영 불필요).
 - **근거/인수:** [생산 기록](agents/artifacts/m3-extractor-baseline-20261117.md), 보호 디렉터리 `request.json`·`response.json`·`events.json`·`stderr.log`. 이 고정값이 M6 Rust 추출기 병합 수락 기준표. 매일 Python 대조는 M6까지 회귀 안전망(주기 축소 소유자 결정 전 유지). 고객 원문은 Git·보고서에 넣지 않았다.
 
+## 2026-11-17 03:05 — Plush UI 전수 감사 수정 운영 배포 완료
+
+- **배포:** 공식 도구 exit0, actual `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`, Previous `9af204148b1b6450f7bb9c6ec1185c5f2f3aa852`, continuous 모드 backend 8751→8752·gateway8790. 추적1885파일 blob불일치0·dist 3파일 복사 전후 SHA-256 일치·runtime SHA verified·listener1·보호14표 전환 후 불변·health/ready200·비인증 보호API401. 금융 apply NOT_RUN·마이그레이션·Google 자동 쓰기 없음. code-only라 full-backup 옵션 미사용(이전 릴리스 자산 보존).
+- **후보/검수:** 검수 PASS한 UI(`b7308aee`→`fe773fe8`, 13건 수정)+정책 문서 `90da8c42` 위에 PR980 main(`750e4a65`)을 clean merge한 `4cd76d2b`. 부모 변경 파일 교집합 없음·UI는 fe773fe8과 동일·PR980 소득표시/원문기장경로·백엔드/Rust/설정은 main 및 운영9af와 동일. 독립 gpt-6.1-sol medium 정확 SHA PASS(MEDIUM0·LOW 비차단 문구1). 후보 HEAD에서 npm ci·typecheck·build, 전체 vitest 17파일88테스트, 영향검사 Plush Python45 통과. 검수자 독립 재실행 5파일24테스트.
+- **자산/화면:** 릴리스 dist 온디스크 해시3파일 release-audit 일치. 비인증 `/`·`/ui/`·자산·폰트 401(인증 활성). 인증 화면 렌더링은 로그인 필요로 미수행(인증 우회 금지) — 익명 거부와 감사 당시 로컬 합성 프리뷰 렌더링을 구분.
+- **정책/조율:** 소유자 결정 2026-11-17 "혼자 개발·관리 레포는 검수 PASS 후 언제나 배포"를 `AGENTS.md`에 명시(`90da8c42`). 회계감사 후임 Accounts AGY(`20acee6b`) 기장 완료·소유권 해제 후 배포. PR979 병합 `10b2a39d`(main 트리=배포 후보 트리).
+- **근거:** `D:/WebLedgerHost/releases/deploy-evidence-4cd76d2b05231f1197fbe5c94ffa99ffea1081b6.json`·`release-audit-4cd76d2b….json`, 작업공간 `.local-archive/plush-ui-audit-20261116/deploy-4cd76d2b/`의 review-evidence·protection-before/after·stage_release·verify_deploy·PR_DEPLOY_COMMENT. 고객 원문/화면은 Git에 넣지 않았다. 문서 후속 때문에 재배포하지 않는다.
+
 ## 2026-11-17 02:31 — 몽골 항공료 실제 기장·수입 표시 완료
 
 - **배포:** 공식 도구 exit0, actual9af204148b1b6450f7bb9c6ec1185c5f2f3aa852, Previous8888230deb1a5bd09d826da7e66034e2091ba0a1, backend8751/gateway8790. 1883파일 blob불일치0·코드배포 보호14표 불변·health/ready200·보호API401. Board/Worker Rust/rust·기존costcore-8888230d.exe·card-flow.json 해시 보존. 배포 도구의 financial_apply=NOT_RUN은 코드 배포 단계만 가리킨다.

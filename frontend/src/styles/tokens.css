@@ -23,11 +23,13 @@
   --cost-selection-start: #16c26b;
   --cost-selection-end: #b8e62e;
   --cost-selection-text: #141414;
+  --cost-selection: var(--cost-selection-start);
   --cost-success-text: #17643b;
   --cost-danger-text: #b42318;
   --cost-warning-text: #815500;
   --cost-focus: #141414;
   --cost-line: #e4e4e1;
+  --cost-border: var(--cost-line);
   --cost-fill: #f0f0ee;
   --cost-fill-strong: #e8e8e5;
   --cost-control-off: #dededb;
