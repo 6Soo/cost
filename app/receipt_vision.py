@@ -55,8 +55,13 @@ class VisionUnavailable(Exception):
         super().__init__(code)
 
 
+def provider():
+    value = os.environ.get('WEBLEDGER_RECEIPT_VISION')
+    return value if value in ('claude-opus', 'paseo-qwen4-max') else None
+
+
 def enabled():
-    return os.name == 'nt' and os.environ.get('WEBLEDGER_RECEIPT_VISION') == 'claude-opus'
+    return os.name == 'nt' and provider() is not None
 
 
 def _media_type(data):
@@ -67,13 +72,13 @@ def _media_type(data):
         raise VisionUnavailable('VISION_IMAGE_REQUIRED') from None
 
 
-def playbook_prompt(path=PLAYBOOK):
-    """The text between the reading-prompt markers of the playbook; missing markers fail closed."""
+def playbook_prompt(path=PLAYBOOK, *, start='reading-prompt:start', end='reading-prompt:end'):
+    """The text between the given reading-prompt markers of the playbook; missing markers fail closed."""
     try:
         text = Path(path).read_text(encoding='utf-8')
     except OSError:
         raise VisionUnavailable('VISION_PLAYBOOK_MISSING') from None
-    match = re.search(r'<!-- reading-prompt:start -->\n(.+?)\n<!-- reading-prompt:end -->', text, re.S)
+    match = re.search(r'<!-- ' + re.escape(start) + r' -->\n(.+?)\n<!-- ' + re.escape(end) + r' -->', text, re.S)
     if not match or not match[1].strip():
         raise VisionUnavailable('VISION_PLAYBOOK_MISSING')
     return match[1].strip()
@@ -334,7 +339,10 @@ def ocr_fallback(image, reason, *, ocr=None):
 
 
 def recognize_with_fallback(image, *, runner=None, guidance=None, lesson=False, ocr=None):
-    """Claude first; a runner failure, limit or timeout falls back to Windows OCR once, with the reason kept."""
+    """The selected reader first; a runner failure, limit or timeout falls back to Windows OCR once."""
+    if provider() == 'paseo-qwen4-max':
+        from . import paseo_receipt_vision
+        return paseo_receipt_vision.recognize_with_fallback(image, guidance=guidance, lesson=lesson)
     run_id = uuid.uuid4().hex[:12]
     try:
         result = recognize(image, runner=runner, guidance=guidance, lesson=lesson)

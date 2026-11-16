@@ -177,7 +177,8 @@ KRW 영수증은 검증된 원화 금액 그대로 처리하고 JPY 간편 환�
 외부 AI/OCR 전송은 승인된 owner의 명시적 분석 실행과 해당 전송 동의가 있을 때만 한다. 업로드만으로 영수증·개인정보를 자동 전송하지 않는다.
 
 - 조건·예외: 과거 특정 모델 승인을 모든 외부 모델 허가로 확대하지 않는다.
-- 현재 승인된 판독 모델: 구독 Claude `opus`(추론 medium), 실패 시 이 PC의 Windows OCR(소유자 지시 2026-11-15, 무료 모델 Muse 경로 대체). 읽는 절차는 [영수증 사진 판독 절차서](../playbooks/receipt-reading.md)에 있다.
+- 현재 승인된 판독 모델: 로컬 Paseo `qwen4-max-preview`(QwenCloud, 소유자 결정 2026-11-16). 이 모델은 이미지를 읽지 못해 사진은 이 PC의 Windows OCR이 먼저 읽고 텍스트만 전송한다(사진 원본은 외부로 나가지 않음). 대체 경로로 구독 Claude `opus`(추론 medium, 사진 전송)를 유지한다. 둘 다 실패 시 이 PC의 Windows OCR 참고값. 읽는 절차는 [영수증 사진 판독 절차서](../playbooks/receipt-reading.md)에 있다.
+- 대체된 옛 승인: 구독 Claude `opus`(추론 medium) 단일 판독, 실패 시 이 PC의 Windows OCR(소유자 지시 2026-11-15, 무료 모델 Muse 경로 대체) — 2026-11-16 소유자 결정으로 Paseo `qwen4-max-preview`를 기본 판독으로 추가하고 Claude는 대체 경로로 유지.
 - 출처: `AGENTS.md:17`, `docs/specs/receipt-unified-upload-ux-20261105.md:49`, `docs/specs/google-ledger.md:119`
 
 ### RCPT-021 · AI 호출 권한
@@ -196,6 +197,7 @@ AI 호출은 owner·CSRF·저장 사진 소유 검증을 통과한 요청에 한
 
 - 조건·예외: 모델 출력은 금융/장부 쓰기 명령이 아니다.
 - 조건·예외: Claude 판독은 도구 없이(`StructuredOutput`만) 실행하고, 다른 도구·MCP가 관측되면 결과를 버린다(`app/receipt_vision.py`).
+- 조건·예외: Paseo 판독은 plan 모드·빈 임시 워크스페이스에서 도구 없이 실행하고, 사진 대신 로컬 Windows OCR 텍스트만 전달한다(`app/paseo_receipt_vision.py`). 일회용 에이전트·워크스페이스는 판독 뒤 정리하며, 모델 출력은 후보일 뿐 장부 쓰기가 아니다.
 - 출처: `docs/specs/receipts.md:59`, `docs/specs/receipts.md:60`
 
 ### RCPT-023 · AI 실패 수동 입력
