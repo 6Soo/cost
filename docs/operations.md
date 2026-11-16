@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-17 04:42 — 원행 대조 공통 코드 배포·77건 교정·4건 신규 기장 완료
+
+- **코드 배포:** PR982/merge `a88776e6`, 검수 코드·실제 운영 `e4e5dd67c72ee3b9aa3201167b797010cbb97997`, Previous `4cd76d2b05231f1197fbe5c94ffa99ffea1081b6`. 공식 도구 exit0, backend8751/gateway8790, Board·Worker 같은 릴리스. 추적1888 blob불일치0·보호14표 불변·health/ready200·보호API401. 프런트 소스는 이전 actual과 동일해 검증된 dist를 보존했다.
+- **Rust/설정:** 별도 `costcore-e4e5dd67.exe` SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c`. 의미상 설정 변경은 costcore_bin 하나다. Rust/rust·나머지 설정·기존888 바이너리 SHA256 `98433d9144447f4f153d86d73c1166c09fc5f4b1b02caa53487b36d121f76ca4` 보존.
+- **검증/금융 반영:** 원본 카드4개81행 및 수기 원장77행 대조, 공식 영향974/skip0/known0·Rust 검사 PASS·정확SHA 독립 sol medium APPROVE. CI 결제 차단 annotation 확인. 신선4DB 복원 검증 후 배포했고, 배포후 board/core 복원 검증도 통과했다. 첫 postdeploy 백업 실패는 성공으로 세지 않고 진단 재시도 PASS 근거를 별도 보존했다. 독립 승인 스크립트로77건7813974원 귀속을 Rust writer로 교정해3투영 일치·원본/대상밖 불변·재계획0건 확인. 원문 이용기간4건2518357원도 표준 worker가 실제 기장 완료(recorded4/failures0/pending0), ledger/board 각각 정확1회·귀속/기간 일치다. 최종 읽기 전용 검증19:42:36Z PASS, 원본/대상밖 보호 해시 `7119b9d9c3bd07eefb9225ea845280d99c70cb4adc1e0b805eaeec9569c5463f` 불변·검증DB변경0·직접 금융 SQL/Google 쓰기0.
+- **근거/다음:** `releases/deploy-evidence-e4e5dd67c72ee3b9aa3201167b797010cbb97997.json`과 보호 `data/backups/q12-auto-additions-20261116T181539Z/source-recheck/`의 backup/deploy/apply-journal/rehearsal, `final-validation.json`, `FINAL-EVIDENCE.md`, 실제81행 증거 엑셀. 운영 쓰기 작업 종료, 이후 PreviousSha는 다른 배포가 없으면 e4e5dd67이다. 문서 후속은 재배포하지 않는다.
+
 ## 2026-11-17 — M3 추출기 기준 출력 생산 (읽기 전용, 운영 배포 없음)
 
 - **실행:** M3 마지막 산출물(설계 §3.4 facts 기준 출력)을 origin/main `750e4a65aea5f5603fc04199046d5e64e8a7e45c`(PR980) detached worktree `C:/AX/cost-m3-baseline`에서 `python -I tools/core_bridge/cli.py extract-baseline`으로 생산했다. `ok=true`·python_sha `750e4a65…`·input_digest `1e9613ebe30aacde13a647de81d9f662d03939d2909764f9621b273f45539f7b`·**events 7,965건**·**baseline sha256 `a26d446510faabe4cbdfd5d8cf114b0903e6b87b8453fdb3380d529e605cbaf6`**. events.json 28,637,104B·stderr 0B. 디스크 해시==보고 해시·건수 7,965 일치 독립 검증.

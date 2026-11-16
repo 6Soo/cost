@@ -94,13 +94,19 @@ def preview(conn, trips, manifest, *, evidence=None):
             elif protection:
                 reason = 'SOURCE_PROTECTED'
         state = _state(conn, tid) if row else None
+        from .source_recheck import allowed as source_recheck_allowed
+        source_fact = (evidence or {}).get(tid)
+        source_exception = bool(not reason and source_recheck_allowed(
+            conn, row, correction, manifest, source_fact, valid))
+        if not reason and manifest.get('scope') == 'q2_source_recheck' and not source_exception:
+            reason = 'SOURCE_RECHECK_PROTECTED'
         if not reason:
             destinations = {row.get(k) for k in ('trip_id', 'display_tab_id')} - {None, '', 'unclassified'}
             if len(destinations) != 1:
                 reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
             # Closed trips, closed quarters and unclassified rows are outside the
             # open-quarter review scope; nothing is pulled out of a closed period.
-            elif not _open_destination(next(iter(destinations)), valid):
+            elif not _open_destination(next(iter(destinations)), valid) and not source_exception:
                 reason = 'CLOSED_CARD_PERIOD'
         if not reason:
             for projection in (state['ledger'], state['board']):
@@ -122,7 +128,8 @@ def preview(conn, trips, manifest, *, evidence=None):
             if is_quarter:
                 match = QUARTER_TAB.fullmatch(tab)
                 quarter = observed_quarter(row)
-                if (int(match[1]), int(match[2])) < (2026, 3) or not quarter or quarter[0] != tab:
+                if (((int(match[1]), int(match[2])) < (2026, 3) and not source_exception)
+                        or not quarter or quarter[0] != tab):
                     reason = 'INVALID_TARGET'
             elif not open_trip(valid.get(tab)):
                 reason = 'INVALID_TARGET'
@@ -149,7 +156,8 @@ def preview(conn, trips, manifest, *, evidence=None):
         else:
             kind = 'quarter_to_quarter' if is_quarter else 'quarter_to_trip'
         pending[tid] = dict(tid=tid, before=state, values=values, kind=kind,
-                            group_candidate=group_candidate)
+                            group_candidate=group_candidate,
+                            **({'source_recheck': source_fact} if source_exception else {}))
     moved_groups, refund_moved = 0, 0
     for original, members in groups.items():
         candidates = members & pending.keys()
@@ -230,6 +238,8 @@ def apply(conn, expected, trips, manifest, *, request_id, evidence=None):
             # the board payload; ledger_entries carries attribution fields only.
             _sync(conn, tid, values, request_id)
             detail = dict(request_id=request_id, before=target['before'], after=_state(conn, tid), financial=financial)
+            if target.get('source_recheck'):
+                detail['source_recheck'] = target['source_recheck']
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                 (utc_now(), RELEASE, tid, json.dumps(detail, ensure_ascii=False, sort_keys=True)))
         if _financial_state(conn) != financial:
