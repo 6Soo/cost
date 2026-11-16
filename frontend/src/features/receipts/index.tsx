@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Bootstrap } from '../../api/types';
-import { getJSON, postJSON } from '../../api/client';
+import { ApiError, getJSON, postJSON } from '../../api/client';
 import type {
   LegacyCandidate,
   LegacyReceiptList,
@@ -45,7 +45,16 @@ const currencyOptions = [
 ];
 
 function errorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    const messages: Record<string, string> = { TRIP_REQUIRED: '등록할 여행을 선택해 주세요.', CATEGORY_REQUIRED: '비용 항목을 입력해 주세요.', STALE_CANDIDATE: '다른 화면에서 영수증이 바뀌었습니다.', MODEL_NOT_SELECTABLE: '이 모델은 현재 선택할 수 없습니다.', IMAGE_NOT_OWNED: '저장된 원본 사진을 다시 선택해 주세요.' };
+    if (messages[error.code]) return messages[error.code];
+  }
   return error instanceof Error ? error.message : '요청을 완료하지 못했습니다. 연결 상태를 확인해 주세요.';
+}
+
+function isRejectedRequest(error: unknown): boolean {
+  return error instanceof ApiError && [400, 401, 403, 404, 409, 413, 415, 422].includes(error.status)
+    && error.code !== 'RUN_STATE_UNKNOWN';
 }
 
 function randomRequestId(): string {
@@ -530,9 +539,14 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       updatePendingRequests({ run: null });
       setNotice(`${pending.label} 작업이 접수됐습니다. 사진별 상태는 이 화면에 계속 저장됩니다.`);
     } catch (error) {
-      updatePendingRequests({ run: pending });
-      setPageError(`${errorText(error)} 접수 여부를 확인한 뒤 같은 요청을 재시도할 수 있습니다. 재시도는 동일한 request_id와 사진 목록을 사용합니다.`);
       await loadWorkflow().catch(() => undefined);
+      if (isRejectedRequest(error)) {
+        updatePendingRequests({ run: null });
+        setPageError(`${errorText(error)} 요청이 거절됐습니다. 사진과 모델을 확인한 뒤 다시 시작해 주세요.`);
+      } else {
+        updatePendingRequests({ run: pending });
+        setPageError(`${errorText(error)} 접수 여부를 확인한 뒤 같은 요청을 재시도할 수 있습니다. 재시도는 동일한 request_id와 사진 목록을 사용합니다.`);
+      }
     }
   }, [csrf, loadWorkflow, updatePendingRequests]);
 
@@ -719,7 +733,15 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       updatePendingRequests({ apply: null });
       setNotice(`${pending.selections.length}건의 선택 반영 요청을 처리했습니다. 서버에 저장된 반영 상태를 다시 읽었습니다.`);
     } catch (error) {
-      setPageError(`${errorText(error)} 재시도는 같은 request_id와 같은 선택·revision 묶음을 사용합니다.`);
+      await loadWorkflow().catch(() => undefined);
+      if (!pendingRequestsRef.current.apply) {
+        setNotice('선택한 영수증이 이미 장부에 반영된 것을 확인했습니다.');
+      } else if (isRejectedRequest(error)) {
+        updatePendingRequests({ apply: null });
+        setPageError(`${errorText(error)} 반영 요청이 거절됐습니다. 후보를 수정하거나 선택을 바꾼 뒤 다시 반영해 주세요.`);
+      } else {
+        setPageError(`${errorText(error)} 재시도는 같은 request_id와 같은 선택·revision 묶음을 사용합니다.`);
+      }
     } finally {
       setApplying(false);
     }
