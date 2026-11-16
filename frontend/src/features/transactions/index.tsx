@@ -32,6 +32,14 @@ const TITLES: Record<string, string> = {
 // values are forwarded for deep links, while React page navigation starts a
 // fresh offset page and therefore drops those old cursor values.
 const CARD_FILTER_KEYS = ["year", "month", "period", "card", "card_kind", "q", "undated"];
+const SOURCE_FILTER_KEYS: Record<string, string[]> = {
+  cards: CARD_FILTER_KEYS,
+  ota: ["q", "month", "provider", "state", "sort"],
+  flights: ["q", "trip", "tab"],
+  refunds: ["q"],
+};
+const filterKeysFor = (view: string) => SOURCE_FILTER_KEYS[view] || ["q"];
+
 const CARD_CURSOR_KEYS = ["cursor", "undated_cursor"];
 const DEFAULT_PAGE_SIZE = 50;
 const CARD_PAGE_SIZE = 100;
@@ -55,7 +63,7 @@ function copyQueryKeys(target: URLSearchParams, source: URLSearchParams, keys: s
   }
 }
 
-function endpointFor(view: string, query: URLSearchParams) {
+export function endpointFor(view: string, query: URLSearchParams) {
   const params = new URLSearchParams();
   params.set("view", view);
   params.set("page", String(validPage(query)));
@@ -63,22 +71,21 @@ function endpointFor(view: string, query: URLSearchParams) {
   if (view === "cards") {
     copyQueryKeys(params, query, [...CARD_FILTER_KEYS, ...CARD_CURSOR_KEYS]);
   } else {
-    copyQueryKeys(params, query, ["q"]);
+    copyQueryKeys(params, query, filterKeysFor(view));
   }
   return `/api/plush/transactions?${params.toString()}`;
 }
 
-function queryForPage(path: string, view: string, query: URLSearchParams, page: number, pageSize: number) {
+export function queryForPage(path: string, view: string, query: URLSearchParams, page: number, pageSize: number) {
   const params = new URLSearchParams({ view, page: String(page), page_size: String(pageSize) });
-  if (view === "cards") copyQueryKeys(params, query, CARD_FILTER_KEYS);
-  else copyQueryKeys(params, query, ["q"]);
+  copyQueryKeys(params, query, filterKeysFor(view));
   if (view === "refunds") params.set("tab", "refunds");
   return uiPathWithQuery(path, params);
 }
 
-function queryForSearch(path: string, view: string, query: URLSearchParams, pageSize: number, term: string) {
+export function queryForSearch(path: string, view: string, query: URLSearchParams, pageSize: number, term: string) {
   const params = new URLSearchParams({ view, page: "1", page_size: String(pageSize) });
-  if (view === "cards") copyQueryKeys(params, query, CARD_FILTER_KEYS.filter((key) => key !== "q"));
+  copyQueryKeys(params, query, filterKeysFor(view).filter((key) => key !== "q"));
   if (term) params.set("q", term);
   if (view === "refunds") params.set("tab", "refunds");
   return uiPathWithQuery(path, params);
