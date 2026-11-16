@@ -252,7 +252,7 @@ def _batch_payload(conn, batch_id: str) -> dict:
         "SELECT * FROM receipt_workflow_candidates WHERE batch_id=? ORDER BY created_at,candidate_id",
         (batch_id,)).fetchall()
     links = conn.execute(
-        "SELECT jc.job_id,jc.result_ordinal,jc.candidate_id,jc.source_identity," 
+        "SELECT jc.job_id,jc.result_ordinal,jc.candidate_id,jc.source_identity,"
         "c.batch_id AS canonical_batch_id FROM receipt_workflow_job_candidates jc "
         "JOIN receipt_workflow_jobs j USING(job_id) "
         "JOIN receipt_workflow_candidates c USING(candidate_id) "
