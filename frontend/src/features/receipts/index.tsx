@@ -19,8 +19,14 @@ type Source = { sha: string; kind: 'image' | 'pdf-page'; label: string; pdfSha?:
 type UploadFailure = { key: string; file: File; body?: Blob; kind: 'image' | 'pdf'; message: string };
 type PendingApply = { request_id: string; selections: Array<{ candidate_id: string; expected_revision: Revision }> };
 type PendingRun = { request_id: string; images: string[]; provider: string; model: string; label: string };
+type PendingReceiptRequests = {
+  apply: PendingApply | null;
+  run: PendingRun | null;
+  retries: Record<string, string>;
+};
 
 const emptyLegacy: LegacyReceiptList = { candidates: [], images: [], pdfs: [], uploads: [] };
+const pendingRequestsStorageKey = 'cost.receipts.pending-workflow.v1';
 const statusLabel: Record<string, string> = {
   queued: '대기 중', pending: '대기 중', running: '처리 중', started: '처리 중',
   done: '완료', completed: '완료', succeeded: '완료', failed: '실패', error: '실패',
@@ -43,11 +49,77 @@ function errorText(error: unknown): string {
 }
 
 function randomRequestId(): string {
+<<<<<<< HEAD
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID().replaceAll('-', '');
+=======
+  const browserCrypto = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : undefined;
+  if (browserCrypto?.randomUUID) return browserCrypto.randomUUID().replaceAll('-', '');
+  if (!browserCrypto?.getRandomValues) {
+    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.padStart(32, '0').slice(-32);
+  }
+>>>>>>> f0d9574f (fix: recover receipt review retries safely)
   const bytes = new Uint8Array(16);
   const cryptoApi = (globalThis as typeof globalThis & { crypto?: Crypto }).crypto;
   if (cryptoApi) cryptoApi.getRandomValues(bytes);
   return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function readPendingRequests(): PendingReceiptRequests {
+  const empty: PendingReceiptRequests = { apply: null, run: null, retries: {} };
+  if (typeof window === 'undefined') return empty;
+  try {
+    const raw = window.sessionStorage.getItem(pendingRequestsStorageKey);
+    if (!raw) return empty;
+    const saved = JSON.parse(raw) as Record<string, unknown>;
+    if (saved.version !== 1) return empty;
+    const applyValue = saved.apply as Record<string, unknown> | null;
+    const applySelections = Array.isArray(applyValue?.selections) ? applyValue.selections : [];
+    const apply = typeof applyValue?.request_id === 'string'
+      && /^[a-f0-9]{32}$/.test(applyValue.request_id)
+      && applySelections.length > 0
+      && applySelections.every((selection) => {
+        const item = selection as Record<string, unknown>;
+        return typeof item.candidate_id === 'string' && Number.isInteger(item.expected_revision);
+      })
+      ? applyValue as unknown as PendingApply
+      : null;
+    const runValue = saved.run as Record<string, unknown> | null;
+    const runImages = Array.isArray(runValue?.images) ? runValue.images : [];
+    const run = typeof runValue?.request_id === 'string'
+      && /^[a-f0-9]{32}$/.test(runValue.request_id)
+      && runImages.length > 0
+      && runImages.every((image) => typeof image === 'string' && /^[a-f0-9]{64}$/.test(image))
+      && typeof runValue.provider === 'string'
+      && typeof runValue.model === 'string'
+      && typeof runValue.label === 'string'
+      ? runValue as unknown as PendingRun
+      : null;
+    const retriesValue = saved.retries && typeof saved.retries === 'object'
+      ? saved.retries as Record<string, unknown>
+      : {};
+    const retries: Record<string, string> = {};
+    for (const [jobId, requestId] of Object.entries(retriesValue)) {
+      if (/^[a-f0-9]{32}$/.test(jobId) && typeof requestId === 'string' && /^[a-f0-9]{32}$/.test(requestId)) {
+        retries[jobId] = requestId;
+      }
+    }
+    return { apply, run, retries };
+  } catch {
+    return empty;
+  }
+}
+
+function writePendingRequests(pending: PendingReceiptRequests): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!pending.apply && !pending.run && !Object.keys(pending.retries).length) {
+      window.sessionStorage.removeItem(pendingRequestsStorageKey);
+      return;
+    }
+    window.sessionStorage.setItem(pendingRequestsStorageKey, JSON.stringify({ version: 1, ...pending }));
+  } catch {
+    // Session storage can be disabled; the in-memory retry path remains available.
+  }
 }
 
 function imageUrl(sha: string): string {
@@ -176,6 +248,31 @@ function candidateDraft(candidate: WorkflowCandidate): ReceiptReviewDraft {
   };
 }
 
+function comparableAmount(value: unknown): string {
+  const text = String(value ?? '').trim();
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) return text;
+  const whole = match[2].replace(/^0+(?=\d)/, '');
+  const fraction = (match[3] || '').replace(/0+$/, '');
+  return `${match[1]}${whole}${fraction ? `.${fraction}` : ''}`;
+}
+
+function reviewMatchesCandidate(
+  candidate: WorkflowCandidate,
+  pending: NonNullable<ReceiptReviewDraft['pending']>,
+): boolean {
+  if (candidate.selected !== pending.selected) return false;
+  const record = candidate as unknown as Record<string, unknown>;
+  return Object.entries(pending.changes).every(([key, expected]) => {
+    const actual = record[key];
+    if (key === 'amount') return comparableAmount(actual) === comparableAmount(expected);
+    if (key === 'merchant' && typeof actual === 'string' && typeof expected === 'string') {
+      return actual.trim() === expected.trim();
+    }
+    return (actual ?? null) === (expected ?? null);
+  });
+}
+
 function candidateForImage(candidate: WorkflowCandidate): string {
   return candidate.image || '';
 }
@@ -200,10 +297,12 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const [pageError, setPageError] = useState('');
   const [notice, setNotice] = useState('');
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReceiptReviewDraft>>({});
-  const [pendingApply, setPendingApply] = useState<PendingApply | null>(null);
-  const [pendingRun, setPendingRun] = useState<PendingRun | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<PendingReceiptRequests>(readPendingRequests);
+  const pendingRequestsRef = useRef(pendingRequests);
+  const pendingApply = pendingRequests.apply;
+  const pendingRun = pendingRequests.run;
+  const retryRequests = pendingRequests.retries;
   const [applying, setApplying] = useState(false);
-  const [retryRequests, setRetryRequests] = useState<Record<string, string>>({});
   const [retryingJob, setRetryingJob] = useState('');
   const [mobilePane, setMobilePane] = useState<'source' | 'results'>('source');
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -221,7 +320,34 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const [legacyDrafts, setLegacyDrafts] = useState<Record<string, Partial<LegacyCandidate>>>({});
   const [savingLegacy, setSavingLegacy] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  const zoomDialog = useRef<HTMLDialogElement>(null);
+  const zoomTrigger = useRef<HTMLElement | null>(null);
   const csrf = bootstrap.csrf;
+
+  const updatePendingRequests = useCallback((patch: Partial<PendingReceiptRequests>) => {
+    const next = { ...pendingRequestsRef.current, ...patch };
+    pendingRequestsRef.current = next;
+    setPendingRequests(next);
+    writePendingRequests(next);
+  }, []);
+
+  const openZoom = useCallback((trigger: HTMLElement) => {
+    zoomTrigger.current = trigger;
+    setZoom(1);
+    setZoomOpen(true);
+  }, []);
+
+  const closeZoom = useCallback(() => {
+    if (zoomDialog.current?.open) zoomDialog.current.close();
+    else setZoomOpen(false);
+  }, []);
+
+  const onZoomClose = useCallback(() => {
+    setZoomOpen(false);
+    const trigger = zoomTrigger.current;
+    zoomTrigger.current = null;
+    if (trigger?.isConnected) trigger.focus();
+  }, []);
 
   const loadLegacy = useCallback(async () => {
     const data = await getJSON<LegacyReceiptList>('/api/receipts');
@@ -237,8 +363,16 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const loadWorkflow = useCallback(async () => {
     const data = await getJSON<WorkflowList>('/api/receipts/workflow');
     setWorkflow(data);
+    const pending = pendingRequestsRef.current.apply;
+    if (pending) {
+      const candidates = new Map(data.batches.flatMap((batch) => batch.candidates)
+        .map((candidate) => [candidate.candidate_id, candidate]));
+      if (pending.selections.every((selection) => candidates.get(selection.candidate_id)?.applied)) {
+        updatePendingRequests({ apply: null });
+      }
+    }
     return data;
-  }, []);
+  }, [updatePendingRequests]);
 
   const loadCatalog = useCallback(async (forProvider?: string) => {
     setCatalogError('');
@@ -317,32 +451,14 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   }, [anyActive, loadWorkflow]);
 
   useEffect(() => {
-    if (!zoomOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setZoomOpen(false);
-      if (event.key === '+' || event.key === '=') setZoom((value) => Math.min(3, value + 0.25));
-      if (event.key === '-') setZoom((value) => Math.max(1, value - 0.25));
-      if (event.key === 'Tab') {
-        const controls = [...document.querySelectorAll<HTMLElement>('.receipt-zoom button:not([disabled])')];
-        const first = controls[0];
-        const last = controls.at(-1);
-        if (!first || !last) return;
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.setTimeout(() => document.querySelector<HTMLElement>('.receipt-zoom button')?.focus(), 0);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      previous?.focus();
-    };
+    const dialog = zoomDialog.current;
+    if (!dialog) return;
+    if (zoomOpen && !dialog.open) {
+      dialog.showModal();
+      dialog.querySelector<HTMLButtonElement>('[data-zoom-close]')?.focus();
+    } else if (!zoomOpen && dialog.open) {
+      dialog.close();
+    }
   }, [zoomOpen]);
 
   useEffect(() => { setSourceAspect(null); }, [activeSha]);
@@ -407,23 +523,23 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   }, [uploadOne]);
 
   const submitModelRun = useCallback(async (pending: PendingRun) => {
-    setPendingRun(pending);
+    updatePendingRequests({ run: pending });
     setPageError('');
     setNotice(`${pending.label}에 ${pending.images.length}장 작업을 요청합니다.`);
     try {
       await postJSON<{ batch: WorkflowBatch }>('/api/receipts/workflow/batches', {
         images: pending.images, provider: pending.provider, model: pending.model, request_id: pending.request_id,
       }, csrf);
-      setPendingRun(null);
       setSelectedShas(new Set());
       await loadWorkflow();
+      updatePendingRequests({ run: null });
       setNotice(`${pending.label} 작업이 접수됐습니다. 사진별 상태는 이 화면에 계속 저장됩니다.`);
     } catch (error) {
-      setPendingRun(pending);
+      updatePendingRequests({ run: pending });
       setPageError(`${errorText(error)} 접수 여부를 확인한 뒤 같은 요청을 재시도할 수 있습니다. 재시도는 동일한 request_id와 사진 목록을 사용합니다.`);
       await loadWorkflow().catch(() => undefined);
     }
-  }, [csrf, loadWorkflow]);
+  }, [csrf, loadWorkflow, updatePendingRequests]);
 
   const runModel = useCallback(async (model: PaseoModel) => {
     if (!selectedShas.size) {
@@ -440,6 +556,34 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
     }));
   }, []);
 
+  const discardCandidateEdit = useCallback((candidateId: string) => {
+    setReviewDrafts((state) => {
+      const next = { ...state };
+      delete next[candidateId];
+      return next;
+    });
+  }, []);
+
+  const restartCandidateEdit = useCallback(async (candidateId: string) => {
+    try {
+      const latest = await loadWorkflow();
+      const candidate = latest.batches.flatMap((batch) => batch.candidates)
+        .find((item) => item.candidate_id === candidateId);
+      if (!candidate) {
+        setPageError('최신 후보를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인해 주세요.');
+        return;
+      }
+      if (candidate.applied) {
+        setPageError('이미 장부에 반영된 후보는 수정할 수 없습니다. 최신 목록을 확인해 주세요.');
+        return;
+      }
+      beginCandidateEdit(candidate);
+      setNotice('최신 서버 revision으로 교정을 다시 시작했습니다.');
+    } catch (error) {
+      setPageError(`최신 후보를 불러오지 못했습니다. ${errorText(error)}`);
+    }
+  }, [beginCandidateEdit, loadWorkflow]);
+
   const changeDraft = useCallback((candidate: WorkflowCandidate, key: keyof ReceiptReviewDraft, value: unknown) => {
     setReviewDrafts((current) => {
       const existing = current[candidate.candidate_id] || candidateDraft(candidate);
@@ -447,23 +591,24 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
     });
   }, []);
 
-  const saveCandidate = useCallback(async (candidate: WorkflowCandidate, retry = false) => {
+  const saveCandidate = useCallback(async (candidate: WorkflowCandidate, retry = false, selectedOverride?: boolean) => {
     const current = reviewDrafts[candidate.candidate_id] || candidateDraft(candidate);
+    const effectiveCurrent = selectedOverride === undefined ? current : { ...current, selected: selectedOverride };
     const pending = retry && current.pending ? current.pending : {
-      expected_revision: current.expectedRevision,
-      changes: current.editing ? {
-        merchant: current.merchant,
-        date: current.date,
-        amount: current.amount === '' ? null : current.amount,
-        currency: current.currency || null,
-        payment: current.payment || null,
-        trip_id: current.trip_id || null,
-        category: current.category || null,
-        company_expense: current.company_expense,
+      expected_revision: effectiveCurrent.expectedRevision,
+      changes: effectiveCurrent.editing ? {
+        merchant: effectiveCurrent.merchant,
+        date: effectiveCurrent.date,
+        amount: effectiveCurrent.amount === '' ? null : effectiveCurrent.amount,
+        currency: effectiveCurrent.currency || null,
+        payment: effectiveCurrent.payment || null,
+        trip_id: effectiveCurrent.trip_id || null,
+        category: effectiveCurrent.category || null,
+        company_expense: effectiveCurrent.company_expense,
       } : {},
-      selected: current.selected,
+      selected: effectiveCurrent.selected,
     };
-    setReviewDrafts((state) => ({ ...state, [candidate.candidate_id]: { ...current, pending, saving: true, error: undefined } }));
+    setReviewDrafts((state) => ({ ...state, [candidate.candidate_id]: { ...effectiveCurrent, pending, saving: true, error: undefined, revisionConflict: false } }));
     try {
       const result = await postJSON<{ candidate: WorkflowCandidate }>('/api/receipts/workflow/review', {
         candidate_id: candidate.candidate_id,
@@ -484,12 +629,44 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       });
       setNotice(`${result.candidate.merchant || '영수증'} 교정과 선택 상태를 저장했습니다.`);
     } catch (error) {
+      const latest = await loadWorkflow().catch(() => null);
+      const persisted = latest?.batches.flatMap((batch) => batch.candidates)
+        .find((item) => item.candidate_id === candidate.candidate_id);
+      if (persisted && reviewMatchesCandidate(persisted, pending)) {
+        setReviewDrafts((state) => {
+          const next = { ...state };
+          delete next[candidate.candidate_id];
+          return next;
+        });
+        setNotice(`${persisted.merchant || '영수증'} 교정이 서버에 저장된 것을 확인했습니다.`);
+        return;
+      }
+      if (persisted && persisted.revision !== pending.expected_revision) {
+        setReviewDrafts((state) => ({
+          ...state,
+          [candidate.candidate_id]: {
+            ...effectiveCurrent,
+            pending: undefined,
+            saving: false,
+            revisionConflict: true,
+            error: '편집을 시작한 뒤 서버 값이 바뀌었습니다. 최신 revision을 불러와 다시 시작해 주세요.',
+          },
+        }));
+        return;
+      }
+      if (persisted) {
+        setReviewDrafts((state) => ({
+          ...state,
+          [candidate.candidate_id]: { ...effectiveCurrent, pending: undefined, saving: false, error: errorText(error) },
+        }));
+        return;
+      }
       setReviewDrafts((state) => ({
         ...state,
-        [candidate.candidate_id]: { ...current, pending, saving: false, error: errorText(error) },
+        [candidate.candidate_id]: { ...effectiveCurrent, pending, saving: false, error: errorText(error) },
       }));
     }
-  }, [csrf, reviewDrafts]);
+  }, [csrf, loadWorkflow, reviewDrafts]);
 
   const toggleCandidateSelection = useCallback((candidate: WorkflowCandidate, checked: boolean) => {
     const existing = reviewDrafts[candidate.candidate_id];
@@ -502,29 +679,27 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
     }
     const draft = candidateDraft(candidate);
     setReviewDrafts((state) => ({ ...state, [candidate.candidate_id]: { ...draft, selected: checked, dirty: true } }));
-    void saveCandidate({ ...candidate, selected: checked }, false);
+    void saveCandidate(candidate, false, checked);
   }, [reviewDrafts, saveCandidate]);
 
   const retryJob = useCallback(async (jobId: string) => {
-    const requestId = retryRequests[jobId] || randomRequestId();
-    setRetryRequests((state) => ({ ...state, [jobId]: requestId }));
+    const requestId = pendingRequestsRef.current.retries[jobId] || randomRequestId();
+    updatePendingRequests({ retries: { ...pendingRequestsRef.current.retries, [jobId]: requestId } });
     setRetryingJob(jobId);
     setPageError('');
     try {
       await postJSON<{ batch: WorkflowBatch }>('/api/receipts/workflow/retry', { job_id: jobId, request_id: requestId }, csrf);
-      setRetryRequests((state) => {
-        const next = { ...state };
-        delete next[jobId];
-        return next;
-      });
       await loadWorkflow();
+      const retries = { ...pendingRequestsRef.current.retries };
+      delete retries[jobId];
+      updatePendingRequests({ retries });
       setNotice('실패한 사진의 재분석 작업을 접수했습니다.');
     } catch (error) {
       setPageError(`${errorText(error)} 다시 시도하면 같은 request_id를 사용합니다.`);
     } finally {
       setRetryingJob('');
     }
-  }, [csrf, loadWorkflow, retryRequests]);
+  }, [csrf, loadWorkflow, updatePendingRequests]);
 
   const applySelected = useCallback(async (retry = false) => {
     const pending = retry && pendingApply ? pendingApply : {
@@ -535,24 +710,25 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       })),
     };
     if (!pending.selections.length || applying) return;
-    setPendingApply(pending);
+    updatePendingRequests({ apply: pending });
     setApplying(true);
     setPageError('');
     try {
       await postJSON<unknown>('/api/receipts/workflow/apply', pending, csrf);
-      setPendingApply(null);
       await Promise.all([loadWorkflow(), loadLegacy()]);
+      updatePendingRequests({ apply: null });
       setNotice(`${pending.selections.length}건의 선택 반영 요청을 처리했습니다. 서버에 저장된 반영 상태를 다시 읽었습니다.`);
     } catch (error) {
       setPageError(`${errorText(error)} 재시도는 같은 request_id와 같은 선택·revision 묶음을 사용합니다.`);
     } finally {
       setApplying(false);
     }
-  }, [applying, csrf, loadLegacy, loadWorkflow, pendingApply, reviewDrafts, selectedCandidates]);
+  }, [applying, csrf, loadLegacy, loadWorkflow, pendingApply, reviewDrafts, selectedCandidates, updatePendingRequests]);
 
   const saveManual = useCallback(async () => {
     if (savingManual) return;
-    if (!manualMerchant.trim() || !manualDate || !manualCurrency || !manualAmount || !manualPayment) {
+    const total = Number(manualAmount);
+    if (!manualMerchant.trim() || !manualDate || !manualCurrency || !manualPayment || !Number.isFinite(total) || total <= 0) {
       setPageError('상호·날짜·통화·금액·결제수단을 입력해야 합니다.');
       return;
     }
@@ -564,14 +740,16 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         ...(manualTrip ? { trip_id: manualTrip } : {}),
         header_source: 'ocr',
         regions: [{ box: null, merchant: manualMerchant.trim(), date: manualDate,
-          currency: manualCurrency, total: Number(manualAmount), payment: manualPayment, confidence: 1 }],
+          currency: manualCurrency, total, payment: manualPayment, confidence: 1 }],
       }, csrf);
-      await loadLegacy();
       setManualMerchant(''); setManualDate(''); setManualAmount('');
       setLegacyManualOpen(false);
       setNotice('직접 입력한 영수증을 기존 영수증 목록에 등록했습니다.');
+      await loadLegacy().catch((error) => {
+        setPageError(`등록 요청은 처리됐지만 목록을 다시 읽지 못했습니다. 같은 내용을 다시 보내지 말고 목록 새로고침으로 확인해 주세요. ${errorText(error)}`);
+      });
     } catch (error) {
-      setPageError(errorText(error));
+      setPageError(`${errorText(error)} 등록 여부가 불확실하면 같은 내용을 다시 보내기 전에 목록을 새로고침해 확인해 주세요.`);
     } finally {
       setSavingManual(false);
     }
@@ -676,6 +854,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
       {legacyManualOpen && <section className="receipt-card receipt-manual" aria-labelledby="receipt-manual-title">
         <div className="receipt-section-heading"><div><p className="receipt-step">기존 기능</p><h2 id="receipt-manual-title">영수증 내용 직접 입력</h2></div>
           <button type="button" className="receipt-button receipt-button--quiet" onClick={() => setLegacyManualOpen(false)}>닫기</button></div>
+<<<<<<< HEAD
         {manualSha && <div className="receipt-manual__source"><img src={imageUrl(manualSha)} alt="직접 입력할 영수증 원본" /><span>선택한 원본 사진 · 확대해도 저장 원본은 바뀌지 않습니다.</span></div>}
         <div className="receipt-form-grid">
           <label>상호<input id="receipt-manual-merchant" value={manualMerchant} onChange={(event) => setManualMerchant(event.target.value)} autoComplete="off" /></label>
@@ -686,6 +865,18 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
           <label>여행<select value={manualTrip} onChange={(event) => setManualTrip(event.target.value)}><option value="">여행 미지정</option>{bootstrap.trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}</select></label>
         </div>
         <div className="receipt-row-actions"><button type="button" className="receipt-button receipt-button--primary" onClick={() => void saveManual()} disabled={savingManual}>{savingManual ? '저장 중…' : '영수증 등록'}</button></div>
+=======
+        {manualSha && <div className="receipt-manual__source"><img src={imageUrl(manualSha)} alt="직접 입력할 영수증 원본" /><span>{activeSource?.kind === 'pdf-page' ? '선택한 PDF 페이지 이미지' : '선택한 원본 사진'} · 확대해도 저장 원본은 바뀌지 않습니다.</span></div>}
+        <form className="receipt-form-grid" onSubmit={(event) => { event.preventDefault(); void saveManual(); }}>
+          <label>상호<input id="receipt-manual-merchant" name="merchant" autoComplete="organization" required value={manualMerchant} onChange={(event) => setManualMerchant(event.target.value)} /></label>
+          <label>날짜<input name="date" type="date" required value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
+          <label>통화<select name="currency" required value={manualCurrency} onChange={(event) => setManualCurrency(event.target.value)}>{currencyOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label>금액<input name="total" inputMode="decimal" type="number" min="1" step="any" required value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
+          <label>결제수단<select name="payment" required value={manualPayment} onChange={(event) => setManualPayment(event.target.value)}>{paymentOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label>여행<select name="trip_id" value={manualTrip} onChange={(event) => setManualTrip(event.target.value)}><option value="">여행 미지정</option>{bootstrap.trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}</select></label>
+          <div className="receipt-row-actions"><button type="submit" className="receipt-button receipt-button--primary" disabled={savingManual}>{savingManual ? '저장 중…' : '영수증 등록'}</button></div>
+        </form>
+>>>>>>> f0d9574f (fix: recover receipt review retries safely)
       </section>}
 
       <section className="receipt-card receipt-models" aria-labelledby="receipt-model-title">
@@ -738,12 +929,21 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
           <div className="receipt-original">
             {activeSha ? <>
               <div className="receipt-original__topline"><span>{activeSource?.label || '영수증 사진'} · 원본 SHA 뒤 8자리 {activeSha.slice(-8)}</span>
+<<<<<<< HEAD
                 <button type="button" className="receipt-link-button" onClick={() => { setZoom(1); setZoomOpen(true); }}>원본 확대</button></div>
               <button type="button" className="receipt-original__image-button" style={{
                 aspectRatio: sourceAspect || '4 / 3',
                 width: sourceAspect ? `min(100%, calc(var(--receipt-source-max-height) * ${sourceAspect}))` : undefined,
               }} onClick={() => { setZoom(1); setZoomOpen(true); }} aria-label="선택한 영수증 원본 확대">
                 <img src={imageUrl(activeSha)} alt="선택한 영수증 원본 사진" onLoad={(event) => {
+=======
+              <button type="button" className="receipt-link-button" onClick={(event) => openZoom(event.currentTarget)}>{activeSource?.kind === 'pdf-page' ? '페이지 확대' : '원본 확대'}</button></div>
+              <button type="button" className="receipt-original__image-button" style={{
+                aspectRatio: sourceAspect || '4 / 3',
+                width: sourceAspect ? `min(100%, calc(var(--receipt-source-max-height) * ${sourceAspect}))` : undefined,
+              }} onClick={(event) => openZoom(event.currentTarget)} aria-label="선택한 영수증 원본 확대">
+                <img src={imageUrl(activeSha)} alt={activeSource?.kind === 'pdf-page' ? '선택한 PDF 페이지 이미지' : '선택한 영수증 원본 사진'} onLoad={(event) => {
+>>>>>>> f0d9574f (fix: recover receipt review retries safely)
                   const image = event.currentTarget;
                   if (image.naturalWidth && image.naturalHeight) setSourceAspect(image.naturalWidth / image.naturalHeight);
                 }} />
@@ -779,11 +979,15 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
               const current = draft || candidateDraft(candidate);
               return <article className={`receipt-result ${candidate.applied ? 'is-applied' : ''}`} key={candidate.candidate_id}>
                 <div className="receipt-result__top">
-                  <label className="receipt-select"><input type="checkbox" checked={current.selected} disabled={candidate.applied || current.saving || Boolean(current.pending) || applyLocked}
+                  <label className="receipt-select"><input type="checkbox" checked={current.selected} disabled={candidate.applied || current.saving || Boolean(current.pending) || Boolean(current.revisionConflict) || applyLocked}
                     onChange={(event) => toggleCandidateSelection(candidate, event.target.checked)} /><span>반영 선택</span></label>
                   <span className={`receipt-status ${candidate.applied ? 'receipt-status--applied' : ''}`}>{candidate.applied ? '장부 반영됨' : '미반영'}</span>
                 </div>
-                {draft?.editing ? <div className="receipt-form-grid receipt-form-grid--candidate">
+                {draft?.editing ? draft.revisionConflict ? <div className="receipt-inline-error" role="alert">
+                  <span>{draft.error || '편집을 시작한 뒤 서버 값이 바뀌었습니다.'} 현재 서버 값은 {candidate.merchant || '상호 미확인'} · {dateLabel(candidate.date)} · {candidate.amount ?? '금액 미확인'} {candidate.currency || ''}입니다.</span>
+                  <button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => void restartCandidateEdit(candidate.candidate_id)}>최신 값으로 다시 편집</button>
+                  <button type="button" className="receipt-button receipt-button--quiet" onClick={() => discardCandidateEdit(candidate.candidate_id)}>닫기</button>
+                </div> : <div className="receipt-form-grid receipt-form-grid--candidate">
                   <label>상호<input value={draft.merchant} disabled={draft.saving || Boolean(draft.pending)} onChange={(event) => setCandidateDraftValue(candidate, 'merchant', event.target.value)} /></label>
                   <label>날짜<input type="date" value={draft.date} disabled={draft.saving || Boolean(draft.pending)} onChange={(event) => setCandidateDraftValue(candidate, 'date', event.target.value)} /></label>
                   <label>금액<input type="number" inputMode="decimal" value={draft.amount} disabled={draft.saving || Boolean(draft.pending)} onChange={(event) => setCandidateDraftValue(candidate, 'amount', event.target.value)} /></label>
@@ -796,11 +1000,14 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
                   <div className="receipt-row-actions">
                     <button type="button" className="receipt-button receipt-button--primary" disabled={draft.saving || (!draft.dirty && !draft.error)}
                       onClick={() => void saveCandidate(candidate, Boolean(draft.error && draft.pending))}>{draft.saving ? '저장 중…' : draft.error ? '같은 교정 재시도' : '교정 저장'}</button>
-                    <button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => setReviewDrafts((state) => { const next = { ...state }; delete next[candidate.candidate_id]; return next; })}>취소</button>
+                    <button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => discardCandidateEdit(candidate.candidate_id)}>취소</button>
                   </div>
                 </div> : <>
-                  {draft?.error && <div className="receipt-inline-error" role="alert">선택 상태를 저장하지 못했습니다: {draft.error}
-                    <button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => void saveCandidate(candidate, Boolean(draft.pending))}>{draft.saving ? '저장 중…' : '같은 선택 저장 재시도'}</button>
+                  {draft?.error && <div className="receipt-inline-error" role="alert"><span>선택 상태를 저장하지 못했습니다: {draft.error}</span>
+                    {draft.revisionConflict
+                      ? <><button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => void restartCandidateEdit(candidate.candidate_id)}>최신 값으로 다시 편집</button>
+                        <button type="button" className="receipt-button receipt-button--quiet" onClick={() => discardCandidateEdit(candidate.candidate_id)}>닫기</button></>
+                      : <button type="button" className="receipt-button receipt-button--quiet" disabled={draft.saving} onClick={() => void saveCandidate(candidate, Boolean(draft.pending))}>{draft.saving ? '저장 중…' : '같은 선택 저장 재시도'}</button>}
                   </div>}
                   <div className="receipt-result__identity"><strong>{candidate.merchant || '상호 확인 필요'}</strong><span>{dateLabel(candidate.date)}</span></div>
                   <p className="receipt-result__amount">{candidate.amount ?? '금액 미확인'} {candidate.currency || '통화 확인'} <span>· {paymentLabel(candidate.payment)}</span></p>
@@ -850,6 +1057,7 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         </div> : <div className="receipt-empty"><span>기존 수기 후보가 없습니다. 직접 입력을 시작할 수 있습니다.</span><button type="button" className="receipt-link-button" onClick={() => startManualFor(activeSha)}>직접 입력</button></div>}
       </section>
 
+<<<<<<< HEAD
       {zoomOpen && activeSha && <div className="receipt-zoom" role="dialog" aria-modal="true" aria-label="영수증 원본 확대" onMouseDown={(event) => { if (event.target === event.currentTarget) setZoomOpen(false); }}>
         <div className="receipt-zoom__toolbar"><span>원본 확대 · {activeSource?.label || '사진'} · {activeSha.slice(-8)}</span>
           <div><button type="button" className="receipt-button receipt-button--quiet" onClick={() => setZoom((value) => Math.max(1, value - 0.25))} aria-label="축소">−</button>
@@ -858,6 +1066,21 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
         <div className="receipt-zoom__viewport"><img src={imageUrl(activeSha)} alt="확대된 영수증 원본" style={{ transform: `scale(${zoom})` }} /></div>
         <p>키보드 + / −로 확대·축소하고 Escape로 닫습니다. PDF는 저장된 페이지 원본 이미지를 표시합니다.</p>
       </div>}
+=======
+      {zoomOpen && activeSha && <dialog ref={zoomDialog} className="receipt-zoom" aria-labelledby="receipt-zoom-title" aria-describedby="receipt-zoom-description"
+        onClose={onZoomClose} onClick={(event) => { if (event.target === event.currentTarget) closeZoom(); }}
+        onKeyDown={(event) => {
+          if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoom((value) => Math.min(3, value + 0.25)); }
+          else if (event.key === '-') { event.preventDefault(); setZoom((value) => Math.max(1, value - 0.25)); }
+        }}>
+        <div className="receipt-zoom__toolbar"><h2 id="receipt-zoom-title">{activeSource?.kind === 'pdf-page' ? 'PDF 페이지 확대' : '원본 사진 확대'} · {activeSource?.label || '사진'} · {activeSha.slice(-8)}</h2>
+          <div><button type="button" className="receipt-button receipt-button--quiet" onClick={() => setZoom((value) => Math.max(1, value - 0.25))} aria-label="축소">−</button>
+            <span>{Math.round(zoom * 100)}%</span><button type="button" className="receipt-button receipt-button--quiet" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} aria-label="확대">+</button>
+            <button type="button" data-zoom-close className="receipt-button receipt-button--primary" onClick={closeZoom}>닫기</button></div></div>
+        <div className="receipt-zoom__viewport"><img src={imageUrl(activeSha)} alt={activeSource?.kind === 'pdf-page' ? '확대된 PDF 페이지 이미지' : '확대된 영수증 원본 사진'} style={{ transform: `scale(${zoom})` }} /></div>
+        <p id="receipt-zoom-description">키보드 + / − 또는 확대·축소 버튼으로 크기를 조절하고 Escape로 닫습니다. PDF는 보존된 페이지 이미지만 표시하며 PDF 파일 자체를 읽어 표시하지 않습니다.</p>
+      </dialog>}
+>>>>>>> f0d9574f (fix: recover receipt review retries safely)
     </main>
   );
 }

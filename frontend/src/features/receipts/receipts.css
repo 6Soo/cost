@@ -172,8 +172,11 @@
 .receipt-legacy-row__fields input,
 .receipt-legacy-row__fields select { min-height: 40px; padding: 6px 8px; }
 .receipt-legacy-row__actions { display: grid; gap: 4px; justify-items: end; color: var(--receipt-muted); font-size: 12px; white-space: nowrap; }
-.receipt-zoom { position: fixed; z-index: 1000; inset: 0; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; padding: 16px; background: rgb(10 12 10 / 96%); color: #fff; }
+.receipt-zoom:not([open]) { display: none; }
+.receipt-zoom { position: fixed; inset: 0; box-sizing: border-box; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; padding: 16px; overflow: hidden; background: rgb(10 12 10 / 96%); color: #fff; }
+.receipt-zoom::backdrop { background: rgb(10 12 10 / 88%); }
 .receipt-zoom__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.receipt-zoom__toolbar h2 { min-width: 0; margin: 0; font-size: 15px; font-weight: 600; }
 .receipt-zoom__toolbar > div { display: flex; align-items: center; gap: 8px; }
 .receipt-zoom__viewport { display: grid; place-items: center; overflow: auto; min-height: 0; }
 .receipt-zoom__viewport img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .12s ease; transform-origin: center; }

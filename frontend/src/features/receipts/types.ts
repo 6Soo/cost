@@ -1,4 +1,4 @@
-export type Revision = string | number;
+export type Revision = number;
 
 export interface PaseoProvider {
   id: string;
@@ -116,6 +116,7 @@ export interface ReceiptReviewDraft {
   dirty: boolean;
   saving: boolean;
   error?: string;
+  revisionConflict?: boolean;
   pending?: {
     expected_revision: Revision;
     changes: Record<string, unknown>;
