@@ -588,12 +588,17 @@ export function ReceiptsPage({ bootstrap, search }: PageProps) {
   const saveCandidate = useCallback(async (candidate: WorkflowCandidate, retry = false, selectedOverride?: boolean) => {
     const current = reviewDrafts[candidate.candidate_id] || candidateDraft(candidate);
     const effectiveCurrent = selectedOverride === undefined ? current : { ...current, selected: selectedOverride };
+    const amount = effectiveCurrent.amount === '' ? null : Number(effectiveCurrent.amount);
+    if (effectiveCurrent.editing && amount !== null && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000)) {
+      setReviewDrafts((state) => ({ ...state, [candidate.candidate_id]: { ...effectiveCurrent, saving: false, error: '금액은 1부터 1,000,000,000까지의 정수로 입력해 주세요.' } }));
+      return;
+    }
     const pending = retry && current.pending ? current.pending : {
       expected_revision: effectiveCurrent.expectedRevision,
       changes: effectiveCurrent.editing ? {
         merchant: effectiveCurrent.merchant,
         date: effectiveCurrent.date,
-        amount: effectiveCurrent.amount === '' ? null : effectiveCurrent.amount,
+        amount,
         currency: effectiveCurrent.currency || null,
         payment: effectiveCurrent.payment || null,
         trip_id: effectiveCurrent.trip_id || null,
