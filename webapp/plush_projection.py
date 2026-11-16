@@ -67,23 +67,34 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any
     merchant = (row.get("source_merchant") if kind != "income" else row.get("customer_name"))
     merchant = merchant or row.get("item") or row.get("income_kind") or ""
     description = row.get("description") or row.get("item") or row.get("income_kind") or ""
-    category = row.get("classification_state") or row.get("income_kind") or ""
+    # ``item`` is the human-facing category (숙박·교통·식비).  The
+    # classification state is a decision status and belongs in the detail DTO.
+    category = row.get("item") if kind != "income" else row.get("income_kind")
     payment = row.get("pay_method") or row.get("card_kind") or row.get("source_kind") or ""
     evidence = row.get("evidence_type") or row.get("source_kind") or ""
-    return {
+    result = {
         "id": str(row.get("row_id") or ""),
         "date": _display_date(row),
         "merchant": str(merchant or ""),
         "description": str(description or ""),
         "category": str(category or ""),
         "amount": money(_display_amount(row)),
-        "currency": str(row.get("currency") or "KRW"),
+        # amount is the board's won-denominated display amount.  A source
+        # currency must never relabel the KRW amount (e.g. 135000 USD).
+        "currency": "KRW",
         "payment": str(payment or ""),
         "period": str(row.get("service_period") or ""),
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
         "read_only": bool(read_only),
     }
+    source_amount = row.get("foreign_amount", row.get("amount"))
+    source_currency = (row.get("foreign_currency") or row.get("source_currency")
+                       or row.get("currency"))
+    if source_amount is not None and source_currency:
+        result["source_amount"] = str(source_amount)
+        result["source_currency"] = str(source_currency)
+    return result
 
 
 def safe_source(row: dict[str, Any]) -> dict[str, Any]:

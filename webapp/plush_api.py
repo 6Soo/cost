@@ -8,7 +8,9 @@ logout cookie handling; Plush only advertises those fixed actions to the UI.
 from __future__ import annotations
 
 import datetime as _dt
-import json
+import re
+import uuid
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, unquote
 
@@ -97,6 +99,14 @@ def _visible_trips(board: Any, access: Any, session: Any, owner: bool) -> list[d
     return [trip for trip in trips if trip.get("tab_id") in allowed and not trip.get("deleted")]
 
 
+def _board_instance(board: Any) -> Any:
+    """Accept the LedgerStore instance; tolerate a module adapter in tests."""
+    if board is not None and hasattr(board, "list_tab_rows"):
+        return board
+    active = getattr(board, "_active_store", None)
+    return active() if callable(active) else board
+
+
 def _trip_for_query(board: Any, access: Any, session: Any, owner: bool,
                     query: dict[str, list[str]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if board is None:
@@ -142,12 +152,14 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
     capabilities = ["ledger.read", "row.read", "transactions.read"]
     if owner:
         capabilities.extend(("ledger.write", "admin.read", "export.write", "receipt.read"))
-    try:
-        from . import receipt_review
+    receipt_enabled = False
+    if owner:
+        try:
+            from . import receipt_review
 
-        receipt_enabled = bool(receipt_review.enabled())
-    except Exception:
-        receipt_enabled = False
+            receipt_enabled = bool(receipt_review.enabled())
+        except Exception:
+            receipt_enabled = False
     return {
         "role": "owner" if owner else "viewer",
         "csrf": str(ledger_board.CSRF_TOKEN),
@@ -191,8 +203,10 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
         raise _ProjectionError("INVALID_VALUE", "kind이 올바르지 않아요", 400)
+    kind_rows = all_rows
     if kind:
-        rows = [row for row in rows if ("income" if row.get("row_kind") == "income" else "expense") == kind]
+        kind_rows = [row for row in all_rows if ("income" if row.get("row_kind") == "income" else "expense") == kind]
+    rows = list(kind_rows)
     text = _first(query, "q").strip().casefold()
     if text:
         rows = [row for row in rows if text in _row_search(row, None)]
@@ -231,7 +245,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
         "page": page,
         "page_size": page_size,
         "filtered_total": projection.money(sum(projection._display_amount(row) for row in rows)),
-        "total": projection.money(sum(projection._display_amount(row) for row in all_rows)),
+        "total": projection.money(sum(projection._display_amount(row) for row in kind_rows)),
         "closed": closed,
     }
 
@@ -251,28 +265,41 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     trip = next((item for item in _visible_trips(board, access, session, owner)
                  if str(item.get("tab_id")) == tab_id), None)
     closed = bool((trip or {}).get("visual_closed") or (trip or {}).get("archived"))
-    read_only = (not owner) or closed
+    read_only = (not owner) or closed or row.get("revision") is None
+    display_row = board.projected(row) if hasattr(board, "projected") else row
     fields = []
     actions = []
     if owner and not read_only:
-        fields = [
-            {"name": "occurred_on", "label": "날짜", "type": "date", "value": row.get("occurred_on") or ""},
-            {"name": "item", "label": "항목", "type": "text", "value": row.get("item") or ""},
-            {"name": "description", "label": "내용", "type": "text", "value": row.get("description") or ""},
-            {"name": "operator_note", "label": "메모", "type": "text"},
-        ]
+        fields = _row_edit_fields(row, _visible_trips(board, access, session, owner),
+                                  display_row=display_row)
+        save_fields = [*fields, {
+            "name": "expected_revision", "label": "revision", "type": "hidden",
+            "value": row.get("revision"), "required": True,
+        }, {
+            "name": "change_mode", "label": "변경 이유", "type": "select",
+            "value": "exception", "required": True,
+            "options": [
+                {"value": "exception", "label": "예외 사항"},
+                {"value": "rule_change", "label": "규칙 변경"},
+            ],
+        }, {
+            "name": "client_request_id", "label": "요청 ID", "type": "hidden",
+            "value": uuid.uuid4().hex, "required": True,
+        }]
         actions.append({
             "id": "row-save", "label": "거래 저장", "method": "POST",
             "href": f"/api/rows/{_quote(row_id)}/save", "encoding": "json",
-            "csrf": "header", "response": "json", "fields": fields,
+            "csrf": "header", "response": "json", "fields": save_fields,
         })
         actions.append({
             "id": "row-lineage", "label": "거래 이력", "method": "GET",
             "href": f"/api/rows/{_quote(row_id)}/lineage", "encoding": "form",
             "csrf": "none", "response": "json",
         })
+    # Keep source detail unprojected for provenance, but make the row shown to
+    # the user follow the exact same correction projection as the ledger list.
     return {
-        "row": projection.ledger_row(row, read_only=read_only),
+        "row": projection.ledger_row(display_row, read_only=read_only),
         "source": projection.safe_source(row) if owner else None,
         "decision": projection.safe_decision(row) if owner else None,
         "history": list(board.list_history(row_id)) if owner and hasattr(board, "list_history") else [],
@@ -291,8 +318,263 @@ def _quote(value: Any) -> str:
     return quote(str(value or ""), safe="")
 
 
+def _row_edit_fields(row: dict[str, Any], trips: list[dict[str, Any]], *,
+                     display_row: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Mirror the existing store's editable-field allowlist."""
+    from .board_render_helpers import editable_fields
+
+    kind = str(row.get("row_kind") or "expense")
+    source = str(row.get("source_kind") or "")
+    names, _fixed = editable_fields(kind, source, bool(row.get("is_allocation")))
+    types = {
+        "occurred_on": "date", "amount_krw": "number", "display_tab_id": "select",
+    }
+    labels = {
+        "display_tab_id": "여행", "occurred_on": "날짜", "amount_krw": "금액(원)",
+        "item": "항목", "description": "내용", "operator_note": "메모",
+        "customer_id": "고객 ID", "customer_name": "고객명", "nickname": "별칭",
+        "income_kind": "수입 구분",
+    }
+    result = []
+    shown = display_row if isinstance(display_row, dict) else row
+    display_names = {
+        "occurred_on": "display_occurred_on",
+        "amount_krw": "display_amount_krw",
+    }
+    for name in names:
+        item = {"name": name, "label": labels.get(name, name),
+                "type": types.get(name, "text")}
+        displayed_name = display_names.get(name)
+        value = (shown.get(displayed_name) if displayed_name and shown.get(displayed_name) is not None
+                 else shown.get(name))
+        if name in shown or (displayed_name and displayed_name in shown):
+            if value is not None:
+                item["value"] = value
+        if name == "display_tab_id":
+            item["options"] = [
+                {"value": str(trip.get("tab_id") or ""),
+                 "label": str(trip.get("display_title") or trip.get("display_key") or trip.get("tab_id") or "")}
+                for trip in trips
+                if trip.get("tab_id") and not trip.get("archived")
+                and not trip.get("visual_closed") and not trip.get("deleted")
+            ]
+        result.append(item)
+    return result
+
+
 def _transaction_actions() -> list[dict[str, Any]]:
-    return []
+    return [_descriptor(
+        action_id="card-upload-batch", label="카드 파일 업로드", method="POST",
+        href="/api/imports/upload-batch", encoding="multipart", csrf="header",
+        response="json", fields=[
+            {"name": "files", "label": "카드 파일", "type": "file",
+             "accept": ".xls,.xlsx,.csv", "multiple": True, "required": True},
+        ],
+    )]
+
+
+def _page_values(query: dict[str, list[str]], *, default_size: int = 50) -> tuple[int, int]:
+    try:
+        page = int(_first(query, "page", "1"))
+        page_size = int(_first(query, "page_size", str(default_size)))
+    except ValueError:
+        raise _ProjectionError("INVALID_VALUE", "페이지 값이 올바르지 않아요", 400)
+    if page < 1 or page_size < 1 or page_size > 200:
+        raise _ProjectionError("INVALID_VALUE", "페이지 값이 올바르지 않아요", 400)
+    return page, page_size
+
+
+def _card_transaction_page(ledger_board: Any, query: dict[str, list[str]], *,
+                           page: int, page_size: int, search: str) -> dict[str, Any]:
+    from . import card_transactions
+
+    try:
+        period = _first(query, "period")
+        if period:
+            if not re.fullmatch(r"\d{4}(?:-(?:0[1-9]|1[0-2]))?", period):
+                raise ValueError
+            year = int(period[:4])
+            if not 2000 <= year <= 2100:
+                raise ValueError
+            month = int(period[5:]) if len(period) == 7 else None
+        else:
+            year = int(_first(query, "year", "2026"))
+            if year < 2000 or year > 2100:
+                raise ValueError
+            month_text = _first(query, "month")
+            month = int(month_text) if month_text else None
+            if month is not None and not 1 <= month <= 12:
+                raise ValueError
+    except ValueError:
+        raise _ProjectionError("INVALID_VALUE", "연도·월 값이 올바르지 않아요", 400)
+
+    db_path = ledger_board._get_card_db_path()
+    card = _first(query, "card").strip()
+    # The legacy /cards/all page accepts card_kind in URLs but does not use it
+    # as a source filter. Keep that compatibility behavior; card identity is
+    # selected by the existing `card` key.
+    filters = {"card": card, "search": search}
+    summary = card_transactions.year_summary(db_path=db_path, year=year, **filters)
+    months = summary.get("months") or {}
+    undated = _first(query, "undated").strip().lower() in {"1", "true", "on"}
+    if undated:
+        total_count = int(summary.get("undated_count", 0) or 0)
+    else:
+        total_count = (int(months.get(f"{month:02d}", 0) or 0) if month is not None
+                       else sum(int(value or 0) for value in months.values()))
+    offset = (page - 1) * page_size
+    limit = offset + page_size
+    collected: list[dict[str, Any]] = []
+    cursor = _first(query, "undated_cursor" if undated else "cursor") or None
+    if cursor and re.fullmatch(r"(?:\d{4}-\d{2}-\d{2}(?:[T ].*)?)?\|.+", cursor) is None:
+        cursor = None
+    if undated and cursor and not cursor.startswith("0000-00-00|"):
+        cursor = None
+    while len(collected) < limit and len(collected) < total_count:
+        per_page = min(500, limit - len(collected))
+        if undated:
+            result = card_transactions.undated_list(
+                db_path=db_path, year=year, cursor=cursor, per_page=per_page,
+                known_total=total_count, **filters)
+        elif month is None:
+            result = card_transactions.search_for_year(
+                db_path=db_path, year=year, cursor=cursor, per_page=per_page,
+                known_total=total_count, **filters)
+        else:
+            result = card_transactions.list_for_month(
+                db_path=db_path, year=year, month=month, cursor=cursor,
+                per_page=per_page, **filters)
+        batch = result.get("items") or []
+        if not batch:
+            break
+        collected.extend(batch)
+        if not result.get("has_more"):
+            break
+        next_cursor = result.get("cursor")
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+
+    page_items = collected[offset:limit]
+    rows = []
+    for item in page_items:
+        foreign_amount = item.get("foreign_amount")
+        if foreign_amount is not None:
+            try:
+                source_amount = format(Decimal(str(foreign_amount)), "f")
+            except (InvalidOperation, TypeError, ValueError):
+                source_amount = str(foreign_amount)
+        else:
+            source_amount = None
+        rows.append({
+            "id": str(item.get("transaction_id") or ""),
+            "date": str(item.get("approval_date") or item.get("use_date") or ""),
+            "merchant": str(item.get("merchant") or ""),
+            "description": str(item.get("description") or ""),
+            "amount": projection.money(item.get("amount_krw")),
+            "amount_krw": projection.money(item.get("amount_krw")),
+            "currency": "KRW",
+            "foreign_amount": source_amount,
+            "foreign_currency": str(item.get("foreign_currency") or "") or None,
+            "status": str(item.get("classification_state") or ""),
+            "trip": str(item.get("display_tab_id") or item.get("trip_id") or ""),
+            "card": str(item.get("card_label") or ""),
+        })
+    return {"rows": rows, "total_count": total_count, "page": page,
+            "page_size": page_size, "status": None}
+
+
+def _ota_transaction_page(board: Any, query: dict[str, list[str]], *,
+                          page: int, search: str) -> dict[str, Any]:
+    from . import ota_catalog
+
+    try:
+        data = ota_catalog.catalog(board, query, allow_stale=True)
+    except Exception:
+        return {"rows": [], "total_count": 0, "page": page,
+                "page_size": ota_catalog.PAGE_SIZE,
+                "status": {"code": "SOURCE_UNAVAILABLE", "message": "OTA 예약 자료를 조회할 수 없습니다."}}
+    rows = []
+    for item in data.get("rows") or []:
+        provider = str(item.get("provider") or "")
+        trip_names = [str(trip.get("name") or "") for trip in item.get("trips") or []
+                      if isinstance(trip, dict) and trip.get("name")]
+        rows.append({
+            "id": f"{provider}:{item.get('booking_ref') or ''}",
+            "date": str(item.get("starts_on") or ""),
+            "merchant": str((ota_catalog.PROVIDERS.get(provider) or provider)),
+            "description": str(item.get("label") or ""),
+            "period": str(item.get("period") or ""),
+            "trip": ", ".join(trip_names),
+            "status": str(item.get("status") or ""),
+            "card_count": int(item.get("card_count") or 0),
+        })
+    status = None
+    warnings = data.get("warnings") or []
+    if warnings:
+        status = {"code": "SOURCE_WARNING", "message": "OTA 자료 일부를 확인하지 못했습니다."}
+    return {"rows": rows, "total_count": int(data.get("total") or 0),
+            "page": int(data.get("page") or page),
+            "page_size": int(ota_catalog.PAGE_SIZE), "status": status}
+
+
+def _flight_transaction_page(ledger_board: Any, board: Any,
+                             query: dict[str, list[str]], *, page: int,
+                             page_size: int, search: str) -> dict[str, Any]:
+    from . import trip_flight_read
+
+    try:
+        snapshot = ledger_board._held_flight_snapshot(board)
+        index = ((snapshot or {}).get("data") or {}).get("passengers") if (snapshot or {}).get("fresh") else None
+        if index is None:
+            return {"rows": [], "total_count": 0, "page": page, "page_size": page_size,
+                    "status": {"code": "SOURCE_UNAVAILABLE", "message": "확인된 항공권 자료를 조회할 수 없습니다."}}
+        trips = _visible_trips(board, None, None, True)
+        rules = trip_flight_read.read_booking_trip_rules()
+        links = trip_flight_read.confirmed_booking_card_links(board, index)
+        expense_rows = trip_flight_read.confirmed_card_trip_rows(board, links)
+        user_assignments, authorities, authority_revision = trip_flight_read.build_authority_maps(
+            index, trips, booking_trip_rules=rules, confirmed_card_links=links,
+            expense_rows=expense_rows)
+        import hashlib
+
+        generation = hashlib.sha256((str((snapshot or {}).get("generation") or "")
+                                     + authority_revision).encode()).hexdigest()
+        projected = trip_flight_read.project_trip_bookings(
+            index, trips, source_generation=generation,
+            user_assignments=user_assignments, authority_trip_ids=authorities,
+            evidence_status="FRESH")
+    except Exception:
+        return {"rows": [], "total_count": 0, "page": page, "page_size": page_size,
+                "status": {"code": "SOURCE_UNAVAILABLE", "message": "확인된 항공권 자료를 조회할 수 없습니다."}}
+
+    trip_id = _first(query, "trip") or _first(query, "tab")
+    visible_ids = {str(trip.get("tab_id") or "") for trip in trips}
+    if trip_id and trip_id not in visible_ids:
+        raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
+    rows = []
+    for item in projected.get("bookings") or []:
+        if trip_id and item.get("assigned_trip_tab_id") != trip_id:
+            continue
+        trip = next((trip for trip in trips
+                     if str(trip.get("tab_id") or "") == str(item.get("assigned_trip_tab_id") or "")), {})
+        row = {
+            "id": str(item.get("booking_key") or ""),
+            "date": str(item.get("outbound_departure_on") or ""),
+            "merchant": str(item.get("provider") or ""),
+            "description": str(item.get("route_summary") or ""),
+            "booking_ref": str(item.get("booking_ref") or ""),
+            "trip": str(trip.get("display_title") or trip.get("display_key") or trip.get("tab_id") or ""),
+            "passenger_count": int(item.get("passenger_count") or 0),
+            "status": str(item.get("booking_status") or ""),
+            "evidence_status": str(item.get("evidence_status") or ""),
+        }
+        if search.casefold() in " ".join(str(value) for value in row.values()).casefold():
+            rows.append(row)
+    total_count = len(rows)
+    offset = (page - 1) * page_size
+    return {"rows": rows[offset:offset + page_size], "total_count": total_count,
+            "page": page, "page_size": page_size, "status": None}
 
 
 def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
@@ -305,75 +587,88 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
     view = _first(query, "view", "cards")
     if view not in _VIEWS:
         raise _ProjectionError("INVALID_VALUE", "거래 종류가 올바르지 않아요", 400)
-    try:
-        page = max(1, int(_first(query, "page", "1")))
-        page_size = min(200, max(1, int(_first(query, "page_size", "50"))))
-    except ValueError:
-        raise _ProjectionError("INVALID_VALUE", "페이지 값이 올바르지 않아요", 400)
+    page, page_size = _page_values(query)
     q = _first(query, "q").strip()
-    rows: list[dict[str, Any]] = []
     status = None
     columns: list[dict[str, str]]
+    total_count = 0
+    response_page = page
+    response_size = page_size
+    rows: list[dict[str, Any]] = []
     if view == "cards":
-        from . import card_transactions
-
         try:
-            year = int(_first(query, "year", "2026"))
-            month = int(_first(query, "month", "1"))
-            data = card_transactions.list_for_month(
-                db_path=ledger_board._get_card_db_path(), year=year, month=month,
-                per_page=500, search=q)
-        except (TypeError, ValueError):
-            raise _ProjectionError("INVALID_VALUE", "연도·월 값이 올바르지 않아요", 400)
+            data = _card_transaction_page(ledger_board, query, page=page,
+                                          page_size=page_size, search=q)
+        except _ProjectionError:
+            raise
         except Exception:
-            data = {"items": []}
+            data = {"rows": [], "total_count": 0, "page": page, "page_size": page_size}
             status = {"code": "SOURCE_UNAVAILABLE", "message": "카드 거래 자료를 조회할 수 없습니다."}
-        for item in data.get("items") or []:
-            rows.append({
-                "id": item.get("transaction_id"), "date": item.get("approval_date") or "",
-                "merchant": item.get("merchant") or "", "description": item.get("description") or "",
-                "amount": projection.money(item.get("amount_krw")),
-                "currency": item.get("foreign_currency") or "KRW",
-                "status": item.get("classification_state") or "",
-                "trip": item.get("display_tab_id") or item.get("trip_id") or "",
-                "card": item.get("card_label") or "",
-            })
+        rows = list(data.get("rows") or [])
+        total_count = int(data.get("total_count") or 0)
+        status = status or data.get("status")
+        response_page, response_size = int(data.get("page") or page), int(data.get("page_size") or page_size)
         columns = [
             {"key": "date", "label": "날짜"}, {"key": "merchant", "label": "가맹점"},
-            {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액"},
+            {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액(원)"},
+            {"key": "foreign_amount", "label": "원통화 금액"},
+            {"key": "foreign_currency", "label": "원통화"},
             {"key": "status", "label": "상태"},
+        ]
+    elif view == "ota":
+        data = _ota_transaction_page(board, query, page=page, search=q)
+        rows = list(data.get("rows") or [])
+        total_count = int(data.get("total_count") or 0)
+        response_page, response_size = int(data.get("page") or page), int(data.get("page_size") or page_size)
+        status = data.get("status")
+        columns = [
+            {"key": "date", "label": "이용일"}, {"key": "merchant", "label": "예약처"},
+            {"key": "description", "label": "예약"}, {"key": "period", "label": "기간"},
+            {"key": "trip", "label": "여행"}, {"key": "status", "label": "상태"},
+            {"key": "card_count", "label": "연결 카드"},
         ]
     elif view == "refunds":
         from . import refund_tab
 
+        all_rows = []
         for group in refund_tab.groups(board):
             for item in group:
                 text = " ".join(str(item.get(k) or "") for k in ("merchant", "item", "occurred_on"))
                 if q.casefold() not in text.casefold():
                     continue
-                rows.append({
+                all_rows.append({
                     "id": item.get("transaction_id"), "date": item.get("occurred_on") or "",
                     "merchant": item.get("merchant") or "", "description": item.get("item") or "",
                     "amount": projection.money(item.get("amount_krw")), "status": "refund-group",
                 })
+        total_count = len(all_rows)
+        start = (page - 1) * page_size
+        rows = all_rows[start:start + page_size]
         columns = [
             {"key": "date", "label": "날짜"}, {"key": "merchant", "label": "가맹점"},
             {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액"},
             {"key": "status", "label": "상태"},
         ]
-    else:
-        # OTA and flight candidate stores have their own source contracts.  Do
-        # not flatten HTML or unverified source files into a fake table.
+    elif view == "flights":
+        data = _flight_transaction_page(ledger_board, board, query, page=page,
+                                        page_size=page_size, search=q)
+        rows = list(data.get("rows") or [])
+        total_count = int(data.get("total_count") or 0)
+        response_page, response_size = int(data.get("page") or page), int(data.get("page_size") or page_size)
+        status = data.get("status")
         columns = [
-            {"key": "date", "label": "날짜"}, {"key": "merchant", "label": "가맹점"},
-            {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액"},
+            {"key": "date", "label": "출발일"}, {"key": "merchant", "label": "제공자"},
+            {"key": "booking_ref", "label": "예약 번호"}, {"key": "description", "label": "구간"},
+            {"key": "trip", "label": "여행"}, {"key": "passenger_count", "label": "인원"},
+            {"key": "status", "label": "예약 상태"},
         ]
-        status = {"code": "SOURCE_UNAVAILABLE", "message": "현재 거래 자료를 조회할 수 없습니다."}
-    start = (page - 1) * page_size
+    else:
+        raise _ProjectionError("INVALID_VALUE", "거래 종류가 올바르지 않아요", 400)
     return {
-        "view": view, "columns": columns, "rows": rows[start:start + page_size],
-        "total_count": len(rows), "page": page, "page_size": page_size,
-        "actions": _transaction_actions(), **({"status": status} if status else {}),
+        "view": view, "columns": columns, "rows": rows,
+        "total_count": total_count, "page": response_page, "page_size": response_size,
+        "actions": _transaction_actions() if view == "cards" else [],
+        **({"status": status} if status else {}),
     }
 
 
@@ -386,11 +681,139 @@ def _descriptor(*, action_id: str, label: str, method: str, href: str,
         "encoding": encoding, "csrf": csrf, "response": response,
     }
     if fields:
+        for field in fields:
+            if (field.get("name") == "client_request_id"
+                    and field.get("type") == "hidden" and not field.get("value")):
+                field["value"] = uuid.uuid4().hex
         item["fields"] = fields
     if disabled:
         item["disabled"] = True
         item["reason"] = reason or "현재 사용할 수 없습니다."
     return item
+
+
+def _safe_rule_record(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    result = {key: value[key] for key in (
+        "rule_id", "version", "base_rule_version", "status", "apply_existing",
+        "apply_future", "learning_case_id", "created_at", "updated_at",
+    ) if key in value}
+    body = value.get("rule") if isinstance(value.get("rule"), dict) else value
+    safe_rule = {key: body[key] for key in (
+        "conditions", "optional_conditions", "effects", "scope", "exceptions",
+        "note", "learning_case_id",
+    ) if key in body}
+    if safe_rule:
+        result["rule"] = safe_rule
+    return result
+
+
+def _safe_rule_preview(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    plan = value.get("plan") if isinstance(value.get("plan"), dict) else {}
+    counts = plan.get("counts") if isinstance(plan.get("counts"), dict) else {}
+    candidates = plan.get("candidates") if isinstance(plan.get("candidates"), list) else []
+    excluded = plan.get("excluded") if isinstance(plan.get("excluded"), list) else []
+    amounts = plan.get("amounts") if isinstance(plan.get("amounts"), dict) else {}
+    safe_plan = {
+        "counts": {key: counts[key] for key in (
+            "matched_rows", "included_rows", "excluded_rows") if key in counts},
+        "candidates": [{key: candidate[key] for key in (
+            "row_id", "from_tab_id", "to_tab_id", "amount_krw") if key in candidate}
+            for candidate in candidates if isinstance(candidate, dict)],
+        "excluded": [{key: entry[key] for key in ("row_id", "reason") if key in entry}
+                     for entry in excluded if isinstance(entry, dict)],
+        "amounts": {
+            str(tab_id): {key: bucket[key] for key in (
+                "before", "moving_out", "moving_in", "after") if key in bucket}
+            for tab_id, bucket in amounts.items() if isinstance(bucket, dict)
+        },
+    }
+    result = {key: value[key] for key in (
+        "preview_id", "rule_id", "apply_existing", "apply_future") if key in value}
+    result["plan"] = safe_plan
+    return result
+
+
+def _safe_rule_conversation(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    result = {key: value[key] for key in (
+        "conversation_id", "case_id", "rule_id", "rule_version", "active_provider",
+        "active_model_id", "state", "turn_count", "created_at", "updated_at",
+    ) if key in value}
+    result["turns"] = []
+    turns = value.get("turns") if isinstance(value.get("turns"), list) else []
+    for turn in turns[-20:]:
+        if not isinstance(turn, dict):
+            continue
+        safe_turn = {key: turn[key] for key in (
+            "turn_id", "state", "state_label", "adopted_provider", "reason_code",
+            "is_real_call", "switch_count", "created_at",
+        ) if key in turn}
+        review = turn.get("owner_review")
+        if isinstance(review, dict) and "reason" in review:
+            safe_turn["owner_review"] = {"reason": review["reason"]}
+        result["turns"].append(safe_turn)
+    return result
+
+
+def _safe_rule_dialog_page(board: Any, case_id: str) -> dict[str, Any]:
+    if not hasattr(board, "dialog_page_state"):
+        raise _ProjectionError("STORE_UNBOUND", "저장소가 연결되지 않았어요", 503)
+    state = board.dialog_page_state(case_id)
+    if not isinstance(state, dict):
+        state = {}
+    row_id = state.get("row_id")
+    source_row = board.get_row(str(row_id)) if row_id and hasattr(board, "get_row") else None
+    current_row = None
+    if source_row is not None:
+        shown = board.projected(source_row) if hasattr(board, "projected") else source_row
+        if isinstance(shown, dict):
+            current_row = {key: shown[key] for key in ("item", "description")
+                           if key in shown}
+    questions = state.get("questions") if isinstance(state.get("questions"), list) else []
+    safe_questions = [{key: question[key] for key in (
+        "question_id", "question_key", "prompt", "options", "answer", "answered")
+        if key in question} for question in questions if isinstance(question, dict)]
+    provider = state.get("provider") if isinstance(state.get("provider"), dict) else {}
+    safe_provider = {key: provider[key] for key in (
+        "provider", "model", "is_real_call", "is_real_model_call", "network_call",
+        "note", "mode_label") if key in provider}
+    pending = state.get("pending_draft") if isinstance(state.get("pending_draft"), dict) else {}
+    pending_rule = _safe_rule_record({"rule": pending.get("rule")}) if pending.get("rule") else None
+    safe_pending = {key: pending[key] for key in (
+        "rule_id", "turn_id", "provider", "confirmed") if key in pending}
+    if pending_rule:
+        safe_pending["rule"] = pending_rule.get("rule")
+    draft_error = pending.get("draft_error")
+    if isinstance(draft_error, dict) and draft_error.get("code"):
+        safe_pending["draft_error"] = {"code": str(draft_error["code"])}
+    rule = _safe_rule_record(state.get("rule"))
+    row_revision = state.get("row_revision")
+    if row_revision is None and current_row:
+        row_revision = current_row.get("revision")
+    return {
+        "case_id": str(state.get("case_id") or case_id),
+        "case_exists": source_row is not None,
+        "row_id": str(row_id or ""),
+        "row_revision": row_revision,
+        "dialog_state": str(state.get("dialog_state") or "not_started"),
+        "questions": safe_questions,
+        "answers": dict(state.get("answers") or {}) if isinstance(state.get("answers"), dict) else {},
+        "open_questions": list(state.get("open_questions") or []),
+        "note": str(state.get("note") or ""),
+        "should_not_create_rule": bool(state.get("should_not_create_rule")),
+        "one_off": bool(state.get("one_off")),
+        "provider": safe_provider,
+        "conversation": _safe_rule_conversation(state.get("conversation")),
+        "pending_draft": safe_pending,
+        "rule": rule,
+        "last_preview": _safe_rule_preview(state.get("last_preview")),
+        "row": current_row,
+    }
 
 
 def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
@@ -438,7 +861,7 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
         profile = board.owner_profile() if board is not None and hasattr(board, "owner_profile") else {}
         fields = [
             {"name": "company_name", "label": "회사명", "type": "text", "value": profile.get("company_name") or ""},
-            {"name": "default_assignee", "label": "기본 담당자", "type": "text", "value": profile.get("default_assignee") or ""},
+            {"name": "assignee_name", "label": "기본 담당자", "type": "text", "value": profile.get("assignee_name") or ""},
             {"name": "expected_revision", "label": "revision", "type": "number", "value": profile.get("revision"), "required": True},
             {"name": "client_request_id", "label": "요청 ID", "type": "hidden", "required": True},
         ]
@@ -457,10 +880,31 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
                             {"name": "client_request_id", "label": "요청 ID", "type": "hidden"},
                         ], disabled=not enabled, reason="Google 장부 연결이 설정되지 않았습니다."),
         ]}
-    return {"title": "AI 분기 검수", "data": {"available": False}, "actions": [
+    from . import real_review
+
+    service = real_review.active_service()
+    if service is None:
+        code = getattr(real_review, "_CONFIG_ERROR", "") or real_review.CODE_UNAVAILABLE
+        data = {"available": False}
+        status = {"code": str(code), "message": "실제 자료 검토를 진행할 수 없어요."}
+    else:
+        try:
+            data = {"available": True, **service.state_only_payload()}
+            status = None
+        except real_review.RealReviewError as exc:
+            data = {"available": False}
+            status = {"code": exc.code, "message": "실제 자료 검토를 진행할 수 없어요."}
+        except Exception:
+            data = {"available": False}
+            status = {"code": real_review.CODE_INTERNAL, "message": "실제 자료 검토를 진행할 수 없어요."}
+    result = {"title": "AI 분기 검수", "data": data, "actions": [
         _descriptor(action_id="review-model", label="검수 상태 조회", method="GET",
-                    href="/api/review/model", encoding="form", csrf="none", response="json")
+                    href="/api/review/model?state_only=1", encoding="form",
+                    csrf="none", response="json")
     ]}
+    if status:
+        result["status"] = status
+    return result
 
 
 def _auxiliary(ledger_board: Any, access: Any, session: Any, board: Any,
@@ -499,6 +943,101 @@ def _auxiliary(ledger_board: Any, access: Any, session: Any, board: Any,
             _descriptor(action_id="flight-candidates", label="탑승객 후보 조회", method="GET",
                         href="/api/flight-passengers/candidates", encoding="form", csrf="none", response="json")
         ]}
+    if view == "expense-new":
+        if board is None:
+            raise _ProjectionError("STORE_UNBOUND", "저장소가 연결되지 않았어요", 503)
+        trips = _visible_trips(board, access, session, True)
+        fields = [
+            {"name": "display_tab_id", "label": "여행", "type": "select",
+             "options": [{"value": "", "label": "기타 비용"}] + [
+                 {"value": str(trip.get("tab_id") or ""),
+                  "label": str(trip.get("display_title") or trip.get("display_key") or trip.get("tab_id") or "")}
+                 for trip in trips if trip.get("tab_id") and not trip.get("archived")
+                 and not trip.get("visual_closed") and not trip.get("deleted")
+             ]},
+            {"name": "occurred_on", "label": "거래일자", "type": "date", "required": True},
+            {"name": "pay_method", "label": "지급 수단", "type": "select", "required": True,
+             "options": [{"value": "현금", "label": "현금"}, {"value": "계좌이체", "label": "계좌이체"}]},
+            {"name": "item", "label": "분류", "type": "text"},
+            {"name": "description", "label": "내용", "type": "text"},
+            {"name": "amount_krw", "label": "금액(원)", "type": "number", "required": True},
+            {"name": "operator_note", "label": "메모", "type": "text"},
+            {"name": "client_request_id", "label": "요청 ID", "type": "hidden", "required": True},
+        ]
+        return {"title": "수기 지출 추가", "fields": fields, "actions": [
+            _descriptor(action_id="manual-expense-create", label="지출 저장", method="POST",
+                        href="/api/expenses/manual", fields=fields)
+        ]}
+    if view == "income-new":
+        if board is None:
+            raise _ProjectionError("STORE_UNBOUND", "저장소가 연결되지 않았어요", 503)
+        trips = _visible_trips(board, access, session, True)
+        fields = [
+            {"name": "display_tab_id", "label": "여행", "type": "select",
+             "options": [{"value": "", "label": "여행 선택"}] + [
+                 {"value": str(trip.get("tab_id") or ""),
+                  "label": str(trip.get("display_title") or trip.get("display_key") or trip.get("tab_id") or "")}
+                 for trip in trips if trip.get("tab_id") and not trip.get("archived")
+                 and not trip.get("visual_closed") and not trip.get("deleted")
+             ]},
+            {"name": "occurred_on", "label": "거래일자", "type": "date"},
+            {"name": "amount_krw", "label": "금액(원)", "type": "number", "required": True},
+            {"name": "income_kind", "label": "입금 종류", "type": "select", "required": True,
+             "options": [
+                 {"value": "deposit", "label": "예약금"},
+                 {"value": "balance", "label": "잔금"},
+                 {"value": "additional", "label": "추가금"},
+             ]},
+            {"name": "customer_name", "label": "이름", "type": "text"},
+            {"name": "nickname", "label": "닉네임", "type": "text"},
+            {"name": "operator_note", "label": "메모", "type": "text"},
+            {"name": "client_request_id", "label": "요청 ID", "type": "hidden", "required": True},
+        ]
+        return {"title": "수기 수입 추가", "fields": fields, "actions": [
+            _descriptor(action_id="direct-income-create", label="수입 저장", method="POST",
+                        href="/api/income", fields=fields)
+        ]}
+    if view == "rules":
+        if board is None or not hasattr(board, "list_rules"):
+            raise _ProjectionError("STORE_UNBOUND", "저장소가 연결되지 않았어요", 503)
+        rules = list(board.list_rules())
+        rows = []
+        for entry in rules:
+            rule = entry.get("rule") if isinstance(entry.get("rule"), dict) else {}
+            conditions = rule.get("conditions") if isinstance(rule.get("conditions"), dict) else {}
+            effects = rule.get("effects") if isinstance(rule.get("effects"), dict) else {}
+            rows.append({
+                "rule_id": str(entry.get("rule_id") or ""),
+                "version": entry.get("version"),
+                "status": str(entry.get("status") or ""),
+                "merchant": str(conditions.get("merchant_normalized") or ""),
+                "card_kind": str(conditions.get("card_kind") or ""),
+                "transaction_direction": str(conditions.get("transaction_direction") or ""),
+                "item": str(effects.get("item") or ""),
+                "apply_existing": bool(entry.get("apply_existing")),
+                "apply_future": bool(entry.get("apply_future")),
+            })
+        case_id = _first(query, "case").strip()
+        data = {"total_count": len(rows), "case_id": case_id}
+        actions = [_descriptor(
+            action_id="classification-rules-list", label="규칙 목록 새로 읽기", method="GET",
+            href="/api/classification/rules", encoding="form", csrf="none",
+            response="json")]
+        if case_id:
+            if len(case_id) > 256:
+                raise _ProjectionError("INVALID_VALUE", "case 값이 올바르지 않아요", 400)
+            data["case_dialog"] = _safe_rule_dialog_page(board, case_id)
+            actions.append(_descriptor(
+                action_id="classification-rule-dialog-state", label="규칙 대화 상태 읽기",
+                method="GET", href=f"/api/classification/dialog?case_id={_quote(case_id)}",
+                encoding="form", csrf="none", response="json"))
+        return {"title": "규칙 보조", "columns": [
+            {"key": "merchant", "label": "가맹점"},
+            {"key": "card_kind", "label": "카드 종류"},
+            {"key": "transaction_direction", "label": "거래 구분"},
+            {"key": "item", "label": "비용 항목"},
+            {"key": "status", "label": "상태"},
+        ], "rows": rows, "data": data, "actions": actions}
     if view == "reserve-links":
         return {"title": "예약 연결", "actions": [
             _descriptor(action_id="reserve-plan", label="예약 연결 계획", method="GET",
@@ -524,8 +1063,8 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
     if raw is not None or str(getattr(handler, "command", "GET")).upper() != "GET":
         return False
     try:
+        board = _board_instance(board)
         ledger_board, access, session = _auth(handler)
-        owner = _owner(ledger_board, access, session)
         query = _query(parsed)
         if path == "/api/plush/bootstrap":
             result = _bootstrap(ledger_board, access, session, board)
