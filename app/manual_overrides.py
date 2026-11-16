@@ -41,7 +41,7 @@ def exists_sql(conn, row_expr, field=None, alias='mo'):
 def manual_fields(conn):
     """{(row_id, field)} of real manual overrides."""
     if not _has_revisions(conn):
-        return set(conn.execute('SELECT row_id, field FROM board_manual_overrides'))
+        return {(r[0], r[1]) for r in conn.execute('SELECT row_id, field FROM board_manual_overrides')}
     # Equivalent to human_sql, but scan history once per set instead of twice
     # per override. Operational copies may have no board_revisions indexes.
     # Materialization also prevents SQLite from inlining the correlated work.

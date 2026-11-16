@@ -6,6 +6,15 @@ import sqlite3
 from app.manual_overrides import human_sql, manual_fields, manual_rows
 
 
+def test_legacy_row_factory_keeps_tuple_membership_for_manual_protection():
+    with sqlite3.connect(':memory:') as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT,field TEXT,event_id TEXT)')
+        conn.execute('INSERT INTO board_manual_overrides VALUES (?,?,?)', ('card-a', 'item', ''))
+        assert ('card-a', 'item') in manual_fields(conn)
+        assert manual_rows(conn) == {'card-a'}
+
+
 def test_legacy_database_keeps_all_overrides():
     with sqlite3.connect(':memory:') as conn:
         conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT,field TEXT,event_id TEXT)')
