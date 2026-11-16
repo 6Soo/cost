@@ -255,7 +255,8 @@ class CardCompletionWorker:
                 from .card_classification_completion import reviewed_booking_facts
                 reviewed = reviewed_booking_facts(self.board)
                 reviewed_assignment = {row[0] for row in selected if row[0] in reviewed
-                    and (row[6] != reviewed[row[0]]['trip_id'] or row[7] != reviewed[row[0]]['trip_id'])}
+                    and (row[6] != reviewed[row[0]]['trip_id'] or row[7] != reviewed[row[0]]['trip_id']
+                         or row[5] != reviewed[row[0]]['item'])}
                 # The two sets are disjoint and fixed before any write: one classification (one evidence build).
                 if unfinished or missing_assignment or reviewed_assignment:
                     flow._classify(batch, transaction_ids=unfinished | missing_assignment | reviewed_assignment, snapshot_only=True)

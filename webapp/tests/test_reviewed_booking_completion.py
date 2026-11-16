@@ -119,10 +119,14 @@ def test_central_source_conflict_stops_completion(booking, monkeypatch):
         completed_period_evidence(board, board.list_trips(), flow)
 
 
-def test_durable_worker_rejudges_old_calendar_assignment_before_booking(booking):
+@pytest.mark.parametrize('same_trip', [False, True])
+def test_durable_worker_rejudges_old_calendar_assignment_before_booking(booking, same_trip):
     from webapp.card_completion_worker import CardCompletionWorker, queue_batch
     board, flow, batch, target, _, manifest = booking
     ids = {c['transaction_id'] for c in manifest['groups'][0]['cards']}
+    if same_trip:
+        board.conn.execute('UPDATE transactions SET trip_id=?,display_tab_id=?', (target, target))
+        board.conn.commit()
     queue_batch(board, batch, ids)
     worker = CardCompletionWorker(board, board._lock, flow_factory=lambda _: flow)
     assert worker.sweep_once() is True

@@ -1,5 +1,6 @@
 """Google income read projection with the existing canonical-copy and grant rules."""
 from decimal import Decimal, InvalidOperation
+import re
 
 
 def _amount(value):
@@ -50,7 +51,24 @@ def load(tab_id, *, owner, session, visible_tabs):
                         and not set(trip.get('review') or []) & page.OWNER_CHOICE_BLOCKERS)
         rows = []
         total = 0
-        for raw in detail['income']:
+        # The numeric rows intentionally omit blank/formula-error H cells.
+        # The same-generation private index preserves those participant rows.
+        raw_rows = {raw['row']: raw for raw in detail['income']}
+        names = page.owner_income_names(sources, key, source)
+        if names and names.get('available'):
+            for indexed in names['rows']:
+                if indexed['row'] in raw_rows:
+                    continue
+                cells = indexed.get('cells') or {}
+                # Older private indexes include the layout's footer: its B cell
+                # says total and C contains the amount, rather than a person.
+                if re.fullmatch(r'(?:총\s*금액|합계|총계|total)(?:\s*\([A-Z]\))?',
+                                str(cells.get('B') or '').strip(), re.I):
+                    continue
+                raw_rows[indexed['row']] = dict(row=indexed['row'], date=cells.get('B'),
+                    name=indexed.get('name') or cells.get('C'), nickname=indexed.get('nickname') or cells.get('D'),
+                    deposit=cells.get('E'), balance=cells.get('F'), extra=cells.get('G'), amount=indexed.get('amount'))
+        for raw in sorted(raw_rows.values(), key=lambda row: row['row']):
             if page.is_unconfirmed_income_row(raw):
                 continue
             amount = _amount(raw.get('amount'))

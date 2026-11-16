@@ -79,3 +79,33 @@ def test_authorized_viewer_reads_only_granted_google_rows(bound_store, income_co
     google = next(r for r in result['rows'] if r['id'].startswith('google-income|'))
     _, detail = call('/api/plush/row?id='+google['id'], 'syn-viewer', store)
     assert detail['read_only'] and detail['source'] is None and detail['history'] == []
+
+
+def test_real_sheet_parser_preserves_blank_income_total_in_private_index(bound_store, income_context, monkeypatch):
+    import openpyxl
+    from app import google_authority as ga
+    from tests.card_pipeline.test_google_authority import rev_sheet
+    from webapp import google_ledger_page as page
+    store, _ = bound_store
+    _, key = income_context
+    wb = openpyxl.Workbook()
+    ws = rev_sheet(wb, key, [None, 1000], [30])
+    ws['B6'], ws['C6'], ws['E6'] = None, 'SYNTHETIC BLANK TOTAL', 200000
+    cached = rev_sheet(openpyxl.Workbook(), key, [None, 1000], [30])
+    cached['B6'], cached['C6'], cached['E6'] = None, 'SYNTHETIC BLANK TOTAL', 200000
+    # Real data_only workbooks expose no formula text as a participant name.
+    cached['C9'] = None
+    parsed = ga.parse_trip_sheet(ws, cached)
+    assert len(parsed['rows']['income']) == 1
+    assert parsed['name_index']['income'][0]['amount_state'] == 'blank'
+    parsed['name_index']['income'].append(dict(row=28, cells={'B': '총 금액 (A)', 'C': 1000},
+        name='1000', nickname='', amount=None, amount_state='blank'))
+    sources = {'main': {'trips': {key: parsed['rows']}, 'income_names': {key: parsed['name_index']}}}
+    monkeypatch.setattr(page.google_authority, 'load_consistent', lambda *args: (income_context[0], sources))
+    monkeypatch.setattr(page, 'load_mapping', lambda *args: {key: 'trip-demo-a'})
+    _, result = call('/api/plush/ledger?tab=trip-demo-a&kind=income', 'syn-owner', store)
+    google = [r for r in result['rows'] if r['id'].startswith('google-income|')]
+    assert len(google) == 2
+    missing = next(r for r in google if r['merchant'] == 'SYNTHETIC BLANK TOTAL')
+    assert missing['amount'] == '미확인' and '200000원' in missing['description']
+    assert result['income_source']['total'] == '1000' and result['income_source']['verified'] is False
