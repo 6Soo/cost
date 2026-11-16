@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TransactionsResponse } from "../../api/types";
+import { FlightTools } from "./flights";
 import {
   DataRows,
   FeatureActionPanel,
@@ -185,6 +186,7 @@ function OwnerTransactionsPage(props: PageProps) {
       </form>
       {searchError ? <p className="e-feature-error" role="alert">{searchError}</p> : null}
       {notice ? <p className="e-feature-notice" role="status">{notice}</p> : null}
+      {view === "flights" ? <FlightTools bootstrap={props.bootstrap} search={props.search} /> : null}
 
       {state.kind === "loading" ? <p className="cost-panel e-feature-loading" role="status">거래 자료를 불러오는 중입니다…</p> : null}
       {state.kind === "error" ? (
