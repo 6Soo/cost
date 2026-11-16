@@ -52,6 +52,7 @@
 
 ## 설계
 
+- [M4 COST 전체 UI 설계 — Plush UI](design/m4-plush-ui-20261116.md)
 - [영수증 처리 변경 — 로컬 Paseo 선택·지속 처리·사용자 검수(구현 승인)](design/receipt-paseo-workflow-20261116.md)
 - [M3 Rust 새 코어 — 착수용 설계안](design/m3-core.md)
 - [M4 화면 수락 기준 — 2026-11-15 UI/UX 전체 검수 결과](design/m4-ui-requirements.md)
