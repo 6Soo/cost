@@ -663,6 +663,8 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
                 relation = f"{role_label} · 원결제 {original_id}"
                 if refund_basis:
                     relation += f" · {refund_basis}"
+                if inferred:
+                    relation += " · 추론 연결 · 환급 완료 아님"
                 saved_row = saved.get(transaction_id)
                 source_href = (
                     f"/row?id={quote(str(saved_row['row_id']), safe='')}"
@@ -1091,6 +1093,7 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
         accounts = []
         connections = []
         connection_actions = []
+        connection_action_rows = []
         connected_person_ids = set()
         for item in access.list_accounts():
             account_row = {key: item.get(key) for key in (
@@ -1114,15 +1117,36 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
                 "connection_id", "user_id", "reservation_person_id",
                 "reservation_person_label", "status", "revision",
             )})
+            connection_action_rows.append({
+                "user_id": str(item.get("user_id") or ""),
+                "display_name": str(item.get("display_name") or ""),
+                "connection_id": connection_id,
+                "reservation_person_label": str(connection.get("reservation_person_label") or ""),
+                "revision": connection.get("revision"),
+            })
+
+        connection_labels = []
+        for row in connection_action_rows:
+            display_name = row["display_name"] or row["user_id"] or "계정"
+            person_label = row["reservation_person_label"]
+            base = f"{display_name} · {person_label}" if person_label else display_name
+            connection_labels.append(base)
+        connection_label_counts = {
+            label: connection_labels.count(label) for label in set(connection_labels)
+        }
+        for row, base in zip(connection_action_rows, connection_labels):
+            label = f"{base} 연결 해지"
+            if connection_label_counts[base] > 1:
+                label = f"{base} · {row['user_id'] or row['connection_id']} 연결 해지"
             connection_actions.append(_descriptor(
-                action_id=f"connection-revoke-{_quote(connection_id)}",
-                label="연결 해지", method="POST", href="/access/decision", fields=[
+                action_id=f"connection-revoke-{_quote(row['connection_id'])}",
+                label=label, method="POST", href="/access/decision", fields=[
                     {"name": "action", "label": "동작", "type": "hidden", "value": "revoke",
                      "required": True},
                     {"name": "connection_id", "label": "연결 ID", "type": "hidden",
-                     "value": connection_id, "required": True},
+                     "value": row["connection_id"], "required": True},
                     {"name": "expected_revision", "label": "revision", "type": "hidden",
-                     "value": connection.get("revision"), "required": True},
+                     "value": row["revision"], "required": True},
                     {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
                      "required": True},
                 ],
@@ -1151,14 +1175,31 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
                     and person_id not in connected_person_ids):
                 reservation_options.append({"value": person_id, "label": label})
 
-        decision_actions = []
+        decision_labels = []
         for application in pending:
+            requested_name = str(application.get("requested_name") or "").strip()
+            nickname = str(application.get("nickname") or "").strip()
+            if requested_name and nickname and nickname != requested_name:
+                decision_labels.append(f"{requested_name} ({nickname})")
+            else:
+                decision_labels.append(requested_name or nickname
+                                       or str(application.get("user_id") or "신청자"))
+        decision_label_counts = {
+            label: decision_labels.count(label) for label in set(decision_labels)
+        }
+
+        decision_actions = []
+        for application, base in zip(pending, decision_labels):
             application_id = str(application.get("application_id") or "")
             if not application_id:
                 continue
+            label = f"{base} 접근 신청 결정"
+            if decision_label_counts[base] > 1:
+                label = (f"{base} · {application.get('user_id') or application_id} "
+                         "접근 신청 결정")
             decision_actions.append(_descriptor(
                 action_id=f"application-decision-{_quote(application_id)}",
-                label="접근 신청 결정", method="POST", href="/access/decision", fields=[
+                label=label, method="POST", href="/access/decision", fields=[
                     {"name": "action", "label": "결정", "type": "select", "value": "approve",
                      "required": True, "options": [
                          {"value": "approve", "label": "승인"},

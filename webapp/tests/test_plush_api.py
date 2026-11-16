@@ -377,6 +377,16 @@ def test_refund_transactions_keep_canonical_groups_and_kind_filter(
     assert no_income["rows"] == []
     assert no_income["total_count"] == 0
 
+    status, all_groups = call(
+        "/api/plush/transactions?view=refunds&kind=ex", "syn-owner", store,
+    )
+    assert status == 200
+    inferred_rows = [row for row in all_groups["rows"]
+                     if row["refund_group_key"] == "original-other"]
+    assert len(inferred_rows) == 2
+    assert all("추론 연결 · 환급 완료 아님" in row["refund_relation"]
+               for row in inferred_rows)
+
 
 def test_card_query_period_filters_and_cursor_contract(bound_store, monkeypatch):
     store, _ = bound_store
@@ -714,6 +724,13 @@ def test_admin_accounts_projects_pending_decisions_and_connection_revoke(bound_s
         client_request_id="synthetic-pending-create",
     )
     access.create_account(
+        user_id="pending-viewer-2", role="viewer", display_name="신청자 둘",
+    )
+    pending_duplicate = access.create_application(
+        user_id="pending-viewer-2", requested_name="신청 이름", nickname="별칭",
+        client_request_id="synthetic-pending-create-2",
+    )
+    access.create_account(
         user_id="connected-viewer", role="viewer", display_name="연결 사용자",
     )
     connected_application = access.create_application(
@@ -737,6 +754,23 @@ def test_admin_accounts_projects_pending_decisions_and_connection_revoke(bound_s
         owner_id="syn-owner", expected_revision=connected_application["revision"],
         reservation_person_id=connected_person["reservation_person_id"],
         client_request_id="synthetic-connected-approve",
+    )
+    access.create_account(
+        user_id="connected-viewer-2", role="viewer", display_name="연결 사용자",
+    )
+    connected_application_2 = access.create_application(
+        user_id="connected-viewer-2", requested_name="연결 사용자",
+        client_request_id="synthetic-connected-create-2",
+    )
+    connected_person_2 = access.register_reservation_person(
+        reservation_person_id="person-linked-2", display_name="추가 연결 담당",
+        is_active=True,
+    )
+    access.approve_application(
+        application_id=connected_application_2["application_id"],
+        owner_id="syn-owner", expected_revision=connected_application_2["revision"],
+        reservation_person_id=connected_person_2["reservation_person_id"],
+        client_request_id="synthetic-connected-approve-2",
     )
 
     status, result = call("/api/plush/admin?view=accounts", "syn-owner", store)
@@ -779,6 +813,15 @@ def test_admin_accounts_projects_pending_decisions_and_connection_revoke(bound_s
         "value": "person-active-1", "label": "예약 담당 (서울 지점)",
     }]
     assert len(decision_fields["client_request_id"]["value"]) == 32
+    duplicate_decision = next(action for action in result["actions"]
+                              if any(field.get("name") == "application_id"
+                                     and field.get("value") == pending_duplicate["application_id"]
+                                     for field in action.get("fields", [])))
+    assert decision["label"] == "신청 이름 (별칭) · pending-viewer 접근 신청 결정"
+    assert duplicate_decision["label"] == (
+        "신청 이름 (별칭) · pending-viewer-2 접근 신청 결정"
+    )
+    assert all(field["name"] != "user_id" for field in decision["fields"])
 
     connection = next(item for item in data["connections"]
                       if item["user_id"] == "connected-viewer")
@@ -788,10 +831,18 @@ def test_admin_accounts_projects_pending_decisions_and_connection_revoke(bound_s
                          and field.get("value") == connection["connection_id"]
                          for field in action.get("fields", [])))
     revoke_fields = {field["name"]: field for field in revoke["fields"]}
+    assert revoke["label"] == "연결 사용자 · 기존 연결 담당 연결 해지"
     assert revoke["href"] == "/access/decision"
     assert revoke_fields["action"]["value"] == "revoke"
     assert revoke_fields["expected_revision"]["value"] == connection["revision"]
     assert len(revoke_fields["client_request_id"]["value"]) == 32
+    connection_2 = next(item for item in data["connections"]
+                        if item["user_id"] == "connected-viewer-2")
+    revoke_2 = next(action for action in result["actions"]
+                    if any(field.get("name") == "connection_id"
+                           and field.get("value") == connection_2["connection_id"]
+                           for field in action.get("fields", [])))
+    assert revoke_2["label"] == "연결 사용자 · 추가 연결 담당 연결 해지"
 
 
 def test_admin_accounts_projection_remains_owner_only(bound_store):
