@@ -816,6 +816,212 @@ def _safe_rule_dialog_page(board: Any, case_id: str) -> dict[str, Any]:
     }
 
 
+def _google_text(value: Any, *, limit: int = 96) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > limit:
+        return None
+    if any(ord(char) < 32 for char in value):
+        return None
+    return value
+
+
+def _google_amount(value: Any) -> int | None:
+    return value if type(value) is int else None
+
+
+def _google_codes(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value[:64]
+            if isinstance(item, str) and 0 < len(item) <= 80
+            and all(char.isupper() or char.isdigit() or char == "_" for char in item)]
+
+
+def _google_copy_projection(copy: Any) -> dict[str, Any]:
+    if not isinstance(copy, dict):
+        return {"present": False, "layout": None, "verified": False,
+                "income_total": None, "expense_total": None, "flags": []}
+    income = copy.get("income") if isinstance(copy.get("income"), dict) else {}
+    expense = copy.get("expense") if isinstance(copy.get("expense"), dict) else {}
+    layout = _google_text(copy.get("layout"), limit=32)
+    return {
+        "present": True,
+        "layout": layout,
+        "verified": income.get("verified") is True and expense.get("verified") is True,
+        "income_total": _google_amount(income.get("total")),
+        "expense_total": _google_amount(expense.get("total")),
+        "flags": _google_codes(copy.get("flags")),
+    }
+
+
+def _admin_google(board: Any) -> dict[str, Any]:
+    from . import google_ledger_page
+    from app import google_authority
+
+    try:
+        enabled = bool(google_ledger_page.enabled())
+    except Exception:
+        enabled = False
+
+    result: dict[str, Any] = {
+        "title": "Google 장부 비교",
+        "columns": [
+            {"key": "key", "label": "Google 여행"},
+            {"key": "kind", "label": "유형"},
+            {"key": "closure", "label": "마감"},
+            {"key": "income_total", "label": "수입"},
+            {"key": "expense_total", "label": "지출"},
+            {"key": "net", "label": "차액"},
+            {"key": "verified", "label": "검증"},
+            {"key": "review", "label": "확인 사항"},
+        ],
+        "rows": [],
+        "actions": [_descriptor(
+            action_id="google-sync", label="Google 장부 새로 읽기", method="POST",
+            href="/api/google-ledger/sync", fields=[
+                {"name": "client_request_id", "label": "요청 ID", "type": "hidden"},
+            ], disabled=not enabled,
+            reason="Google 장부 연결이 설정되지 않았습니다.",
+        )],
+        "data": {
+            "enabled": enabled,
+            "available": False,
+            "synced_at": None,
+            "sources": {},
+            "settings": {"editable": False, "connections": [], "copy_choices": [],
+                         "viewer_grants": [], "tabs": []},
+        },
+    }
+    if not enabled:
+        result["status"] = {"code": "NOT_CONFIGURED", "message": "Google 장부 연결이 설정되지 않았습니다."}
+        return result
+
+    try:
+        snapshot, _private_rows = google_ledger_page._load_consistent_measured(
+            google_ledger_page._snapshot_path(), google_ledger_page._rows_path())
+        choices = google_ledger_page.load_choices(google_ledger_page._snapshot_path())
+        mapping = google_ledger_page.load_mapping(google_ledger_page._snapshot_path())
+        grants = google_ledger_page.load_grants(google_ledger_page._snapshot_path())
+        payload = google_ledger_page.owner_payload(snapshot, choices)
+        raw_trips = payload.get("trips") if isinstance(payload.get("trips"), list) else []
+        trips = {key: trip for trip in raw_trips if isinstance(trip, dict)
+                 and (key := _google_text(trip.get("key"), limit=200))}
+        trip_keys = set(trips)
+
+        try:
+            local_trips = board.list_trips(include_archived=True) if board is not None else []
+        except Exception:
+            local_trips = []
+        tabs: dict[str, dict[str, Any]] = {}
+        for trip in local_trips if isinstance(local_trips, list) else []:
+            if not isinstance(trip, dict):
+                continue
+            tab_id = _google_text(trip.get("tab_id"), limit=200)
+            if not tab_id:
+                continue
+            label = (trip.get("display_title") or trip.get("display_key")
+                     or trip.get("destination") or tab_id)
+            tabs[tab_id] = {"tab_id": tab_id, "label": str(label)[:160]}
+
+        connection_counts: dict[str, int] = {}
+        for tab_id in mapping.values():
+            valid_id = _google_text(tab_id, limit=200)
+            if valid_id:
+                connection_counts[valid_id] = connection_counts.get(valid_id, 0) + 1
+        connections = []
+        for key in sorted(trip_keys):
+            tab_id = _google_text(mapping.get(key), limit=200)
+            if tab_id:
+                connections.append({
+                    "trip_key": key, "tab_id": tab_id,
+                    "tab_label": tabs.get(tab_id, {}).get("label"),
+                })
+
+        raw_choices = choices.get("choices") if isinstance(choices, dict) else {}
+        copy_choices = [{"trip_key": key, "source": source}
+                        for key, source in sorted(raw_choices.items())
+                        if key in trip_keys and source in google_authority.SPREADSHEET_IDS]
+        raw_grants = grants.get("grants") if isinstance(grants, dict) else {}
+        viewer_grants = [{"user_id": user_id,
+                          "trip_keys": sorted({key for key in keys if key in trip_keys})}
+                         for user_id, keys in sorted(raw_grants.items())
+                         if isinstance(user_id, str) and isinstance(keys, list)
+                         and any(key in trip_keys for key in keys)]
+
+        rows = []
+        for key in sorted(trip_keys):
+            trip = trips[key]
+            raw_copies = trip.get("copies") if isinstance(trip.get("copies"), dict) else {}
+            copy_roles = ("andre_main",) if trip.get("owner_id") == "andre" else ("main", "archive")
+            copies = {source: _google_copy_projection(raw_copies.get(source))
+                      for source in copy_roles}
+            chosen = trip.get("chosen_source")
+            chosen = chosen if chosen in google_authority.SPREADSHEET_IDS else None
+            tab_id = _google_text(mapping.get(key), limit=200)
+            has_tab = tab_id in tabs if tab_id else False
+            source_href = None
+            reconciliation_href = None
+            copy_href = None
+            if tab_id and has_tab:
+                reconciliation_href = (
+                    f"/api/google-ledger/expense-reconciliation?trip={_quote(tab_id)}&page=1")
+                copy_href = f"/api/board/tsv?tab={_quote(tab_id)}&kind=ex"
+                if (chosen and copies[chosen]["present"] and connection_counts.get(tab_id) == 1):
+                    source_href = f"/api/google-ledger/source?trip={_quote(tab_id)}"
+            closure = trip.get("closure")
+            closure = closure if closure in {"open", "closed", "unknown"} else "unknown"
+            kind = trip.get("kind") if trip.get("kind") in {"trip", "quarter"} else "trip"
+            rows.append({
+                "key": key,
+                "kind": kind,
+                "closure": closure,
+                "closure_current": trip.get("closure_current") is True,
+                "chosen_source": chosen,
+                "verified": trip.get("verified") is True,
+                "blocked_by": _google_codes(trip.get("blocked_by")),
+                "review": _google_codes(trip.get("review")),
+                "income_total": _google_amount(trip.get("income_total")),
+                "expense_total": _google_amount(trip.get("expense_total")),
+                "net": _google_amount(trip.get("net")),
+                "connected_tab_id": tab_id,
+                "source_href": source_href,
+                "reconciliation_href": reconciliation_href,
+                "copy_href": copy_href,
+                "copies": copies,
+            })
+
+        sources = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
+        safe_sources = {}
+        for source in google_authority.SPREADSHEET_IDS:
+            status = sources.get(source) if isinstance(sources.get(source), dict) else {}
+            safe_sources[source] = {
+                "status": _google_text(status.get("status"), limit=32),
+                "error_code": _google_text(status.get("error_code"), limit=80),
+                "stale": status.get("stale") is True,
+                "last_ok_at": _google_text(status.get("last_ok_at"), limit=64),
+                "checked_at": _google_text(status.get("checked_at"), limit=64),
+            }
+        result["rows"] = rows
+        result["data"] = {
+            "enabled": enabled,
+            "available": True,
+            "synced_at": _google_text(payload.get("synced_at"), limit=64),
+            "sources": safe_sources,
+            "settings": {
+                "editable": False,
+                "connections": connections,
+                "copy_choices": copy_choices,
+                "viewer_grants": viewer_grants,
+                "tabs": sorted(tabs.values(), key=lambda item: item["label"]),
+            },
+        }
+    except Exception:
+        result["status"] = {
+            "code": "SNAPSHOT_UNAVAILABLE",
+            "message": "Google 장부 비교 자료를 확인하지 못했어요.",
+        }
+    return result
+
+
 def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
            query: dict[str, list[str]]) -> dict[str, Any]:
     if not _owner(ledger_board, access, session):
@@ -870,16 +1076,7 @@ def _admin(ledger_board: Any, access: Any, session: Any, board: Any,
                          href="/api/owner-profile", fields=fields)
         ]}
     if view == "google":
-        try:
-            enabled = bool(__import__("webapp.google_ledger_page", fromlist=["enabled"]).enabled())
-        except Exception:
-            enabled = False
-        return {"title": "Google 장부 연결", "data": {"enabled": enabled}, "actions": [
-            _descriptor(action_id="google-sync", label="Google 장부 새로 읽기", method="POST",
-                        href="/api/google-ledger/sync", fields=[
-                            {"name": "client_request_id", "label": "요청 ID", "type": "hidden"},
-                        ], disabled=not enabled, reason="Google 장부 연결이 설정되지 않았습니다."),
-        ]}
+        return _admin_google(board)
     from . import real_review
 
     service = real_review.active_service()

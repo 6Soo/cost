@@ -593,3 +593,92 @@ def test_admin_review_projects_only_existing_state_payload(bound_store, monkeypa
     assert "choices" not in review["data"]
     assert review["actions"][0]["href"] == "/api/review/model?state_only=1"
     assert review["actions"][0]["csrf"] == "none"
+
+
+def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_store, monkeypatch, tmp_path):
+    store, _ = bound_store
+    from webapp import google_ledger_page
+
+    monkeypatch.setattr(google_ledger_page, "enabled", lambda: True)
+    monkeypatch.setattr(google_ledger_page, "_snapshot_path", lambda: tmp_path / "snapshot.json")
+    monkeypatch.setattr(google_ledger_page, "_rows_path", lambda: tmp_path / "rows.json")
+    monkeypatch.setattr(google_ledger_page, "_load_consistent_measured", lambda *_: (
+        {"synced_at": "2026-11-16T09:00:00+09:00", "sources": {"main": {"status": "ok"}},
+         "trips": [], "private_value": "PRIVATE-SNAPSHOT"},
+        {"private_rows": "PRIVATE-ROWS"},
+    ))
+    monkeypatch.setattr(google_ledger_page, "load_choices", lambda *_: {
+        "choices": {"trip-key": "main"}, "history": [{"secret": "PRIVATE-HISTORY"}],
+    })
+    monkeypatch.setattr(google_ledger_page, "load_mapping", lambda *_: {
+        "trip-key": "trip-demo-a",
+    })
+    monkeypatch.setattr(google_ledger_page, "load_grants", lambda *_: {
+        "grants": {"viewer-1": ["trip-key"]}, "history": [{"secret": "PRIVATE-GRANT-HISTORY"}],
+    })
+    monkeypatch.setattr(google_ledger_page, "owner_payload", lambda *_: {
+        "synced_at": "2026-11-16T09:00:00+09:00",
+        "sources": {"main": {"status": "ok", "stale": False, "content_sha256": "PRIVATE-HASH"}},
+        "trips": [{
+            "key": "trip-key", "kind": "trip", "closure": "open", "closure_current": True,
+            "chosen_source": "main", "canonical_source": "main", "verified": True,
+            "blocked_by": [], "review": ["TOTAL_MISMATCH"],
+            "income_total": 10000, "expense_total": 5000, "net": 5000,
+            "copies": {
+                "main": {"sheet": "PRIVATE-SHEET", "layout": "rev", "flags": [],
+                         "income": {"verified": True, "total": 10000, "rows": "PRIVATE-INCOME"},
+                         "expense": {"verified": True, "total": 5000, "rows": "PRIVATE-EXPENSE"}},
+                "archive": None,
+            },
+            "raw_rows": "PRIVATE-TRIP-ROWS",
+        }],
+    })
+
+    status, result = call("/api/plush/admin?view=google", "syn-owner", store)
+    assert status == 200
+    assert result["title"] == "Google 장부 비교"
+    assert result["columns"]
+    assert "fields" not in result
+    assert result["data"]["available"] is True
+    settings = result["data"]["settings"]
+    assert settings["editable"] is False
+    assert settings["connections"] == [{
+        "trip_key": "trip-key", "tab_id": "trip-demo-a",
+        "tab_label": next(trip["display_key"] for trip in store.list_trips(include_archived=True)
+                          if trip["tab_id"] == "trip-demo-a"),
+    }]
+    assert settings["copy_choices"] == [{"trip_key": "trip-key", "source": "main"}]
+    assert settings["viewer_grants"] == [{"user_id": "viewer-1", "trip_keys": ["trip-key"]}]
+    assert len(result["rows"]) == 1
+    row = result["rows"][0]
+    assert {key: row[key] for key in (
+        "key", "kind", "closure", "closure_current", "chosen_source", "verified", "blocked_by",
+        "review", "income_total", "expense_total", "net", "connected_tab_id", "source_href",
+        "reconciliation_href", "copy_href",
+    )} == {
+        "key": "trip-key", "kind": "trip", "closure": "open", "closure_current": True,
+        "chosen_source": "main", "verified": True, "blocked_by": [], "review": ["TOTAL_MISMATCH"],
+        "income_total": 10000, "expense_total": 5000, "net": 5000,
+        "connected_tab_id": "trip-demo-a",
+        "source_href": "/api/google-ledger/source?trip=trip-demo-a",
+        "reconciliation_href": "/api/google-ledger/expense-reconciliation?trip=trip-demo-a&page=1",
+        "copy_href": "/api/board/tsv?tab=trip-demo-a&kind=ex",
+    }
+    assert row["copies"] == {
+        "main": {"present": True, "layout": "rev", "verified": True,
+                 "income_total": 10000, "expense_total": 5000, "flags": []},
+        "archive": {"present": False, "layout": None, "verified": False,
+                    "income_total": None, "expense_total": None, "flags": []},
+    }
+    assert len(result["actions"]) == 1
+    sync = result["actions"][0]
+    assert (sync["id"], sync["method"], sync["href"], sync["encoding"], sync["csrf"], sync["response"]) == (
+        "google-sync", "POST", "/api/google-ledger/sync", "json", "header", "json",
+    )
+    assert sync["fields"][0]["name"] == "client_request_id"
+    assert sync["fields"][0]["type"] == "hidden"
+    assert len(sync["fields"][0]["value"]) == 32
+    serialized = json.dumps(result, ensure_ascii=False)
+    for secret in ("PRIVATE-SNAPSHOT", "PRIVATE-ROWS", "PRIVATE-HISTORY", "PRIVATE-GRANT-HISTORY",
+                   "PRIVATE-HASH", "PRIVATE-SHEET", "PRIVATE-INCOME", "PRIVATE-EXPENSE", "PRIVATE-TRIP-ROWS"):
+        assert secret not in serialized
