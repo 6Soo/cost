@@ -122,6 +122,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 thread.join(timeout=3); ledger_board.bind_store(previous)
 
     def test_browser_marks_stale_ota_status_unknown_without_holding_valid_expense(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-08-01').replace(b'2026-10-02', b'2026-08-02')
         from types import SimpleNamespace
         from webapp.card_flow import CardFlow
         from webapp import ota_payment_review
@@ -140,7 +141,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 flow = CardFlow(server.card_store)
                 trip = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
                     destination='Synthetic stale snapshot trip', client_request_id='stale-ota-trip')['tab_id']
-                batch = flow.pipeline.receive(CARD, 'stale-ota-browser.csv')['batch_id']
+                batch = flow.pipeline.receive(card_source, 'stale-ota-browser.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 server.card_store.conn.execute(
                     "UPDATE transactions SET classification_state='classified', item=?, trip_id=?, "
@@ -285,6 +286,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 thread.join(timeout=3); ledger_board.bind_store(previous)
 
     def test_browser_trip_move_saves_before_opening_existing_learning_dialog(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-08-01').replace(b'2026-10-02', b'2026-08-02')
         from webapp.card_flow import CardFlow
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
                 {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
@@ -300,7 +302,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     destination='Synthetic A', client_request_id='browser-move-a')['tab_id']
                 trip_b = server.card_store.create_trip(starts_on='2026-08-10', ends_on='2026-08-12',
                     destination='Synthetic B', client_request_id='browser-move-b')['tab_id']
-                batch = flow.pipeline.receive(CARD, 'browser-trip-move.csv')['batch_id']
+                batch = flow.pipeline.receive(card_source, 'browser-trip-move.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
                     display_tab_id=trip_a, trip_id=trip_a, request_id='browser-assign-a',
@@ -335,6 +337,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 thread.join(timeout=3); ledger_board.bind_store(previous)
 
     def test_browser_trip_move_can_choose_a_synthetic_ai_reason_and_keeps_direct_input(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-08-01').replace(b'2026-10-02', b'2026-08-02')
         from webapp.card_flow import CardFlow
         from webapp.dialog_turn import SyntheticAdapter
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
@@ -351,7 +354,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     destination='Synthetic A', client_request_id='browser-reason-a')['tab_id']
                 trip_b = server.card_store.create_trip(starts_on='2026-08-10', ends_on='2026-08-12',
                     destination='Synthetic B', client_request_id='browser-reason-b')['tab_id']
-                batch = flow.pipeline.receive(CARD, 'browser-ai-reason.csv')['batch_id']
+                batch = flow.pipeline.receive(card_source, 'browser-ai-reason.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
                     display_tab_id=trip_a, trip_id=trip_a, request_id='browser-reason-assign-a',
@@ -422,7 +425,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                             self.assertTrue(dialog['rule'])
                             self.assertEqual(server.card_store.get_row(
                                 'card-' + row['transaction_id'])['display_tab_id'], trip_b)
-                            future_bytes = CARD.replace(b'A123', b'FUTURE-987')
+                            future_bytes = card_source.replace(b'A123', b'FUTURE-987')
                             future_batch = flow.pipeline.receive(
                                 future_bytes, 'browser-future-rule.csv')['batch_id']
                             with patch.object(CardFlow, 'trip_valid', return_value=True):
@@ -437,6 +440,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 thread.join(timeout=3); ledger_board.bind_store(previous)
 
     def test_browser_shows_inferred_undated_ota_without_confirming_booking_number(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-08-01').replace(b'2026-10-02', b'2026-08-02')
         from types import SimpleNamespace
         from app import ota_payments
         from webapp.card_flow import CardFlow
@@ -456,7 +460,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                 flow = CardFlow(server.card_store)
                 trip = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
                     destination='Synthetic stay trip', client_request_id='browser-inferred-trip')['tab_id']
-                header, source_line = CARD.splitlines(keepends=True)
+                header, source_line = card_source.splitlines(keepends=True)
                 fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
                 fields[4], fields[5], fields[8] = 'AGODA.COM', '30000', '30000'
                 batch = flow.pipeline.receive(header + (','.join(fields)+'\n').encode(),
