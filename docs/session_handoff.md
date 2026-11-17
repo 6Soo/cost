@@ -1,3 +1,11 @@
+# 2026-11-17 — 현재 여행 탭의 왼쪽 목록 선택 표시
+
+- **요청/상태:** 사용자 요청 “현재 보고있는 탭이 왼쪽 여행 목록에도 표기되게”. 코드 커밋 `74b6d80b2847f5b70edfc368780f274d7bc76da6`으로 구현했다. 작업 트리는 `C:/AX/cost-active-trip-nav`, 브랜치 `fix/active-trip-sidebar-20261117`, 기준 `259bc18741b4075e47464c017d18093231bc1ba2`다. 원본 `C:/AX/cost`와 사용자 변경은 보존했다.
+- **구현:** 현재 여행 ID를 `AppShell`에 명시적으로 전달하고, 경로에 비슷한 ID 문자열이 포함되는지만 보던 선택 판정을 정확한 ID 동일 비교로 바꿔 왼쪽 여행 목록, 상단 여행 전환, 태블릿 조회자 메뉴가 같은 현재 여행을 표시하게 했다. 서버 셸은 `/board`, `/receipts`, `/participants`, `/participants/insurance-match`, `/export`, `/expense/new`, `/income/new`, `/reserve-links`에서 현재 여행 문맥을 전달하며, 8개 뒤의 여행도 현재 선택 상태를 잃지 않는다.
+- **실제 검사:** `npm ci` 성공(179 packages), `webapp/tests/test_site_shell.py` 14 passed, `app-shell-ui.test.tsx` 13 passed, TypeScript typecheck와 `git diff --check` PASS. 커밋 후 공식 `python tools/run_quality_checks.py --base origin/main --run`은 **227 passed + 26 subtests**, 브라우저 필수 검사 21건 모두 실행, skip 0, known failure 0, JUnit error 0, 도구/Python/compile exit0의 `PASSED` 결과다. `/receipts`, `/participants`, `/expense/new` 선택 표시와 `trip-a`/`trip-a-long` 접두사 오인, 9개 목록의 현재 여행 표시 회귀 검사를 포함한다.
+- **그래프/한계:** 코드 수정 뒤 `graphify update .`를 실행했고 28,702 nodes·79,142 edges·849 communities를 생성했다. SQL parser 누락 2개·기호 없는 파일 58개 경고는 있었다. 저장소 기준선에 그래프 산출물이 없어 생성된 미추적 `graphify-out/`은 이번 코드 변경에 임의 포함하지 않았다. 운영 배포와 인증된 실브라우저 수동 확인은 실행하지 않았으므로 운영 반영 완료로 집계하지 않는다.
+- **잔여/차단:** 구현·표적 검사·공식 영향 검사는 완료했고 차단 사항은 없다. 운영 반영이 필요하면 이 SHA를 독립 검수한 뒤 승인된 배포 절차를 사용한다. 문서만을 위한 재배포는 하지 않는다.
+
 # 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 
 - **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
