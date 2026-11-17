@@ -1,3 +1,13 @@
+# 2026-11-18 — Google 장부용 복사 성능·2열 왼쪽 정렬 수정 완료
+
+- **요청/결과:** 사용자 요청 “Google 장부용 복사가 오래 걸리는 문제 수정”, “붙여넣기 시에 2열이 가운데 정렬이 아닌 왼쪽 가로 맞춤 형식으로 되게”의 로컬 구현·검사를 완료했다. 운영 배포·PR 생성·독립 검수는 이어서 진행하며 아래 운영 반영 절에 기록한다.
+- **복사 성능:** `app/google_authority.py`가 snapshot과 generation별 rows JSON을 최대 8개 LRU 캐시하고 절대 경로·파일 identity·`mtime_ns`·크기로 무효화한다. 원자적 교체 경합은 최대 4회 재시도하며 읽기 전후 identity와 schema·generation 검증을 통과한 값만 `deepcopy`로 제공한다. 합성 20,000행(5,098,128 bytes)에서 최초 233.150ms, 캐시 반복 중앙값 112.147ms·p95 130.949ms, 원자 교체 후 최초 202.337ms로 최초 대비 약 2.1배 빨라졌다.
+- **붙여넣기 정렬:** `app/google_tsv.py`는 기존 `tsv` 응답 형식을 유지하면서 같은 데이터의 `html` 표를 함께 반환하고 모든 셀에 `text-align:left`를 적용한다. `webapp/static/js/ledger_design.js`는 한 copy 이벤트에 `text/plain` TSV와 `text/html` 표를 함께 기록하며 `다시 복사`에도 HTML을 보존한다. 구형 응답에 HTML이 없을 때만 plain text로 후퇴하고 rich copy 실패는 성공으로 표시하지 않는다.
+- **검사:** 표적 검사는 88, 23+4 subtests, 10, 21, 15, 55 passed다. 공식 `python tools/run_quality_checks.py --base 259bc18741b4075e47464c017d18093231bc1ba2 --run`는 **654 passed·41 subtests passed·skip 0·known failure 0**, pytest/compile/costcore build exit0이다. 실제 클립보드에서 `text/plain`과 `text/html` 동시 기록, HTML 셀 왼쪽 정렬, 최초·다시 복사 HTML 유지, 기존 TSV 동일성, 실제 `Ctrl+V` 결과 일치, rich copy 실패 시 수동 안내를 확인했다.
+- **영향 검사 보완:** 최초 공식 실행은 실제 실패가 아니라 `UNKNOWN_IMPACT:2`로 중단됐다. `config/test-impact-map.json`의 `google-readonly` 그룹에 `tests/card_pipeline/test_google_authority.py`, `tests/card_pipeline/test_google_tsv.py`를 등록한 뒤 위 전체 검사를 재실행해 통과했다.
+- **구현/검증 커밋:** 구현 `052ef49f`, 영향 검사 매핑 `fab0e3c5`. 기준 `origin/main`은 `259bc18741b4075e47464c017d18093231bc1ba2`다. graphify update는 완료했으며 SQL parser 미설치로 `.sql` 2개가 기여하지 못한 경고를 구분했다. `graphify-out/`은 기존 저장소 이력에 추적되지 않은 약 117.8MB 산출물이므로 이번 커밋에 포함하지 않았다.
+- **남은 일/보호:** 로컬 구현·검사 잔여는 없고 운영에는 미배포다. 공유 작업 트리 `C:/AX/cost`, 운영 DB, 포트 `8751/8752/8790`, 다른 세션의 안드레 여행 표기 배포는 수정하지 않았다. 운영 반영이 필요하면 이 브랜치의 exact SHA 독립 검수와 승인된 배포 절차를 별도로 수행한다. 이 완료 문서 때문에 재배포하지 않는다.
+
 # 2026-11-17 — 현재 여행 탭의 왼쪽 목록 선택 표시
 
 - **요청/상태:** 사용자 요청 “현재 보고있는 탭이 왼쪽 여행 목록에도 표기되게”. 코드 커밋 `74b6d80b2847f5b70edfc368780f274d7bc76da6`으로 구현했다. 작업 트리는 `C:/AX/cost-active-trip-nav`, 브랜치 `fix/active-trip-sidebar-20261117`, 기준 `259bc18741b4075e47464c017d18093231bc1ba2`다. 원본 `C:/AX/cost`와 사용자 변경은 보존했다.
@@ -16,7 +26,7 @@
 - **기준 교정:** 작업 중 운영이 다른 세션에 의해 `db410e46` → `3817723e`(안드레 라벨 Plush DTO)로 전환됐고 그 커밋은 origin/main에 없다. 그대로 두면 안드레 라벨이 되돌아가므로 후보를 **`3817723e` 위에 재작성**했다(cherry-pick). 두 변경은 `plush_api.py`의 서로 다른 위치라 충돌 없이 함께 남았고, 표적 40 passed로 안드레 라벨 회귀까지 확인했다.
 - **검사:** 공식 `run_quality_checks` 결과·독립 검수·배포 게이트 근거는 이 절 아래 값으로 채운다.
 
-# 2026-11-17 — 최근 여행 기능 폐지·전체 미보관 여행 목록 (진행 중)
+# 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 
 - **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
 - **구현:** 사이드바·여행 전환·조회자 허용 목록에서 개수 제한 제거, 보관 제외·시작일 오름차순·display_key 동률·날짜 없음 마지막. 이전/마감 여행도 포함하고 현재 보관 여행 예외는 제거했다. 조회자 권한 범위/허용 분기는 유지한다. 홈의 최근6개 카드도 같은 전체 여행 목록으로 교체했다. 금융·원문·Google 쓰기 없음.

@@ -1053,11 +1053,30 @@ document.addEventListener('keydown',function(e){
     });
     detail.appendChild(list);
    }
-   async function copyText(value){
-    // Select the real, visible TSV before copying. Native copy completes in the
-    // current gesture and cannot leave the UI waiting on a clipboard promise.
-    selectPrepared();
-    try{if(document.execCommand('copy'))return true;}catch(error){}
+   async function copyText(value,html){
+    // Put both formats on the browser's one copy event. Google Sheets consumes
+    // the HTML alignment while plain-text-only paste targets keep receiving TSV.
+    var wroteClipboard=false;
+    function onCopy(event){
+     if(!event.clipboardData)return;
+     event.clipboardData.setData('text/plain',value);
+     if(html)event.clipboardData.setData('text/html',html);
+     event.preventDefault();
+     wroteClipboard=true;
+    }
+    document.addEventListener('copy',onCopy,true);
+    try{
+     selectPrepared();
+     var copied=false;
+     try{copied=document.execCommand('copy');}catch(error){}
+     if(copied&&wroteClipboard)return true;
+    }finally{
+     document.removeEventListener('copy',onCopy,true);
+    }
+    // Never silently downgrade a keyed paste to text-only: that would bring back
+    // the default centered alignment. Text-only remains a compatibility fallback
+    // for older responses that carry no HTML.
+    if(html)return false;
     if(!navigator.clipboard||!navigator.clipboard.writeText)return false;
     // Some browsers neither resolve nor reject writeText after an async fetch.
     // Bound that optional attempt; a late settlement must not change the UI.
@@ -1103,6 +1122,8 @@ document.addEventListener('keydown',function(e){
       throw new Error('복사할 내용을 확인하지 못했습니다. 다시 복사해 주세요.');
      }
      prepared.value=data.tsv;
+     if(typeof data.html==='string'&&data.html)prepared.dataset.html=data.html;
+     else delete prepared.dataset.html;
      prepared.dataset.count=String(data.row_count);
      prepared.dataset.total=String(data.total_krw||0);
      prepared.dataset.matched=String((data.matched||[]).length);
@@ -1111,7 +1132,7 @@ document.addEventListener('keydown',function(e){
     if(!prepared.value)return;
     clearTimeout(timer);
     notice('복사할 내용이 준비됐습니다. 클립보드에 복사하고 있습니다…','loading');
-    if(!await copyText(prepared.value)){
+    if(!await copyText(prepared.value,prepared.dataset.html||'')){
      selectPrepared();
      notice('복사할 내용이 준비됐습니다. 선택된 내용을 복사(Ctrl+C 또는 ⌘C)하거나 다시 복사를 누른 뒤 Google 시트에 붙여넣으세요.');
      return;

@@ -9,6 +9,7 @@ database, and row contents (names, reservation numbers, payees) are not kept.
 from __future__ import annotations
 
 import contextlib
+import copy
 import datetime as dt
 import hashlib
 import io
@@ -16,9 +17,11 @@ import json
 import math
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 
 import openpyxl
@@ -453,16 +456,94 @@ def _download(url: str, *, timeout: float, max_bytes: int) -> bytes:
     return data
 
 
+_READER_CACHE_MAX = 8
+_READER_CACHE_ATTEMPTS = 4
+_SNAPSHOT_CACHE: OrderedDict[tuple, dict] = OrderedDict()
+_ROWS_CACHE: OrderedDict[tuple, dict] = OrderedDict()
+_READER_CACHE_LOCK = threading.RLock()
+
+
+def _file_identity(path: Path) -> tuple[str, int, int, int, int]:
+    """A key that changes when a resumed sync atomically replaces the file."""
+    absolute = os.path.normcase(os.path.abspath(os.fspath(path)))
+    metadata = path.stat()
+    return absolute, metadata.st_dev, metadata.st_ino, metadata.st_mtime_ns, metadata.st_size
+
+
+def _cache_get(cache: OrderedDict[tuple, dict], key: tuple) -> dict | None:
+    with _READER_CACHE_LOCK:
+        value = cache.get(key)
+        if value is None:
+            return None
+        cache.move_to_end(key)
+        return copy.deepcopy(value)
+
+
+def _cache_put(cache: OrderedDict[tuple, dict], key: tuple, value: dict) -> None:
+    with _READER_CACHE_LOCK:
+        cache[key] = copy.deepcopy(value)
+        cache.move_to_end(key)
+        while len(cache) > _READER_CACHE_MAX:
+            cache.popitem(last=False)
+
+
+def _clear_reader_caches() -> None:
+    """Test seam: production callers update the files rather than reaching into the cache."""
+    with _READER_CACHE_LOCK:
+        _SNAPSHOT_CACHE.clear()
+        _ROWS_CACHE.clear()
+
+
+def _load_validated_json(path: Path, cache: OrderedDict[tuple, dict], *, unreadable_code: str,
+                         validator) -> dict:
+    """Parse only a stable file image and cache only a value that passed validation."""
+    for _ in range(_READER_CACHE_ATTEMPTS):
+        # The identity before and after the read closes the atomic-replace gap:
+        # a path can name the old file in the first stat and the new file in the second.
+        before = _file_identity(path)
+        cached = _cache_get(cache, before)
+        if cached is not None:
+            try:
+                confirmed = _file_identity(path)
+            except FileNotFoundError:
+                continue
+            if before == confirmed:
+                return cached
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise
+        except (OSError, ValueError) as error:
+            raise SnapshotError(unreadable_code) from error
+        try:
+            after = _file_identity(path)
+        except FileNotFoundError:
+            continue
+        if before != after:
+            continue
+        validator(data)
+        _cache_put(cache, after, data)
+        return data
+    raise SnapshotError(unreadable_code)
+
+
 def load_snapshot(path: Path) -> dict:
-    if not path.exists():
-        return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+        return _load_validated_json(
+            path, _SNAPSHOT_CACHE, unreadable_code="SNAPSHOT_UNREADABLE",
+            validator=lambda data: _validate_snapshot(data))
+    except FileNotFoundError:
+        return {}
+    except SnapshotError:
+        raise
+    except OSError as error:
         raise SnapshotError("SNAPSHOT_UNREADABLE") from error
+
+
+def _validate_snapshot(data) -> None:
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise SnapshotError("SNAPSHOT_SCHEMA_MISMATCH")
-    return data
 
 
 def _retained(previous: dict, *, code: str, checked_at: str) -> dict:
@@ -648,16 +729,23 @@ def load_rows(rows_path: Path, generation: str | None) -> dict:
     if not generation:
         return {}
     try:
-        data = json.loads(_rows_file(rows_path, generation).read_text(encoding="utf-8"))
+        data = _load_validated_json(
+            _rows_file(rows_path, generation), _ROWS_CACHE, unreadable_code="ROWS_UNREADABLE",
+            validator=lambda value: _validate_rows(value, generation))
     except FileNotFoundError as error:
         raise SnapshotError("ROWS_MISSING") from error
-    except (OSError, ValueError) as error:
+    except SnapshotError:
+        raise
+    except OSError as error:
         raise SnapshotError("ROWS_UNREADABLE") from error
+    return data.get("sources", {})
+
+
+def _validate_rows(data, generation: str) -> None:
     if not isinstance(data, dict) or data.get("schema") != ROWS_SCHEMA:
         raise SnapshotError("ROWS_SCHEMA_MISMATCH")
     if data.get("generation") != generation:
         raise SnapshotError("ROWS_GENERATION_MISMATCH")
-    return data.get("sources", {})
 
 
 READ_ATTEMPTS = 4
