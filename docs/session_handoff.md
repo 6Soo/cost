@@ -17,6 +17,12 @@
 - **배포/보호:** 공식 `tools/deploy_verified_release.ps1 -Apply` 최종 exit0. 추적1908파일 blob불일치0·dist3파일 해시일치·runtime SHA verified·Board/Worker 및 core writers VERIFIED·보호14표 불변·health/ready200·보호API3개401·paused=false. 금융 apply/마이그레이션/Google 쓰기 없음. 코드 전용으로 full backup 생략, 이전 릴리스·task XML 보존.
 - **실패 구분/화면:** 첫 시도는 전환 후 HTTP_SMOKE_FAILED로 이전 acc0에 공식 rollback, core writers·보호14표 및 5개HTTP 정상 확인. 같은 검수 후보를 게이트 완화 없이 재시도해 성공했다. 첫 시도 중 브라우저 읽기 평가 시간 초과는 성공에서 제외했다. 최종 인증 브라우저에서 실제 bootstrap과 사이드바8개 일치·시작일 내림차순·quarter 제외·새 JS 자산 로드를 모두 true로 확인했다(원문/여행명은 Git에 보존하지 않음).
 - **근거/잔여:** `D:/WebLedgerHost/releases/deploy-evidence-bd04eddb8ad1fc1f2bbc7307095fea00d1d07613.json`, 작업폴더 `.local-archive/recent-trips-deploy-20261117/`의 독립검수·보호전후·first-failure·retry-transcript·browser-verification. 구현/검사/병합/운영반영 잔여·차단 없음. 후속 세션에 소유권 해제 통지하며 다음 배포는 actual PreviousSha 재확인. 아래 미배포 기록은 당시 이력이다. 완료 문서 때문에 재배포하지 않는다.
+# 2026-11-17 — 카드 거래 여행명 표시·공백 확인 진입 복구
+
+- **요청/구현:** 사용자 요청으로 카드 목록의 `상태/classified` 열을 `여행`으로 교체했다. 소유자에게 보이는 저장된 여행 제목과 기존 `display_destination` 읽기 투영으로 여행/분기 기타비용을 표시한다. 새 카드 화면의 `카드 이용내역 공백 확인` 링크는 기존 `/cards/all?legacy=1&panel=coverage`의 수집 현황을 연다. 판정·원문·금융·Google 쓰기 없음.
+- **원인 근거:** 새 상태 열은 `670cc2ad3`의 Plush API 연결에서 생겼고 `1b9e74877`의 원천 페이지 투영에서 `classification_state`가 그대로 노출됐다. `b6d61474`에서 기존 주소를 새 UI로 전환했지만 공백 확인 진입을 옮기지 않았다. 별도 제품 결정의 근거는 확인하지 못했다.
+- **실제 검증:** 표적 카드 API 5 passed, 프런트 카드/검색/기존주소 10 passed, typecheck/build PASS. ego-browser 합성 PC1440·모바일390에서 여행/분기명·상태값 미노출·문서 넘침 없음·44px 진입 링크 확인. 서명된 합성 계정으로 기존 공백 패널과 조회 API200 확인. graphify는 그래프 파일 없음/CLI 미설치로 update 불가.
+- **진행 상태:** 별도 `C:/AX/cost-card-trip-label`, `fix/card-trip-label-20261117`에서 기존 사용자 변경을 보존했다. 이 절 작성 시 공식 영향 검사·정확 SHA 독립 검수·PR/운영 배포는 이어서 진행 중이며 완료로 집계하지 않는다. 운영 배포 전 다른 활성 세션에 조율 통지했다. 실제 배포 결과는 운영 기록과 최신 인계에 추가한다.
 
 # 2026-11-17 — 최근 여행 목록 정렬 오류 수정
 

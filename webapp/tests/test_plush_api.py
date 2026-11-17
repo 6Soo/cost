@@ -237,6 +237,46 @@ def test_card_transactions_keep_krw_amount_and_follow_all_cursor_pages(
     assert first["foreign_currency"] == "USD"
 
 
+def test_card_list_displays_assigned_travel_and_quarter_names(bound_store, monkeypatch):
+    from copy import deepcopy
+
+    store, _ = bound_store
+    trips = store.list_trips(include_archived=True)
+    first, second = trips[:2]
+    source = [
+        {"transaction_id": "manual", "display_tab_id": first["tab_id"],
+         "trip_id": second["tab_id"], "classification_source": "manual"},
+        {"transaction_id": "trip-only", "trip_id": second["tab_id"]},
+        {"transaction_id": "quarter", "display_tab_id": "quarter:2026:2"},
+        {"transaction_id": "refund", "display_tab_id": "refunds",
+         "trip_id": first["tab_id"], "refund_tab_member": True, "amount_krw": -1200},
+        {"transaction_id": "other", "display_tab_id": "unclassified"},
+    ]
+    for row in source:
+        row.update(approval_date="2026-11-01", classification_state="classified")
+        row.setdefault("amount_krw", 1200)
+    before = deepcopy(source)
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: "synthetic")
+    monkeypatch.setattr("webapp.card_transactions.year_summary",
+                        lambda **_: {"months": {11: len(source)}})
+    monkeypatch.setattr("webapp.card_transactions.search_for_year",
+                        lambda **_: {"items": source, "has_more": False})
+
+    status, result = call("/api/plush/transactions?view=cards", "syn-owner", store)
+
+    assert status == 200
+    columns = {column["key"]: column["label"] for column in result["columns"]}
+    assert columns["trip_name"] == "여행"
+    assert "status" not in columns
+    names = {trip["tab_id"]: trip.get("display_title") or trip["display_key"] for trip in trips}
+    assert [row["trip_name"] for row in result["rows"]] == [
+        names[first["tab_id"]], names[second["tab_id"]], "2026년 2분기 기타비용",
+        names[first["tab_id"]], "2026년 4분기 기타비용",
+    ]
+    assert result["rows"][3]["amount"] == "-1200"
+    assert source == before
+
+
 def test_ledger_row_does_not_pair_krw_display_amount_with_source_currency():
     row = plush_api.projection.ledger_row({
         "row_id": "card-usd",
