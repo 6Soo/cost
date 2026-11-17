@@ -185,9 +185,7 @@ def _head_html(trip, query: str = "", kind: str = "", archived: str = "") -> str
         title, meta = "이전 귀속 목록", "여행을 정하지 않은 내역입니다"
         actions = ""
     else:
-        title = str(trip.get('display_title') or trip["display_key"])
-        if trip.get('owner_id') == 'andre':
-            title += ' · 김동언(안드레)'
+        title = board.trip_display_label(trip)
         from .trip_insurance_policy import is_domestic
         status = '마감' if trip.get('visual_closed') else '미마감'
         region = ui_components.chip('국내여행', 'accent') if is_domestic(trip) else ''
@@ -220,7 +218,7 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
         # /trips 기본 목록과 같은 기준(마감 표시·이전 여행 제외), 현재 보는 여행은 예외.
         if item.get('tab_id') != current and not board.is_default_listed_trip(item):
             continue
-        label = str(item.get('display_title') or item.get('display_key') or '')
+        label = board.trip_display_label(item)
         entries.append(
             f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
             f"{' aria-current=\"page\"' if item.get('tab_id') == current else ''}>{board.esc(label)}</a></li>")
@@ -662,7 +660,7 @@ def _trip_options(current="", blank_label=None) -> str:
         options.append(
             f"<option value='{board.esc(trip['tab_id'])}'"
             f"{' selected' if trip['tab_id'] == current else ''}>"
-            f"{board.esc(trip['display_key'])} · {board.esc(trip['starts_on'])}~"
+            f"{board.esc(board.trip_display_label(trip))} · {board.esc(trip['starts_on'])}~"
             f"{board.esc(trip['ends_on'])}</option>")
     return "".join(options)
 

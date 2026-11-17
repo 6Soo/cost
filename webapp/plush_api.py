@@ -148,7 +148,11 @@ def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) 
     # fallback is only for test doubles that expose plain rows.
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
-    return projection.trip_summary(trip, rows)
+    summary = projection.trip_summary(trip, rows)
+    from . import ledger_board
+
+    summary["title"] = ledger_board.trip_display_label(trip)
+    return summary
 
 
 def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str, Any]:
@@ -1472,10 +1476,13 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
         board = _board_instance(board)
         ledger_board, access, session = _auth(handler)
         query = _query(parsed)
-        if path == "/api/plush/bootstrap":
-            result = _bootstrap(ledger_board, access, session, board)
-        elif path == "/api/plush/home":
-            result = _home(ledger_board, access, session, board)
+        # One request reads each Google snapshot and row set once. Bootstrap and
+        # home both walk every trip, and each trip re-reads the same 1.7MB files
+        # through plush_income: ~3.5s for 72 trips uncached, ~0.8s inside one scope.
+        from . import read_scope
+        if path in ("/api/plush/bootstrap", "/api/plush/home"):
+            projection_fn = _bootstrap if path == "/api/plush/bootstrap" else _home
+            result = read_scope.scoped(projection_fn)(ledger_board, access, session, board)
         elif path == "/api/plush/ledger":
             result = _ledger(ledger_board, access, session, board, query)
         elif path == "/api/plush/row":

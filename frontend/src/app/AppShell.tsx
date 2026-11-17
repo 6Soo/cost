@@ -94,10 +94,10 @@ function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => vo
   );
 }
 
-function TripLinks({ trips, onTripSelect, currentPath, className }: {
+function TripLinks({ trips, onTripSelect, currentTripId, className }: {
   trips: AppTrip[];
   onTripSelect?: (tripId: string) => void;
-  currentPath: string;
+  currentTripId?: string;
   className?: string;
 }) {
   if (trips.length === 0) return null;
@@ -105,7 +105,7 @@ function TripLinks({ trips, onTripSelect, currentPath, className }: {
     <ul className={cn("cost-trip-links", className)}>
       {trips.map((trip) => {
         const href = trip.href ?? `/board?tab=${encodeURIComponent(trip.id)}`;
-        const selected = currentPath.includes(encodeURIComponent(trip.id));
+        const selected = Boolean(currentTripId) && currentTripId === trip.id;
         return (
           <li key={trip.id}>
             {onTripSelect && !trip.href ? (
@@ -148,7 +148,7 @@ function NavigationLinks({ items, path, className }: {
   );
 }
 
-export function AppShell({ role, trips, path, children, onTripSelect, className }: AppShellProps) {
+export function AppShell({ role, trips, path, children, onTripSelect, className, currentTripId }: AppShellProps) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const shellRef = useRef<HTMLDivElement>(null);
   const currentPath = normalizedPath(path);
@@ -253,13 +253,13 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
               <NavigationLinks items={ownerNavigation} path={currentPath} />
               <div className="cost-sidebar-section">
                 <p className="cost-sidebar-heading">여행 목록</p>
-                <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
+                <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentTripId={currentTripId} />
               </div>
             </>
           ) : (
             <div className="cost-sidebar-section">
               <p className="cost-sidebar-heading">허용된 여행</p>
-              <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
+              <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentTripId={currentTripId} />
             </div>
           )}
           <div className="cost-sidebar-footer">
@@ -280,7 +280,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
                     <span className="cost-topbar-label">여행 전환</span>
                   </summary>
                   <div className="cost-trip-switcher-panel">
-                    <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
+                    <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentTripId={currentTripId} />
                   </div>
                 </details>
               )}
@@ -293,7 +293,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
                   <div className="cost-tablet-menu-panel">
                     <NavigationLinks items={mainItems} path={currentPath} />
                     {managementItems.length > 0 && <NavigationLinks items={managementItems} path={currentPath} />}
-                    {role === "viewer" && <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />}
+                    {role === "viewer" && <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentTripId={currentTripId} />}
                   </div>
                 </details>
               </div>

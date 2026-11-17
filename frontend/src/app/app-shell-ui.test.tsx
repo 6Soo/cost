@@ -12,9 +12,9 @@ afterEach(() => {
 
 const trips = [{ id: "trip-a", title: "합성 여행" }];
 
-function renderShell(path = "/trips") {
+function renderShell(path = "/trips", currentTripId?: string) {
   return render(
-    <AppShell role="owner" trips={trips} path={path}>
+    <AppShell role="owner" trips={trips} path={path} currentTripId={currentTripId}>
       <h1>합성 본문</h1>
     </AppShell>,
   );
@@ -51,6 +51,40 @@ describe("Plush UI audit regressions", () => {
     const active = screen.getAllByRole("link", { name: "여행" }).filter((link) => link.getAttribute("aria-current") === "page");
     expect(active.length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "합성 여행" }).length).toBeGreaterThan(0);
+  });
+
+  it("marks the current trip in the sidebar on the board screen", () => {
+    renderShell("/board", "trip-a");
+    const sidebar = document.querySelector(".cost-sidebar");
+    expect(sidebar).not.toBeNull();
+    const tripLink = sidebar!.querySelector(".cost-trip-link");
+    expect(tripLink).not.toBeNull();
+    expect(tripLink!.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("does not mark a trip whose id only shares a prefix with the current trip", () => {
+    render(
+      <AppShell
+        role="owner"
+        trips={[
+          { id: "trip-a", title: "합성 여행" },
+          { id: "trip-a-long", title: "합성 긴 여행" },
+        ]}
+        path="/board"
+        currentTripId="trip-a"
+      >
+        <h1>합성 본문</h1>
+      </AppShell>,
+    );
+    const sidebarLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>(".cost-sidebar .cost-trip-link"));
+    expect(sidebarLinks.find((link) => link.textContent?.includes("합성 여행"))?.getAttribute("aria-current")).toBe("page");
+    expect(sidebarLinks.find((link) => link.textContent?.includes("합성 긴 여행"))?.hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("keeps the current trip selected when its path has no query string", () => {
+    renderShell("/receipts", "trip-a");
+    const tripLink = document.querySelector(".cost-sidebar .cost-trip-link");
+    expect(tripLink?.getAttribute("aria-current")).toBe("page");
   });
 
   it("gives the trip switcher and theme toggle accessible names with icons", () => {
