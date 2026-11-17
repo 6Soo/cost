@@ -292,9 +292,9 @@ def redundant_purchase_conflicts(conn):
     from types import SimpleNamespace
     from .import_card import ParsedRow
     from .review import source_hash_of
-    has_board = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='board_rows'").fetchone()
-    board_guard = (" AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
-                   if has_board else '')
+    from webapp.ledger_store_records import booked_sql
+    # M6: 통합 장부가 정본이면 그것을, 아니면 옛 board_rows를 본다.
+    board_guard = " AND NOT EXISTS(" + booked_sql(conn, 't') + ")"
     cursor = conn.execute(
         "SELECT t.*,b.parser AS import_parser FROM transactions t"
         " JOIN import_batches b ON b.batch_id=t.batch_id"

@@ -9,6 +9,7 @@ import threading
 import time
 from app.partial_refund import read_only_scope as refund_evidence_scope
 from .deployment_role import active_writer
+from .ledger_store_records import booked_sql as ledger_booked_sql
 
 INTERVAL = 30
 CHUNK = 50
@@ -68,8 +69,8 @@ def candidates(conn, ids=None):
     when the shared group rule accepts them, never an inferred or held link.
     """
     from .card_classification_completion import missing_assignment_sql
-    booked_sql, booked_params = booked_refund_sql(conn)
-    params = ((() if ids is None else (json.dumps(sorted(ids)),)) + booked_params)
+    refund_sql, refund_params = booked_refund_sql(conn)
+    params = ((() if ids is None else (json.dumps(sorted(ids)),)) + refund_params)
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
     return conn.execute(
@@ -91,7 +92,7 @@ def candidates(conn, ids=None):
         " OR " + missing_assignment_sql() +
         " OR t.transaction_id IN (SELECT transaction_id FROM queued))"
         " AND " + held_back_sql(conn) + ")"
-        " OR (" + booked_sql + "))"
+        " OR (" + refund_sql + "))"
         " ORDER BY b.batch_id,t.row_index,t.transaction_id", params).fetchall()
 
 
@@ -101,7 +102,6 @@ _HOLD_BACK = (
     " AND COALESCE(t.classification_source,'') NOT IN"
     " ('user_decision','user_exception','owner_booking','manual','manual_hold')"
     " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-    " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
     " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
     " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
     " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e"
@@ -109,10 +109,16 @@ _HOLD_BACK = (
 )
 
 
+def _not_booked_sql(conn):
+    """Unified-ledger booked test, the one every recording path now shares."""
+    return " AND NOT EXISTS(" + ledger_booked_sql(conn, 't') + ")"
+
+
 def held_back_sql(conn):
     """The purchase conditions a completion job must pass, unchanged from before."""
     from app.manual_overrides import exists_sql as manual_exists_sql
     return ("1=1 AND f.original_approval_number IS NULL" + _HOLD_BACK
+            + _not_booked_sql(conn)
             + " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id"))
 
 
@@ -133,6 +139,7 @@ def booked_refund_sql(conn):
         return "0", ()
     return ("t.transaction_id IN (" + ",".join("?" for _ in pending) + ")"
             " AND t.transaction_direction IN ('cancellation','refund')" + _HOLD_BACK
+            + _not_booked_sql(conn)
             + " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id"), tuple(pending))
 
 

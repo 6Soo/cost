@@ -79,6 +79,53 @@ def ledger_table_exists(conn: Any) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone())
 
 
+def ledger_is_authoritative(conn: Any) -> bool:
+    """통합 장부가 읽기 정본인가.
+
+    테이블이 '있기만' 하면 정본이 아니다. `LedgerStore`가 스키마를 만들기 때문에
+    새 합성 DB에도 빈 `ledger`가 생긴다. 이관이 실제로 끝난 DB만 정본으로 본다 —
+    기준은 `ledger`에 행이 있는 것이다.
+
+    빈 `ledger`를 정본으로 보면 기장 판정이 전부 '미기장'으로 뒤집힌다.
+    """
+    try:
+        if not ledger_table_exists(conn):
+            return False
+        return conn.execute('SELECT 1 FROM ledger LIMIT 1').fetchone() is not None
+    except Exception:
+        return False
+
+
+def _table_exists(conn: Any, name: str) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+
+def booked_sql(conn: Any, transaction_alias: str = 't') -> str:
+    """'이 거래가 장부에 기장됐나'를 판단하는 SQL 조각.
+
+    통합 장부(`ledger`)에 행이 있으면 정본이고, 그때도 `board_rows`를 함께 본다 —
+    과도기(일부만 이관된 DB)에서 누락을 막기 위해서다. 둘은 이중 쓰기로 같은
+    트랜잭션에서 쓰이므로 정상 상태에서는 결과가 같다.
+
+    `ledger`가 비었거나 없으면 옛 `board_rows`를 본다. 둘 다 없으면 **항상 거짓**인
+    조각을 준다 — 테이블이 없으면 기장된 행도 없으므로 `EXISTS(...)`가 False가
+    되는 것이 정확한 뜻이고, 호출자가 None을 따로 처리하지 않아도 된다.
+
+    호출자는 이 조각을 `EXISTS(...)`/`NOT EXISTS(...)` 안에 넣어 쓴다.
+    """
+    sources = []
+    if ledger_is_authoritative(conn):
+        sources.append("SELECT 1 FROM ledger l"
+                       f" WHERE l.transaction_id={transaction_alias}.transaction_id")
+    if _table_exists(conn, 'board_rows'):
+        sources.append("SELECT 1 FROM board_rows b"
+                       f" WHERE b.row_id='card-'||{transaction_alias}.transaction_id")
+    if not sources:
+        return 'SELECT 1 WHERE 0'
+    return ' UNION ALL '.join(sources)
+
+
 def sync_ledger_from_record(conn: Any, record: dict) -> None:
     """화면 행 record 하나를 통합 장부에도 맞춰 쓴다(있으면 갱신, 없으면 삽입).
 
