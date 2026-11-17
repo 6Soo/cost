@@ -228,6 +228,14 @@ CREATE TABLE IF NOT EXISTS ledger (
     confirmed_by           TEXT NOT NULL DEFAULT '',
     memo                   TEXT NOT NULL DEFAULT '',
     operator_note          TEXT NOT NULL DEFAULT '',
+    -- 수입·수기 행이 payload에 담는 필드. `board_rows` payload를 그대로 옮겨 적으려면
+    -- 여기에 컬럼이 있어야 한다. 없으면 읽기를 통합 장부로 바꿀 때 값이 사라진다.
+    customer_id            TEXT NOT NULL DEFAULT '',
+    customer_name          TEXT NOT NULL DEFAULT '',
+    nickname               TEXT NOT NULL DEFAULT '',
+    income_kind            TEXT NOT NULL DEFAULT '',
+    event_type             TEXT NOT NULL DEFAULT '',
+    created_by_request     TEXT NOT NULL DEFAULT '',
     revision               INTEGER NOT NULL DEFAULT 1,
     committed_at           TEXT,               -- 기장 시각(구 ledger_entries.committed_at)
     batch_id               TEXT NOT NULL DEFAULT '',
