@@ -863,6 +863,19 @@ def live_trips(include_archived: bool = False):
     return _active_store().list_trips(include_archived=include_archived)
 
 
+def trip_display_label(trip, fallback: str = "") -> str:
+    """Return the visible trip label with the owner suffix from the old UI."""
+    trip = trip or {}
+    label = str(trip.get("display_title") or trip.get("display_key")
+                or fallback or trip.get("tab_id") or "")
+    if trip.get("owner_id") == "andre":
+        alias = str(trip.get("owner_alias") or "안드레").strip() or "안드레"
+        suffix = f" · {alias}"
+        if not label.endswith(suffix):
+            label += suffix
+    return label
+
+
 def valid_tab_ids() -> set:
     return {t["tab_id"] for t in live_trips(include_archived=True)}
 
@@ -1338,7 +1351,8 @@ def board_page(tab_id: str, query: str = "") -> str:
             f"({esc(c)}): <b>{sum(_shown_amount(r) for r in billed if r['customer_id'] == c):,}원</b></div>"
             for c in customers
         )
-        head = f"<h2>{esc(trip['display_key'])} <span class='muted'>{esc(trip['starts_on'])}~{esc(trip['ends_on'])}</span></h2>"
+        head = (f"<h2>{esc(trip_display_label(trip))} "
+                f"<span class='muted'>{esc(trip['starts_on'])}~{esc(trip['ends_on'])}</span></h2>")
         meta_line = ""
         if _active_store() is not None and trip.get("prepared_on"):
             meta_line = (
@@ -1580,7 +1594,7 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
                 " (출처가 기록되지 않은 값입니다.)</span>")
         cards.append(
             f"<tr class='trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t.get('archived')))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
-            f"<td><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">마감</span>' if t.get('visual_closed') else ''}</td>"
+            f"<td><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(trip_display_label(t))}</a> {'<span class=\"trip-closed-badge\">마감</span>' if t.get('visual_closed') else ''}</td>"
             f"<td class='trip-period'>{esc(period_label(t.get('starts_on'), t.get('ends_on')))}</td><td>{esc(assignee_shown or '—')}</td>"
             f"<td class='num'>{esc(str(preview.get('expense_count', 0)))}건</td><td>{'마감' if t.get('visual_closed') else '미마감'}</td>"
             f"<td><details class='trip-meta'><summary class='icon-btn' aria-label='{esc(t.get('display_key') or t['tab_id'])} 작업'>⋯</summary>"
@@ -1716,7 +1730,7 @@ def export_page(selected_tab: str = "") -> str:
         return (f"<label class='check-list-row'><input type='checkbox' name='tab_ids'"
                 f" value='{esc(tab_id)}'"
                 + (" checked>" if checked else ">")
-                + f" <span>{esc(trip['display_key'])}{esc(suffix)}</span>{note}</label>")
+                + f" <span>{esc(trip_display_label(trip))}{esc(suffix)}</span>{note}</label>")
 
     options = "".join(trip_option(t) for t in active_trips)
     archived = ""
