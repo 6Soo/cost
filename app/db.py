@@ -191,6 +191,65 @@ CREATE INDEX IF NOT EXISTS transactions_state ON transactions(classification_sta
 CREATE INDEX IF NOT EXISTS idx_change_log_kind_subject ON change_log(kind, subject);
 """
 
+# M6 unified ledger. Kept apart from SCHEMA_SQL on purpose: `schema_differences`
+# (and therefore the production startup gate) requires every object in
+# SCHEMA_SQL to already exist. A database that has not run the ledger migration
+# yet must still start, so the new table is created in `create` mode and in the
+# explicit migration (tools/migrate_to_ledger.py), not required by `require`.
+LEDGER_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS ledger (
+    entry_id            TEXT PRIMARY KEY,      -- 기존 row_id 그대로 (card-<txid>, man-*, etc)
+    transaction_id      TEXT,                  -- 카드 거래면 transactions 참조, 수기면 NULL
+    entry_kind          TEXT NOT NULL,         -- expense | income
+    item                TEXT NOT NULL DEFAULT '',
+    description         TEXT NOT NULL DEFAULT '',
+    amount_krw          INTEGER,
+    occurred_on         TEXT NOT NULL DEFAULT '',
+    display_tab_id      TEXT,                  -- NULL = 미분류
+    trip_id             TEXT NOT NULL DEFAULT '',
+    service_period      TEXT NOT NULL DEFAULT '',
+    reservation_no      TEXT NOT NULL DEFAULT '',
+    evidence_type       TEXT NOT NULL DEFAULT '',
+    source_kind         TEXT NOT NULL DEFAULT '',
+    source_event_id     TEXT NOT NULL DEFAULT '',
+    source_fact_digest  TEXT NOT NULL DEFAULT '',
+    source_merchant     TEXT NOT NULL DEFAULT '',
+    source_issuer       TEXT NOT NULL DEFAULT '',
+    source_card_last4   TEXT NOT NULL DEFAULT '',
+    source_approval_number TEXT NOT NULL DEFAULT '',
+    source_approval_date   TEXT NOT NULL DEFAULT '',
+    source_posting_date    TEXT NOT NULL DEFAULT '',
+    source_local_amount    TEXT NOT NULL DEFAULT '',
+    source_currency        TEXT NOT NULL DEFAULT '',
+    event_kind             TEXT NOT NULL DEFAULT '',
+    classification_state   TEXT NOT NULL DEFAULT '',
+    classification_source  TEXT NOT NULL DEFAULT '',
+    classification_basis   TEXT NOT NULL DEFAULT '',
+    confirmed_by           TEXT NOT NULL DEFAULT '',
+    memo                   TEXT NOT NULL DEFAULT '',
+    operator_note          TEXT NOT NULL DEFAULT '',
+    revision               INTEGER NOT NULL DEFAULT 1,
+    committed_at           TEXT,               -- 기장 시각(구 ledger_entries.committed_at)
+    batch_id               TEXT NOT NULL DEFAULT '',
+    created_at             TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_transaction
+    ON ledger(transaction_id) WHERE transaction_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_display_tab ON ledger(display_tab_id);
+"""
+
+
+def _execute_statements(conn: sqlite3.Connection, script: str) -> None:
+    """Run a script statement by statement, so a caller's transaction survives."""
+    statement = ''
+    for line in script.splitlines(keepends=True):
+        statement += line
+        if sqlite3.complete_statement(statement):
+            conn.execute(statement)
+            statement = ''
+    if statement.strip():
+        conn.execute(statement)
+
 
 class StoreError(Exception):
     """One code per failure. `code` is what a caller switches on."""
@@ -318,14 +377,8 @@ class Store:
         with self.lock:
             self.conn.execute('SAVEPOINT cost_schema')
             try:
-                statement = ''
-                for line in SCHEMA_SQL.splitlines(keepends=True):
-                    statement += line
-                    if sqlite3.complete_statement(statement):
-                        self.conn.execute(statement)
-                        statement = ''
-                if statement.strip():
-                    self.conn.execute(statement)
+                _execute_statements(self.conn, SCHEMA_SQL)
+                _execute_statements(self.conn, LEDGER_SCHEMA_SQL)
                 self.conn.execute('RELEASE SAVEPOINT cost_schema')
             except BaseException:
                 self.conn.execute('ROLLBACK TO SAVEPOINT cost_schema')
