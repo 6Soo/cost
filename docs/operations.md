@@ -1,3 +1,10 @@
+# 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 반영
+
+- 공식 배포 최종 exit0, actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613` / backend8752·gateway8790, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`. PR991 merge `e8bf7a33`는 검수 후보와 트리 동일. 독립 gpt-6.1-sol medium 정확 SHA APPROVE, frontend58·영향46·typecheck/build PASS, CI 결제 문제 시작 전 차단 확인.
+- 1908 추적파일 blob불일치0·dist3해시 일치·보호14표 불변·Board/Worker core writers VERIFIED·health/ready200·보호API401·paused=false. 금융 apply/마이그레이션/Google 쓰기 없음. code-only로 full backup 생략, 이전 release/task XML 보존.
+- 첫 시도 HTTP_SMOKE_FAILED는 공식 acc0 rollback 후 보호14표·5개HTTP 정상 검증. 같은 검수 후보 재시도에서 최종 게이트 통과. 첫 시도 중 브라우저 읽기 평가 시간 초과는 성공에서 제외. 최종 인증 브라우저: 실제 bootstrap 기준 최근 여행8개 일치·시작일 내림차순·분기기타 제외·새 JS 자산 true. 고객 원문 Git 보존 없음.
+- 증거: `D:/WebLedgerHost/releases/deploy-evidence-bd04eddb8ad1fc1f2bbc7307095fea00d1d07613.json`, `.local-archive/recent-trips-deploy-20261117/`. 남은 작업/차단 없음, 소유권 해제 후 후속 배포는 actual SHA 재확인. 완료 기록만으로 재배포하지 않는다.
+
 # 2026-11-17 15:10 — TRIP-099 코드 배포·구매3건 교정·Rust 전환 완료
 
 - **공식 배포:** reviewed/actual `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, Previous `9399d8cb40095b38715bd997f1123dfc6a620620`. `deploy_verified_release.ps1 -Apply` exit0, backend8752→8751·gateway8790. 추적1,906 blob불일치0·보호14표 불변·health/ready200·비인증 보호API401·Board/Worker 같은 SHA/Rust/rust. 코드 배포 단계 금융 apply NOT_RUN, 이후 아래 별도 교정을 수행했다.

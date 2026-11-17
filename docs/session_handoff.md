@@ -1,3 +1,10 @@
+# 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 배포 완료
+
+- **상태:** 사용자 “최근여행목록오류수정” → “배포해” COMPLETE. PR991 병합 `e8bf7a33`(트리=검수/배포 후보), actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613`, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, backend8752/gateway8790. 독립 gpt-6.1-sol medium 정확 SHA APPROVE(findings0). 프런트58·공식 영향46·타입/빌드 통과 근거 재사용, 검수자17건/타입 독립 통과. CI는 결제 문제로 시작 전 차단(annotation 확인), 실제 검사 실패로 대체한 것이 아니다.
+- **배포/보호:** 공식 `tools/deploy_verified_release.ps1 -Apply` 최종 exit0. 추적1908파일 blob불일치0·dist3파일 해시일치·runtime SHA verified·Board/Worker 및 core writers VERIFIED·보호14표 불변·health/ready200·보호API3개401·paused=false. 금융 apply/마이그레이션/Google 쓰기 없음. 코드 전용으로 full backup 생략, 이전 릴리스·task XML 보존.
+- **실패 구분/화면:** 첫 시도는 전환 후 HTTP_SMOKE_FAILED로 이전 acc0에 공식 rollback, core writers·보호14표 및 5개HTTP 정상 확인. 같은 검수 후보를 게이트 완화 없이 재시도해 성공했다. 첫 시도 중 브라우저 읽기 평가 시간 초과는 성공에서 제외했다. 최종 인증 브라우저에서 실제 bootstrap과 사이드바8개 일치·시작일 내림차순·quarter 제외·새 JS 자산 로드를 모두 true로 확인했다(원문/여행명은 Git에 보존하지 않음).
+- **근거/잔여:** `D:/WebLedgerHost/releases/deploy-evidence-bd04eddb8ad1fc1f2bbc7307095fea00d1d07613.json`, 작업폴더 `.local-archive/recent-trips-deploy-20261117/`의 독립검수·보호전후·first-failure·retry-transcript·browser-verification. 구현/검사/병합/운영반영 잔여·차단 없음. 후속 세션에 소유권 해제 통지하며 다음 배포는 actual PreviousSha 재확인. 아래 미배포 기록은 당시 이력이다. 완료 문서 때문에 재배포하지 않는다.
+
 # 2026-11-17 — 최근 여행 목록 정렬 오류 수정
 
 - **요청/구현:** 사용자 “최근여행목록오류수정”. 최신 origin/main에서 분리한 `C:/AX/cost-recent-trips`, 브랜치 `fix/recent-trips-20261117`, 코드 커밋 `2a29e1a3`. 사이드바 최근 여행을 starts_on 내림차순으로 정렬한 뒤 기존 8개 제한을 적용한다. 분기 기타비용을 제외하고 날짜 없는 여행은 뒤로 둔다. 원래 bootstrap 배열·조회 권한 메뉴·장부 데이터는 보존한다.
