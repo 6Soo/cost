@@ -1,3 +1,10 @@
+# 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 반영
+
+- 공식 배포 최종 exit0, actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613` / backend8752·gateway8790, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`. PR991 merge `e8bf7a33`는 검수 후보와 트리 동일. 독립 gpt-6.1-sol medium 정확 SHA APPROVE, frontend58·영향46·typecheck/build PASS, CI 결제 문제 시작 전 차단 확인.
+- 1908 추적파일 blob불일치0·dist3해시 일치·보호14표 불변·Board/Worker core writers VERIFIED·health/ready200·보호API401·paused=false. 금융 apply/마이그레이션/Google 쓰기 없음. code-only로 full backup 생략, 이전 release/task XML 보존.
+- 첫 시도 HTTP_SMOKE_FAILED는 공식 acc0 rollback 후 보호14표·5개HTTP 정상 검증. 같은 검수 후보 재시도에서 최종 게이트 통과. 첫 시도 중 브라우저 읽기 평가 시간 초과는 성공에서 제외. 최종 인증 브라우저: 실제 bootstrap 기준 최근 여행8개 일치·시작일 내림차순·분기기타 제외·새 JS 자산 true. 고객 원문 Git 보존 없음.
+- 증거: `D:/WebLedgerHost/releases/deploy-evidence-bd04eddb8ad1fc1f2bbc7307095fea00d1d07613.json`, `.local-archive/recent-trips-deploy-20261117/`. 남은 작업/차단 없음, 소유권 해제 후 후속 배포는 actual SHA 재확인. 완료 기록만으로 재배포하지 않는다.
+
 # 2026-11-17 15:10 — TRIP-099 코드 배포·구매3건 교정·Rust 전환 완료
 
 - **공식 배포:** reviewed/actual `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, Previous `9399d8cb40095b38715bd997f1123dfc6a620620`. `deploy_verified_release.ps1 -Apply` exit0, backend8752→8751·gateway8790. 추적1,906 blob불일치0·보호14표 불변·health/ready200·비인증 보호API401·Board/Worker 같은 SHA/Rust/rust. 코드 배포 단계 금융 apply NOT_RUN, 이후 아래 별도 교정을 수행했다.
@@ -15,6 +22,13 @@
 - **근거/잔여:** 보호 경로 `D:/WebLedgerHost/data/backups/q12-auto-additions-20261116T181539Z/amount-or-merchant-audit-20261116T222100Z/code-repair/`의 financial-backup-restore/applied/replay/final-validation/maintenance-lifecycle JSON·증거 XLSX. 원문과 행별 금액은 Git 밖에만 보존. 이번 승인 범위의 남은 구현·검사·운영 반영/차단 없음. 운영 소유권 해제 통지 완료, 다음 PreviousSha=9399d8cb(실제값 재확인). 기존 사용자 미커밋 변경 보존. 완료 기록 때문에 문서 전용 PR·재배포하지 않는다.
 
 # 운영 기록
+
+## 2026-11-17 17:09 — 최근 여행 제한 폐지·미보관 전체 여행 목록 배포 완료
+
+- **변경:** 사용자 최신 지시로 최근8개/진행중 필터 폐지. 보관되지 않은 모든 여행(이전·마감 포함)을 시작일 오름차순/display_key 동률로 표시한다. 사이드바와 모바일 전환 메뉴는 끝까지 스크롤, 홈의 최근6개도 전체목록으로 교체. 조회자 권한·허용분기 유지. 기존 운영 카드UI d112 변경을 병합 보존했다.
+- **검증/승인:** 공식 영향263 PASS/skip0/known0·표적프런트23·typecheck/build PASS. 독립 gpt-6.1-sol medium 정확SHA db410e46 APPROVE/findings0, 독립프런트6·백엔드3·타입·DTO 검사 PASS. 합성40개1440/390 스크롤·마지막focus·넘침0. CI run44043578687은 결제한도로2job 시작전차단을 annotation으로 직접 확인해 지침상 예외 적용.
+- **배포:** PR992 MERGED `2aca8f7b`(후보와 트리동일), actual `db410e46a9be52290a690bc5bebce8b5ae556d31`, Previous `d112e51bb28ad5d171ebff5c425aa8f8b6d6ba6f`. 공식 `tools/deploy_verified_release.ps1 -Apply` exit0, backend8751→8752·gateway8790. 추적1911파일 blob불일치0·빌드dist3개 SHA256일치·보호14표전후불변·Board/Worker/core writers VERIFIED·health/ready200·비인증 보호API401·paused=false. 코드전용(full backup 미사용), 금융apply/마이그레이션/Google쓰기 없음.
+- **운영 UI/근거:** 인증된 PC1440/모바일390에서 미보관 예상68개와 사이드바/전환68개 전부일치·시작일ASC/display_key 일치·새JS자산 로드·스크롤/마지막focus접근·가로넘침0 확인. `releases/deploy-evidence-db410e46….json`, `release-audit-db410e46….json`, `continuous-switch-db410e46….json`, 작업공간 `.local-archive/restore-legacy-trip-order-20261117/`의 독립검수·합성렌더·production-browser/mobile·보호전후. 고객원문/여행명 Git기록 없음. 조율 세션에 전후 통지·소유권해제, 잔여/차단 없음. 후속 PreviousSha 실제값 재확인. 문서기록 때문에 재배포하지 않는다.
 
 ## 2026-11-17 — M4 UI-0 React 프런트 수락 검증·간극 종결 운영 배포 완료
 

@@ -39,7 +39,7 @@ function RootApp() {
   }, []);
   if (error) return <main className="cost-main"><section className="cost-panel" role="alert"><h1>화면을 열 수 없습니다</h1><p>{error}</p></section></main>;
   if (!bootstrap) return <main className="cost-main"><p role="status">COST 화면을 준비하는 중입니다…</p></main>;
-  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path}>{pageFor(path, bootstrap, search)}</AppShell>;
+  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path} currentTripId={search.get("tab") || search.get("trip") || ""}>{pageFor(path, bootstrap, search)}</AppShell>;
 }
 
 const rootElement = document.getElementById("root");

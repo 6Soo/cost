@@ -1,3 +1,36 @@
+# 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
+
+- **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
+- **구현:** 사이드바·여행 전환·조회자 허용 목록에서 개수 제한 제거, 보관 제외·시작일 오름차순·display_key 동률·날짜 없음 마지막. 이전/마감 여행도 포함하고 현재 보관 여행 예외는 제거했다. 조회자 권한 범위/허용 분기는 유지한다. 홈의 최근6개 카드도 같은 전체 여행 목록으로 교체했다. 금융·원문·Google 쓰기 없음.
+- **검사/검수:** 표적 5파일23건·typecheck/build PASS, 공식 영향263/263·skip0·known0. 독립 gpt-6.1-sol medium이 정확 SHA `db410e46a9be52290a690bc5bebce8b5ae556d31` APPROVE(findings0), 독립 프런트6·백엔드3·typecheck·합성DTO·diff 검사 PASS. 합성40개390/1440 스크롤·마지막항목focus·가로넘침0 확인. 옛8개 계약 테스트는 사용자 명시 변경에 맞춰 대체했고 동률display_key·날짜없음·보관제외·권한 검사는 유지했다. 첫 기대순서 fixture 오류와 Vite 콜드로드 시간초과는 통과로 집계하지 않았다. graphify update(AST-only) 완료(그래프 기존 미추적 상태 보존, SQL parser 부재 경고 구분).
+- **운영/완료:** COMPLETE. 구현 `d1c2f818`, 운영 카드변경 d112 보존 병합/검수/배포 `db410e46`, PR992 병합 `2aca8f7b`(트리 동일). 공식 도구 exit0, Previous d112e51b → actual db410e46/backend8752·gateway8790. 1,911파일 blob불일치0·빌드dist3개 해시일치·보호14표불변·Board/Worker/core writers VERIFIED·health/ready200·보호API401·paused=false·금융apply NOT_RUN. CI run44043578687의2job은 결제한도로 시작전 차단(annotation 직접 확인); 실제 검사실패 우회 없음.
+- **실화면/다음:** 인증된 운영 화면에서 예상68개==사이드바68개==전환68개·시작일ASC/display_key 일치·새JS자산 로드 확인. PC1440/모바일390 마지막항목focus·스크롤·가로넘침0. 고객여행명/원문은 보고에 저장하지 않았다. 남은 구현·검사·배포·차단 없음, 조율 세션에 배포 전후 통지·운영쓰기 소유권 해제. 다음 PreviousSha는 실제 운영값 재확인. 근거 `D:/WebLedgerHost/releases/deploy-evidence-db410e46a9be52290a690bc5bebce8b5ae556d31.json` 및 `.local-archive/restore-legacy-trip-order-20261117/`. 완료 문서 때문에 재배포하지 않는다.
+
+# 2026-11-17 — 예전 UI 여행 목록 정렬 복원 (최신 요구로 대체됨)
+
+- **상태:** 사용자 요청 “뒤죽박죽이잖아. 예전 ui에서 정렬방식을 확인하고 복원해” 구현 완료. 커밋 `5f5dd7d0`.
+- **근거/구현:** 예전 `webapp/site_shell.py::_active_trip_nav` 기준을 확인해 진행 중 여행만 남기고(이전·마감·보관 제외), 현재 선택 여행은 예외로 보존하며, `starts_on` 오름차순 → `display_key` 오름차순으로 정렬하고 8개 제한을 복원했다. 분기 기타비용은 최근 여행 목록에서 제외한다.
+- **검사:** `frontend` 대상 테스트 4 passed, 전체 Vitest 145 passed, TypeScript typecheck PASS, Vite build PASS, `webapp/tests/test_plush_api.py webapp/tests/test_plush_ui.py` 42 passed. 운영 배포는 이번 복원 작업에서 실행하지 않았다.
+- **남은 일:** 없음. 운영 반영이 필요하면 현재 커밋을 독립 검수한 뒤 승인된 배포 절차를 사용한다.
+# 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 배포 완료
+
+- **상태:** 사용자 “최근여행목록오류수정” → “배포해” COMPLETE. PR991 병합 `e8bf7a33`(트리=검수/배포 후보), actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613`, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, backend8752/gateway8790. 독립 gpt-6.1-sol medium 정확 SHA APPROVE(findings0). 프런트58·공식 영향46·타입/빌드 통과 근거 재사용, 검수자17건/타입 독립 통과. CI는 결제 문제로 시작 전 차단(annotation 확인), 실제 검사 실패로 대체한 것이 아니다.
+- **배포/보호:** 공식 `tools/deploy_verified_release.ps1 -Apply` 최종 exit0. 추적1908파일 blob불일치0·dist3파일 해시일치·runtime SHA verified·Board/Worker 및 core writers VERIFIED·보호14표 불변·health/ready200·보호API3개401·paused=false. 금융 apply/마이그레이션/Google 쓰기 없음. 코드 전용으로 full backup 생략, 이전 릴리스·task XML 보존.
+- **실패 구분/화면:** 첫 시도는 전환 후 HTTP_SMOKE_FAILED로 이전 acc0에 공식 rollback, core writers·보호14표 및 5개HTTP 정상 확인. 같은 검수 후보를 게이트 완화 없이 재시도해 성공했다. 첫 시도 중 브라우저 읽기 평가 시간 초과는 성공에서 제외했다. 최종 인증 브라우저에서 실제 bootstrap과 사이드바8개 일치·시작일 내림차순·quarter 제외·새 JS 자산 로드를 모두 true로 확인했다(원문/여행명은 Git에 보존하지 않음).
+- **근거/잔여:** `D:/WebLedgerHost/releases/deploy-evidence-bd04eddb8ad1fc1f2bbc7307095fea00d1d07613.json`, 작업폴더 `.local-archive/recent-trips-deploy-20261117/`의 독립검수·보호전후·first-failure·retry-transcript·browser-verification. 구현/검사/병합/운영반영 잔여·차단 없음. 후속 세션에 소유권 해제 통지하며 다음 배포는 actual PreviousSha 재확인. 아래 미배포 기록은 당시 이력이다. 완료 문서 때문에 재배포하지 않는다.
+# 2026-11-17 — 카드 거래 여행명 표시·공백 확인 진입 복구
+
+- **요청/구현:** 사용자 요청으로 카드 목록의 `상태/classified` 열을 `여행`으로 교체했다. 소유자에게 보이는 저장된 여행 제목과 기존 `display_destination` 읽기 투영으로 여행/분기 기타비용을 표시한다. 새 카드 화면의 `카드 이용내역 공백 확인` 링크는 기존 `/cards/all?legacy=1&panel=coverage`의 수집 현황을 연다. 판정·원문·금융·Google 쓰기 없음.
+- **원인 근거:** 새 상태 열은 `670cc2ad3`의 Plush API 연결에서 생겼고 `1b9e74877`의 원천 페이지 투영에서 `classification_state`가 그대로 노출됐다. `b6d61474`에서 기존 주소를 새 UI로 전환했지만 공백 확인 진입을 옮기지 않았다. 별도 제품 결정의 근거는 확인하지 못했다.
+- **실제 검증:** 표적 카드 API 5 passed, 프런트 카드/검색/기존주소 10 passed, typecheck/build PASS. ego-browser 합성 PC1440·모바일390에서 여행/분기명·상태값 미노출·문서 넘침 없음·44px 진입 링크 확인. 서명된 합성 계정으로 기존 공백 패널과 조회 API200 확인. graphify는 그래프 파일 없음/CLI 미설치로 update 불가.
+- **진행 상태:** 별도 `C:/AX/cost-card-trip-label`, `fix/card-trip-label-20261117`에서 기존 사용자 변경을 보존했다. 이 절 작성 시 공식 영향 검사·정확 SHA 독립 검수·PR/운영 배포는 이어서 진행 중이며 완료로 집계하지 않는다. 운영 배포 전 다른 활성 세션에 조율 통지했다. 실제 배포 결과는 운영 기록과 최신 인계에 추가한다.
+
+# 2026-11-17 — 최근 여행 목록 정렬 오류 수정
+
+- **요청/구현:** 사용자 “최근여행목록오류수정”. 최신 origin/main에서 분리한 `C:/AX/cost-recent-trips`, 브랜치 `fix/recent-trips-20261117`, 코드 커밋 `2a29e1a3`. 사이드바 최근 여행을 starts_on 내림차순으로 정렬한 뒤 기존 8개 제한을 적용한다. 분기 기타비용을 제외하고 날짜 없는 여행은 뒤로 둔다. 원래 bootstrap 배열·조회 권한 메뉴·장부 데이터는 보존한다.
+- **실제 검사:** 회귀/기존 셸 테스트 12 passed, TypeScript typecheck와 Vite production build PASS. 커밋 후 공식 `python tools/run_quality_checks.py --base origin/main --run`은 plush API/integration/UI 46 passed, py_compile PASS, known failure 0. 최초 커밋 전 실행 NO_CHANGES는 검증 건수에서 제외했다. graphify update는 CLI 미설치로 실패(그래프 파일 없음). 브라우저 렌더 검사는 미실행: DOM 구조·스타일 변경 없는 목록 선택 로직 수정이며 DOM 회귀 검사로 검증했다.
+- **완료/잔여:** 구현·로컬 검증 완료. 운영 배포·PR 병합·독립 SHA 검수는 미실행. 운영에는 아직 반영되지 않았다. 원래 workspace와 사용자 변경 보존. 운영 반영을 이어갈 경우 해당 브랜치 exact SHA 독립 검수·PR/배포 게이트를 수행한다. 기존 기록의 다른 승인 과제를 이 요청으로 재실행하지 않는다.
+
 # 2026-11-17 15:10 — 수기 장부 전수 재대조·TRIP-099 운영 반영 완료
 
 - **결과/정책:** 사용자 “이행해”, 환불의 연결 원결제일 기준, “권장안대로 처리해”를 반영했다. 결제일보다 7일을 넘겨 전에 끝난 여행 귀속은 공통 경계에서 거부하고 정확히 7일은 허용한다. 정식 연결 환불은 원결제일로 검사하며 환불 원행 날짜·연결은 보존한다. P1·예약 근거·P2 수락·판정 저장·장부 기장·새 수동 배정을 검증한다. 전액취소는 최종 환불 탭 정규화 뒤 검사한다.

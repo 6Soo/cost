@@ -37,6 +37,7 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
     return {
         "id": str(trip.get("tab_id") or ""),
         "title": str(trip.get("display_title") or trip.get("display_key") or trip.get("destination") or ""),
+        "display_key": str(trip.get("display_key") or ""),
         "kind": trip_kind(trip),
         "previous": is_previous(trip),
         "starts_on": str(trip.get("starts_on") or ""),

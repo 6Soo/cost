@@ -16,9 +16,10 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "../lib/cn";
+import { listedTrips } from "../lib/trips";
 
 export type AppRole = "owner" | "viewer";
-export type AppTrip = { id: string; title: string; href?: string };
+export type AppTrip = { id: string; title: string; href?: string; starts_on?: string; display_key?: string; kind?: "trip" | "quarter"; previous?: boolean; closed?: boolean; archived?: boolean };
 export type AppShellProps = {
   role: AppRole;
   trips: AppTrip[];
@@ -26,6 +27,7 @@ export type AppShellProps = {
   children: ReactNode;
   onTripSelect?: (tripId: string) => void;
   className?: string;
+  currentTripId?: string;
 };
 type ThemeMode = "light" | "dark";
 type NavItem = { label: string; href: string; match: string[]; icon: IconSvgElement };
@@ -101,7 +103,7 @@ function TripLinks({ trips, onTripSelect, currentPath, className }: {
   if (trips.length === 0) return null;
   return (
     <ul className={cn("cost-trip-links", className)}>
-      {trips.slice(0, 8).map((trip) => {
+      {trips.map((trip) => {
         const href = trip.href ?? `/board?tab=${encodeURIComponent(trip.id)}`;
         const selected = currentPath.includes(encodeURIComponent(trip.id));
         return (
@@ -152,6 +154,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
   const currentPath = normalizedPath(path);
   const mainItems = role === "owner" ? ownerNavigation : viewerNavigation;
   const managementItems = role === "owner" ? ownerManagement : [];
+  const navigationTrips = listedTrips(trips, role === "viewer");
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -249,14 +252,14 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
             <>
               <NavigationLinks items={ownerNavigation} path={currentPath} />
               <div className="cost-sidebar-section">
-                <p className="cost-sidebar-heading">최근 여행</p>
-                <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />
+                <p className="cost-sidebar-heading">여행 목록</p>
+                <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
               </div>
             </>
           ) : (
             <div className="cost-sidebar-section">
               <p className="cost-sidebar-heading">허용된 여행</p>
-              <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />
+              <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
             </div>
           )}
           <div className="cost-sidebar-footer">
@@ -270,14 +273,14 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
           <header className="cost-topbar">
             <div className="cost-topbar-location" aria-label="현재 위치">COST <span aria-hidden="true">/</span> {titleForPath(currentPath)}</div>
             <div className="cost-topbar-actions">
-              {trips.length > 0 && (
+              {navigationTrips.length > 0 && (
                 <details className="cost-trip-switcher">
                   <summary aria-label="여행 전환">
                     <NavIcon icon={ArrowLeftRightIcon} />
                     <span className="cost-topbar-label">여행 전환</span>
                   </summary>
                   <div className="cost-trip-switcher-panel">
-                    <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />
+                    <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />
                   </div>
                 </details>
               )}
@@ -290,7 +293,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
                   <div className="cost-tablet-menu-panel">
                     <NavigationLinks items={mainItems} path={currentPath} />
                     {managementItems.length > 0 && <NavigationLinks items={managementItems} path={currentPath} />}
-                    {role === "viewer" && <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />}
+                    {role === "viewer" && <TripLinks trips={navigationTrips} onTripSelect={onTripSelect} currentPath={path} />}
                   </div>
                 </details>
               </div>
