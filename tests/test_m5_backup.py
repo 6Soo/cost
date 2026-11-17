@@ -176,6 +176,23 @@ class _SyntheticDownloadClient:
         target.write_bytes(self.files[path])
 
 
+class _FailingDownloadClient(_SyntheticDownloadClient):
+    def __init__(self, snapshot: Path, failure_mode: str):
+        super().__init__(snapshot)
+        self.failure_mode = failure_mode
+
+    def download(self, path: str, target: Path):
+        self.download_calls.append(path)
+        content = self.files[path]
+        if self.failure_mode == "partial_download":
+            target.write_bytes(content[:max(1, len(content) // 2)])
+            raise OSError("synthetic interrupted download")
+        if self.failure_mode == "hash_mismatch":
+            target.write_bytes(content + b"synthetic corruption")
+            return
+        target.write_bytes(content)
+
+
 def test_pull_publishes_then_waits_until_24_hours_and_pulls_again(tmp_path):
     _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
     client = _SyntheticDownloadClient(snapshot)
@@ -209,3 +226,64 @@ def test_pull_publishes_then_waits_until_24_hours_and_pulls_again(tmp_path):
     assert first_generation.is_dir()
     assert client.manifest_calls == 2
     assert len(client.download_calls) == 2 * len(client.manifest["files"])
+
+
+@pytest.mark.parametrize(
+    ("failure_mode", "expected_code", "retries"),
+    [
+        ("partial_download", "PULL_FAILED", 3),
+        ("hash_mismatch", "PULL_HASH_MISMATCH", 1),
+        ("restore_publish", "PUBLISH_FAILED", 1),
+        ("rehearsal_verify", "SNAPSHOT_INVALID", 1),
+    ],
+)
+def test_failed_pull_retries_clean_only_owned_staging_and_preserve_data(
+    tmp_path, monkeypatch, failure_mode, expected_code, retries
+):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    first_time = datetime(2026, 11, 17, 2, 30, tzinfo=timezone.utc)
+    first = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=first_time
+    )
+    assert first["ok"] is True
+    published = destination / first["generation"]
+    state_before = (destination / "pull-state.json").read_bytes()
+    user_file = destination / "keep-user-file.txt"
+    user_file.write_bytes(b"user-owned synthetic note")
+
+    if failure_mode == "restore_publish":
+        actual_publish = m5_backup._publish
+
+        def fail_rehearsal_publish(stage: Path, target: Path):
+            if target.name.startswith(".restore-check-"):
+                raise m5_backup.BackupError("PUBLISH_FAILED")
+            actual_publish(stage, target)
+
+        monkeypatch.setattr(m5_backup, "_publish", fail_rehearsal_publish)
+    elif failure_mode == "rehearsal_verify":
+        actual_verify = m5_backup.verify_snapshot
+
+        def fail_rehearsal_verify(path: Path):
+            if Path(path).name.startswith(".restore-check-"):
+                raise m5_backup.BackupError("SNAPSHOT_INVALID")
+            return actual_verify(path)
+
+        monkeypatch.setattr(m5_backup, "verify_snapshot", fail_rehearsal_verify)
+
+    for _attempt in range(retries):
+        client = _FailingDownloadClient(snapshot, failure_mode)
+        result = m5_backup.pull_snapshot(
+            client, destination, now=first_time + timedelta(hours=24)
+        )
+        assert result == {"ok": False, "code": expected_code}
+        assert client.manifest_calls == 1
+        assert list(destination.glob(".incoming-*.tmp")) == []
+        assert not any(
+            child.is_dir() and "restore-check-" in child.name
+            for child in destination.iterdir()
+        )
+        assert (destination / "pull-state.json").read_bytes() == state_before
+        assert user_file.read_bytes() == b"user-owned synthetic note"
+        assert published.is_dir()
+        assert m5_backup.verify_snapshot(published) == created

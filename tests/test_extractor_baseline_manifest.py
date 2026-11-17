@@ -151,3 +151,29 @@ def test_live_source_uses_readonly_snapshot_and_is_left_unchanged(tmp_path):
     assert sha256(live) == before
     manifest = json.loads(Path(response["result"]["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["sources"] == {"capture_mode": "sqlite-backup", "external_source_files": False}
+
+
+def test_logical_fingerprint_preserves_duplicates_types_and_long_row_values(tmp_path):
+    import sqlite3
+    from tools.core_bridge.extract_baseline import sqlite_logical_fingerprint
+
+    first, reordered = tmp_path / 'first.sqlite', tmp_path / 'reordered.sqlite'
+    prefix = 'synthetic shared mail body ' * 4096
+    rows = [(1, prefix + 'a'), ('1', prefix + 'a'), (None, b'1'), (1, prefix + 'a')]
+    for path, values in ((first, rows), (reordered, list(reversed(rows)))):
+        with sqlite3.connect(path) as conn:
+            conn.execute('CREATE TABLE sample(identifier, body)')
+            conn.executemany('INSERT INTO sample VALUES (?, ?)', values)
+        with sqlite3.connect(path) as conn:
+            conn.execute('VACUUM')
+    original = sqlite_logical_fingerprint(first)
+    assert sqlite_logical_fingerprint(reordered) == original
+    with sqlite3.connect(reordered) as conn:
+        conn.execute('DELETE FROM sample WHERE rowid=(SELECT MIN(rowid) FROM sample WHERE identifier=1)')
+    assert sqlite_logical_fingerprint(reordered) != original
+    with sqlite3.connect(reordered) as conn:
+        conn.execute('INSERT INTO sample VALUES (?, ?)', (1, prefix + 'a'))
+    assert sqlite_logical_fingerprint(reordered) == original
+    with sqlite3.connect(reordered) as conn:
+        conn.execute("UPDATE sample SET identifier=CAST(identifier AS TEXT) WHERE typeof(identifier)='integer'")
+    assert sqlite_logical_fingerprint(reordered) != original

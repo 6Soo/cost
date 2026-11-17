@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from http import HTTPStatus
 from pathlib import Path
 
 from app.http_request_counts import RequestCounts, route_id_for_path
@@ -40,6 +41,20 @@ def test_routes_collapse_dynamic_paths_and_methods_to_fixed_ids():
     assert route_id_for_path("/healthz?token=secret") == "health"
     assert route_id_for_path("/assets/photo-name.jpg") == "assets"
     assert route_id_for_path("/unknown/123?customer=customer-123") == "unknown"
+
+
+def test_standard_library_error_statuses_are_counted_as_http_errors(tmp_path):
+    clock = Clock()
+    path = tmp_path / "counts.json"
+    counts = RequestCounts(path, start_flusher=False, wall_clock=clock.now,
+                           monotonic_clock=clock.monotonic_now)
+    for status in (HTTPStatus.NOT_FOUND, HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE,
+                   HTTPStatus.NOT_IMPLEMENTED, True):
+        counts.observe_finish(counts.observe_begin("/api/synthetic", "GET"), status)
+    assert counts.flush()
+    completed = route_counts(load(path), "api", "GET")["completed"]
+    assert completed["4xx"] == 2 and completed["5xx"] == 1 and completed["other"] == 1
+    counts.close()
 
 
 def test_start_finish_and_abort_are_counted_once_with_actual_byte_totals(tmp_path):

@@ -1,3 +1,13 @@
+# 2026-11-17 — M3·M4·M5 도구 복구 후 재검증 (진행 중)
+
+- **현재 승인:** 기존 M3~M5 보완 재개. 이전 완료 보고를 전체 완료로 간주하지 않는다. 작업공간 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/m3-m5-remediation-20261117`, 브랜치 `integration/m3-m5-remediation-20261117`. 다른 세션의 `C:/AX/cost` 변경은 보존한다.
+- **코드:** main `259bc187`을 `3a3f9fed`에서 병합했고, `7dd4c3b6`에 누락됐던 제한된 P2 어댑터, 인증된 역방향 백업 HTTP/노드 연결, Windows fsync·SQLite WAL 복제 오류 수정과 합성 수락 검사를 통합했다. 실제 구독 모델 호출·운영 DB 반영·배포는 하지 않았다.
+- **실행 근거:** 실제 Rust 실행 파일→HTTP queue→별도 node 프로세스→Replay 결과 저장→DB/원본 역방향 복원과 관련 검사 **24 passed**. 프런트 빌드 성공, 전체 **27파일/151 tests passed**(`--maxWorkers=2`). 최초 27 workers 실행의 theme-swap 5초 timeout 1건은 PASS로 집계하지 않았고, 기대값·제한시간 변경 없이 재검사했다. quality/selector/adapter 표적 **75 passed**. 독립 sol 검수의 별도 합성 검사 **36 passed**.
+- **M3 현재 사실:** 보호된 운영 복사본의 새 감사는 scanned 7,349 / stored 91 / missing 2,585 / classification changes required 60 / protected or preserved 3,984다. 캐시 기간 근거의 신선함은 미검증이므로 진단값이다. 과거 2,636건을 현재 건수로 사용하지 않는다. debug 120초 제한은 실패로 기록했고 release 감사는 280.956초에 완료했다. 복사본 복원·decisions-only 보완·재실행 검증을 진행한다. 운영 DB 쓰기 0.
+- **미완료:** 생산 추출기 고정 출력의 입력 사본 결속은 대용량 읽기 전용 capture 진행 중(이전 request의 원본 입력 사본 경로는 사라짐). M4 P-03/P-05 산출물·느린 응답 검사를 추가 중이며 실기기·SR 실청취는 미검증. 독립 검수에서 발견한 HTTPStatus 오류 계수와 실패 백업 임시사본 누적을 보완 중이다. 영향 검사는 기존 문서 EOF 공백 때문에 중단됐으므로 통과가 아니다. 최종 SHA 검사·검수·PR·운영 계측 배포는 남았다.
+- **M5 경계:** 제공자·계약·과금·원문 국외 저장 결정 전 실제 클라우드 이전을 실행하지 않는다(`docs/design/m5m6-kickoff-20261117.md` §0/§3). 실제 PC-off, 신선한 클라우드 스냅샷 생성·일일 역방향 운영 복원은 미검증이다. 전체 M3/M4/M5 완료가 아니다.
+- **근거/다음:** `.local-archive/m3-m5-resume-20261117/`의 safe metadata·합성 검사·운영 복사본 진단과 [보완 실행판](agents/M3_M5_REMEDIATION_20261117.md). 최종 변경 후 `python tools/run_quality_checks.py --base origin/main --run`, 정확 SHA 독립 검수, 단일 운영 작성자 조율·신선 백업복원 게이트 순서로 진행한다.
+
 # 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 
 - **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
@@ -284,5 +294,3 @@
 - 검증: Python 표적 120 passed, frontend Vitest 24파일/143 passed, frontend build 성공, Rust workspace tests 전체 통과, clippy `-D warnings` 통과, 320px ego-browser probe overflow 0.
 - 상태: M3 저장 audit/repair는 합성 범위 PASS이나 운영 2,636행 backfill·신선 백업복원 전이라 PARTIAL. M4 F-03~06은 표적 계약과 320px 재검증 PASS이나 P-01~10 전체 수락은 미완료. M5 Rust 큐·provider-independent server/node·P2·계수기·백업 코드는 합성 범위 PASS이나 실제 클라우드 이전·PC-off·일일 역방향 운영 백업은 PARTIAL/BLOCKED.
 - 배포·운영 DB 쓰기·고객 원문 접근은 하지 않았다. graphify 0.9.111의 PATH 누락을 사용자 PATH와 `.local/bin/graphify.cmd` shim으로 복구했고 `graphify update .` 및 제한 질의를 성공시켰다(SQL parser 미설치 경고는 별도 기록). 남은 첫 작업은 신선 백업·복원 게이트를 갖춘 M3 운영 적용 검토이며, 제공자·과금·인증 결정 없이는 M5 전체 완료를 선언하지 않는다.
-
-

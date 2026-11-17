@@ -79,6 +79,7 @@ def _feed_atom(digest, value):
 def sqlite_logical_fingerprint(path):
     """Hash SQLite schema and typed row values independently of page layout."""
     digest = hashlib.sha256()
+    _feed_atom(digest, "sqlite-logical-row-multiset-v1")
     target = Path(path).resolve()
     with closing(sqlite3.connect(target.as_uri() + "?mode=ro", uri=True)) as conn:
         conn.execute("PRAGMA query_only=ON")
@@ -96,16 +97,19 @@ def sqlite_logical_fingerprint(path):
         for table in tables:
             quoted = '"' + table.replace('"', '""') + '"'
             cursor = conn.execute(f"SELECT * FROM {quoted}")
-            columns = len(cursor.description or ())
-            if columns:
-                order = ", ".join(str(index) for index in range(1, columns + 1))
-                cursor = conn.execute(f"SELECT * FROM {quoted} ORDER BY {order}")
             _feed_atom(digest, "rows")
             _feed_atom(digest, table)
+            # Sorting full mail/portal bodies in SQLite spills large text to
+            # disk and repeatedly compares common prefixes. Hash each typed
+            # row once, then sort fixed-size digests. Preserve duplicate rows.
+            rows = []
             for row in cursor:
-                _feed_atom(digest, "row")
+                row_digest = hashlib.sha256()
                 for value in row:
-                    _feed_atom(digest, value)
+                    _feed_atom(row_digest, value)
+                rows.append(row_digest.digest())
+            for row_digest in sorted(rows):
+                digest.update(row_digest)
             _feed_atom(digest, "table-end")
     return digest.hexdigest()
 

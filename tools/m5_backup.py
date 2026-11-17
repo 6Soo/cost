@@ -633,6 +633,13 @@ def restore_snapshot(folder: str | os.PathLike, destination: str | os.PathLike) 
         raise
     except Exception:
         _fail("RESTORE_FAILED")
+    finally:
+        _cleanup_owned_directory(
+            target.parent,
+            stage,
+            name_prefix=f".{target.name}-restore-",
+            name_suffix=".tmp",
+        )
 
 
 def _read_pull_state(path: Path) -> tuple[datetime, str] | None:
@@ -706,18 +713,32 @@ def _download_snapshot(client, manifest: dict, stage: Path) -> None:
     _write_json_exclusive(stage / "manifest.json", manifest)
 
 
-def _cleanup_owned_restore(root: Path, path: Path) -> None:
-    """Remove only a freshly created restore rehearsal under the supplied root."""
+def _cleanup_owned_directory(root: Path, path: Path, *,
+                             name_prefix: str, name_suffix: str = "") -> None:
+    """Remove only a named, freshly created temporary directory under root."""
     try:
         _reject_reparse_components(root)
         _reject_reparse_components(path)
         if path.parent.resolve(strict=True) != root.resolve(strict=True):
             return
-        if path.name.startswith(".restore-check-") and path.is_dir():
+        if (path.name.startswith(name_prefix) and path.name.endswith(name_suffix)
+                and path.is_dir()):
             shutil.rmtree(path)
     except Exception:
-        # A failed cleanup leaves the caller's prior snapshots untouched.
+        # A failed cleanup leaves prior snapshots and unrelated files untouched.
         return
+
+
+def _cleanup_owned_restore(root: Path, path: Path) -> None:
+    """Remove only a freshly created restore rehearsal under the supplied root."""
+    _cleanup_owned_directory(root, path, name_prefix=".restore-check-")
+
+
+def _cleanup_owned_pull_stage(root: Path, path: Path) -> None:
+    """Remove only a freshly created incoming pull stage under the supplied root."""
+    _cleanup_owned_directory(
+        root, path, name_prefix=".incoming-", name_suffix=".tmp"
+    )
 
 
 def pull_snapshot(client, destination_root: str | os.PathLike,
@@ -727,6 +748,9 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
     The 24-hour interval is measured from the last successfully published pull.
     Failed attempts do not update that state and are therefore retryable.
     """
+    root = None
+    stage = None
+    rehearsal = None
     try:
         root = _absolute(destination_root, "DESTINATION_INVALID")
         _reject_reparse_components(root)
@@ -750,13 +774,13 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
         rehearsal_result = verify_snapshot(rehearsal)
         if rehearsal_result["snapshot_id"] != verified["snapshot_id"]:
             _fail("RESTORE_HASH_MISMATCH")
-        _cleanup_owned_restore(root, rehearsal)
 
         generation = root / (
             f"snapshot-{current.strftime('%Y%m%dT%H%M%SZ')}-"
             f"{verified['snapshot_id'][:16]}-{uuid.uuid4().hex[:8]}"
         )
         _publish(stage, generation)
+        stage = None
         _write_pull_state(state_path, current, verified["snapshot_id"])
         return {**verified, "skipped": False, "generation": generation.name,
                 "last_success_at_utc": _stamp(current)}
@@ -764,3 +788,9 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
         return {"ok": False, "code": exc.code}
     except Exception:
         return {"ok": False, "code": "PULL_FAILED"}
+    finally:
+        if root is not None:
+            if rehearsal is not None:
+                _cleanup_owned_restore(root, rehearsal)
+            if stage is not None:
+                _cleanup_owned_pull_stage(root, stage)

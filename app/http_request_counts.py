@@ -58,7 +58,7 @@ def _method_id(method: object) -> str:
 
 
 def _status_class(status: object) -> str:
-    if type(status) is not int or not 100 <= status <= 599:
+    if isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599:
         return "other"
     return f"{status // 100}xx"
 

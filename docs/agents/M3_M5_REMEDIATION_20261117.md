@@ -6,15 +6,15 @@
 
 | ID | 요구사항 | 상태 | 작성자/완료 조건 |
 | --- | --- | --- | --- |
-| R1 | F-02 저장 완전성 진단과 안전한 decisions-only 보완 | PARTIAL | 합성 audit/repair와 보호 게이트 통과. 실제 2,636행 운영 backfill·신선 백업복원·누락0 운영 확인 남음 |
+| R1 | F-02 저장 완전성 진단과 안전한 decisions-only 보완 | PARTIAL | 새 운영 복사본 감사 missing 2,585·분류변경 필요 60·보호/보존 3,984. 신선한 기간 근거 확인과 운영 누락0은 남음. 복사본 복원·보완·재실행 검사 진행 |
 | R2 | F-03/04/05/06 React 저장기간·404·320px·분류대기 | PARTIAL | 저장기간 DTO·404·대기 의미 제거·CSS 보완과 표적 테스트 통과. Windows Chromium 재검증 남음 |
-| R3 | F-07 추출기 고정 입력/출력/의존성 재현 manifest | PARTIAL | baseline manifest 코드/테스트 통과. 생산 입력 사본 결속은 운영 자료 필요 |
+| R3 | F-07 추출기 고정 입력/출력/의존성 재현 manifest | PARTIAL | 이전 입력 사본 경로 소실 확인. 1.76GB 생산 DB 읽기 전용 새 capture/검증 진행. 긴 원문 전체 정렬 대신 typed 행 해시 multiset으로 논리 지문 계산 |
 | R4 | F-01 M5 영속 큐·임대·상한·재시도 | COMPLETE(코드/합성 범위) | 원자 claim·만료/경합·토큰 fencing·중복/예산·재시작 테스트 통과 |
-| R5 | F-01 M5 server/node·P2 실행기·이식 패키지·역방향 백업 | PARTIAL | provider-independent runtime/P2/backup 코드와 합성 테스트 통과. 실제 클라우드·PC-off·일일 운영 검증 남음 |
+| R5 | F-01 M5 server/node·P2 실행기·이식 패키지·역방향 백업 | PARTIAL | 누락된 P2 adapter·백업 HTTP/노드 연결 및 Windows WAL/fsync 수정. 실제 Rust 실행 파일/HTTP/node/복원 합성 검사 통과. 실제 클라우드·PC-off·신선한 일일 스냅샷 운영 검증 남음 |
 | R6 | F-01 요청 계수기·실측 시작 | COMPLETE(코드/합성 범위) | 고정 ID·상태·본문 바이트 계측과 재시작/오류/비노출 테스트 통과. 운영 배포 미실행 |
-| R7 | M4 P-01~10 미검증 수락 보완 | NOT_STARTED | 감독: 실제 합성 API→화면→산출물·영속성·성능1000행·키보드/두테마/긴값/폭/확대 검사, 실기기/실청취 미실행 별도 표시 |
-| R8 | 통합 검사·정확SHA 독립 검수·병합·공식 배포 | NOT_STARTED | 감독만 git commit/통합/배포, 운영 작성자 조율·신선 보호 게이트 |
-| R9 | 실제 클라우드 이전 | NOT_STARTED | 제공자/계약/과금/국외처리 사용자 결정 경계와 실측 필요. 독립 구현은 계속하며 전체 M5 완료를 선포하지 않음 |
+| R7 | M4 P-01~10 미검증 수락 보완 | PARTIAL | 1,000행/10페이지 전체 집합·순서·중복 및 검색100행 통과, API 내부 p95 25.392ms. 프런트151건/빌드 통과. TSV/XLSX·느린 응답·재시도 검사 추가 중, 실기기/SR/브라우저p95 미검증 |
+| R8 | 통합 검사·정확SHA 독립 검수·병합·공식 배포 | PARTIAL | 구현 7dd4c3b6 통합. 독립 sol 36건 PASS, HTTPStatus/백업 임시사본 누적 추가 수정 중. 문서 EOF 공백 게이트 수정 후 최종 SHA 영향검사·검수 필요. 운영 미배포 |
+| R9 | 실제 클라우드 이전 | BLOCKED | 제공자/계약/과금/국외처리 사용자 결정과 요청량 실측 필요. 정본 게이트로 실제 이전을 실행하지 않으며 전체 M5 완료를 선포하지 않음 |
 
 ## 소유권과 보호
 
@@ -62,7 +62,3 @@
 
 다음 정확한 작업은 R1의 운영 적용 전용 백업·복원 게이트를 감독하고, R2의 Windows Chromium 320px 재현을 독립 실행한 뒤, R7 수락 증거를 범위별로 채우는 것이다. 이 문서의 PARTIAL을 M3~M5 전체 COMPLETE로 승격하지 않는다.
 - 추가 브라우저 검증: `frontend/dist`를 loopback `127.0.0.1:60204`의 일회성 정적 서버로 제공하고 ego-browser Chromium을 320px로 고정했다. `innerWidth=320`, `clientWidth=320`, `scrollWidth=320`, `overflow=0`을 확인한 뒤 서버·TaskSpace·스크립트를 종료했다. 운영 포트는 사용하지 않았다.
-
-
-
-
