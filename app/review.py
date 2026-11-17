@@ -736,6 +736,11 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                                          (transaction_id,)).fetchone()
             if current[0] != expected_revision:
                 raise StoreError(CODE_REVISION_CONFLICT, '다른 곳에서 먼저 고쳤습니다. 다시 불러와 주세요')
+            from .ledger import _past_trip_block
+            blocked = _past_trip_block(store.conn, dict(transaction_id=transaction_id,
+                                                        trip_id=trip, display_tab_id=tab))
+            if blocked:
+                raise StoreError('PAST_TRIP', blocked[1])
             store.conn.execute(
                 "INSERT INTO review_decisions(transaction_id, revision, item,"
                 " description, display_tab_id, note, reuse_rule, decided_at)"

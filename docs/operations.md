@@ -1,3 +1,19 @@
+# 2026-11-17 15:10 — TRIP-099 코드 배포·구매3건 교정·Rust 전환 완료
+
+- **공식 배포:** reviewed/actual `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, Previous `9399d8cb40095b38715bd997f1123dfc6a620620`. `deploy_verified_release.ps1 -Apply` exit0, backend8752→8751·gateway8790. 추적1,906 blob불일치0·보호14표 불변·health/ready200·비인증 보호API401·Board/Worker 같은 SHA/Rust/rust. 코드 배포 단계 금융 apply NOT_RUN, 이후 아래 별도 교정을 수행했다.
+- **검수/검사:** 독립 gpt-6.1-sol medium 정확 acc0 SHA APPROVE. 공식 영향1,834/1,834 PASS·skip0·known0, Rust fmt/clippy/test·costcore build PASS. 사용자 승인으로 기존6검사의 로컬 합성 날짜만 정렬, 공용CARD/assert 보존. 첫 전체 영수증1건 timeout은 기록을 보존했으며 코드 변경 없는 단독/전체 재검사에서 통과. CI 2job은 결제 문제 시작 전 차단(annotation 확인), 실제 실패 면제 없음.
+- **실제 금융 반영:** 검수된 별도 hidden 유지보수 프로세스에서 pause/drain·공식 task 정지·writer 부재 확인 후 Q2/Q4 각각 신선 board/core 백업·복원 검증 → exact2/exact1 APPLIED → 각 REPLAYED 변경0. 합3건203,809원을 결제분기 기타비용으로 교정했다. 거래/장부/보드 일치·원본/대상 밖/금융 관계/core 불변·새 이용기간0·Python/새Rust 대상3 재판정0 PASS. 원결제일 기준 유효한 환불9건 이동0.
+- **바이너리 전환:** 별도 `D:/WebLedgerHost/bin/costcore/costcore-acc0d274.exe`, SHA256 `3a96c4f334f9a19265e8be55e621a725b3b16bb4c564eaa5dfc1518e67455857`. 기존 e4e5 파일 SHA256 `1224058b5cbbd2124afd6d1cdd1c788b4ac15df5cac5e2a618fac644df48c25c` 보존. config 의미상 bin 경로만 변경·Rust/rust 유지. 사본 전체7,336 Python/Rust 재판정2,152/2,152·환불486/486·일반판정8/8 일치, 기존/새bin 일반대상·값도 같음.
+- **복구/후검증:** financial_verified/runtime_restored 모두 true. health/ready 및 Board/Worker 역할 검증 뒤에만 route 재개. 서비스 재개 후 2026-11-17T06:09:56Z 읽기전용 검증 PASS, paused=false·health/ready200·대상3투영/원본/대상밖/금융/core 불변·검증DB쓰기0·Google쓰기0. 전체투영15→12건 중 화면위반0: 수동화면귀속 우선3·완료Q1미기장9 보호 유지(전역0 아님).
+- **근거/통합:** 보호 `data/backups/full-q12-manual-reconciliation-20261116T230618Z/code-repair/`의 core-deploy-evidence·financial-backup-restore-q2/q4·q2/q4-applied/replay·final-validation·maintenance-lifecycle·final-runtime-validation·all-projection-cutoff-after-adjudication-summary. 전체4,222행 및 실제3건은 상위 보호 XLSX에 기록. PR989의 제품코드와 완료문서 함께 통합하며 문서 후속 재배포 없음. 다음 PreviousSha=acc0d274(항상 실제값 재확인), M5/M6에 완료·소유권 해제 통지 후 운영 작성자 재조율.
+
+# 2026-11-17 08:00 — 수기 원문 재대조 공통코드·실제 기장 교정 완료
+
+- **승인/결과:** 사용자 “기장도 코드를 변경해서 변경하도록” COMPLETE. 금액과 (날짜 또는 식별력 있는 업체명 일부)가 일치하는 유일한 하반기 수기 원행을 검증하는 공통 경로로 과거 자동 귀속 1건을 교정했다. 거래·장부·보드의 여행·항목·설명을 함께 반영하고 변경 전 값과 감사 이력을 보존했다. 일반 업체명만의 오연결·복수 후보·상반기 원행 중복은 거부하며 실제 수동 교정/P2·중복/환불 보호를 유지한다.
+- **코드/검수:** reviewed/deployed `9399d8cb40095b38715bd997f1123dfc6a620620`, PR988 병합 `29354f6abd189d0a999a722de3e68f6fac4f68cd`. 독립 gpt-6.1-sol medium 정확 SHA APPROVE·표적208 PASS, 최종 공식 영향815 passed/skip0/known failure0·compile/costcore build PASS. GitHub 2job은 결제 문제로 시작 전 차단(annotation 확인)으로 지침의 독립 검수+로컬 검사 예외를 적용했다.
+- **운영/보호:** 공식 deploy_verified_release.ps1 exit0, Previous fddbb8c6 → actual9399d8cb/backend8752·gateway8790. 추적1904 blob불일치0·보호14표 불변·health/ready200·보호API401·Board/Worker Rust/Rust 정렬·기존 e4e5 바이너리/설정 해시 보존. 별도 관리 프로세스에서 board/core 신선 scoped 백업·복원 검증 → APPLIED1 → REPLAYED 변경0 → 3투영 일치·원문/대상밖/금융/core불변·Python/Rust 재판정대상0·새 이용기간0 확인. 금융 교정 검증/서비스 복구 모두 true, paused=false. 서비스 재개 후 23:00:26Z 읽기전용 재검증도 PASS, 검증 DB쓰기0·Google쓰기0.
+- **근거/잔여:** 보호 경로 `D:/WebLedgerHost/data/backups/q12-auto-additions-20261116T181539Z/amount-or-merchant-audit-20261116T222100Z/code-repair/`의 financial-backup-restore/applied/replay/final-validation/maintenance-lifecycle JSON·증거 XLSX. 원문과 행별 금액은 Git 밖에만 보존. 이번 승인 범위의 남은 구현·검사·운영 반영/차단 없음. 운영 소유권 해제 통지 완료, 다음 PreviousSha=9399d8cb(실제값 재확인). 기존 사용자 미커밋 변경 보존. 완료 기록 때문에 문서 전용 PR·재배포하지 않는다.
+
 # 운영 기록
 
 ## 2026-11-17 — M4 UI-0 React 프런트 수락 검증·간극 종결 운영 배포 완료

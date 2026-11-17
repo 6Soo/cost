@@ -23,7 +23,7 @@ pub use region::{
     trip_countries, trip_region,
 };
 pub use select::{
-    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, period_or_preparation,
+    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, past_trip, period_or_preparation,
     regional_trips,
 };
 pub use stay::{BookingPeriod, booking_trip, stay_trip};
@@ -137,6 +137,28 @@ pub const RULEBOOK_DIFF_CANDIDATES: [(&str, &str); 5] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn past_trip_uses_source_payment_and_end_with_seven_days_inclusive() {
+        let trip = Trip {
+            starts_on: "2026-09-01".into(),
+            ends_on: Some("2026-09-10".into()),
+            ..Trip::default()
+        };
+        let mut card = Txn {
+            approval_date: "2026-09-17".into(),
+            posting_date: "2026-10-01".into(),
+            ..Txn::default()
+        };
+        assert!(!past_trip(&card, &trip));
+        card.approval_date = "2026-09-18".into();
+        assert!(past_trip(&card, &trip));
+        assert!(!card_trip_allowed(&card, &trip));
+        card.approval_date.clear();
+        assert!(past_trip(&card, &trip));
+        card.approval_date = "invalid".into();
+        assert!(!past_trip(&card, &trip));
+    }
 
     #[test]
     fn restricted_jeju_trip_is_open_only_to_card_4813() {
