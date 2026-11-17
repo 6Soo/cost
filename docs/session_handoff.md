@@ -1,9 +1,10 @@
-# 2026-11-17 — 최근 여행 기능 폐지·전체 미보관 여행 목록 (진행 중)
+# 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 
 - **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
 - **구현:** 사이드바·여행 전환·조회자 허용 목록에서 개수 제한 제거, 보관 제외·시작일 오름차순·display_key 동률·날짜 없음 마지막. 이전/마감 여행도 포함하고 현재 보관 여행 예외는 제거했다. 조회자 권한 범위/허용 분기는 유지한다. 홈의 최근6개 카드도 같은 전체 여행 목록으로 교체했다. 금융·원문·Google 쓰기 없음.
-- **검사:** 표적 4파일21건 및 typecheck PASS. 옛 8개 계약 테스트는 사용자 명시 변경에 맞춰 전체 노출 계약으로 대체했다. 첫 실행의 동률 날짜 fixture 기대 순서 오류는 구분해 보존했고, 상태 포함 검사는 날짜가 다른 fixture로 명확히 했다. 같은 날짜 display_key 순서 별도 검사는 유지한다.
-- **진행/다음:** 브라우저 합성390/1440·공식 영향 검사·정확 SHA 독립 검수·병합·공식 배포가 남음. actual d112e51b/backend8751 확인, 이 운영 카드UI 변경을 후보에 보존한다. C:/AX/cost-recent-trips 재사용. 로컬 근거 .local-archive/restore-legacy-trip-order-20261117/.
+- **검사/검수:** 표적 5파일23건·typecheck/build PASS, 공식 영향263/263·skip0·known0. 독립 gpt-6.1-sol medium이 정확 SHA `db410e46a9be52290a690bc5bebce8b5ae556d31` APPROVE(findings0), 독립 프런트6·백엔드3·typecheck·합성DTO·diff 검사 PASS. 합성40개390/1440 스크롤·마지막항목focus·가로넘침0 확인. 옛8개 계약 테스트는 사용자 명시 변경에 맞춰 대체했고 동률display_key·날짜없음·보관제외·권한 검사는 유지했다. 첫 기대순서 fixture 오류와 Vite 콜드로드 시간초과는 통과로 집계하지 않았다. graphify update(AST-only) 완료(그래프 기존 미추적 상태 보존, SQL parser 부재 경고 구분).
+- **운영/완료:** COMPLETE. 구현 `d1c2f818`, 운영 카드변경 d112 보존 병합/검수/배포 `db410e46`, PR992 병합 `2aca8f7b`(트리 동일). 공식 도구 exit0, Previous d112e51b → actual db410e46/backend8752·gateway8790. 1,911파일 blob불일치0·빌드dist3개 해시일치·보호14표불변·Board/Worker/core writers VERIFIED·health/ready200·보호API401·paused=false·금융apply NOT_RUN. CI run44043578687의2job은 결제한도로 시작전 차단(annotation 직접 확인); 실제 검사실패 우회 없음.
+- **실화면/다음:** 인증된 운영 화면에서 예상68개==사이드바68개==전환68개·시작일ASC/display_key 일치·새JS자산 로드 확인. PC1440/모바일390 마지막항목focus·스크롤·가로넘침0. 고객여행명/원문은 보고에 저장하지 않았다. 남은 구현·검사·배포·차단 없음, 조율 세션에 배포 전후 통지·운영쓰기 소유권 해제. 다음 PreviousSha는 실제 운영값 재확인. 근거 `D:/WebLedgerHost/releases/deploy-evidence-db410e46a9be52290a690bc5bebce8b5ae556d31.json` 및 `.local-archive/restore-legacy-trip-order-20261117/`. 완료 문서 때문에 재배포하지 않는다.
 
 # 2026-11-17 — 예전 UI 여행 목록 정렬 복원 (최신 요구로 대체됨)
 
