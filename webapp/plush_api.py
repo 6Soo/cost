@@ -148,7 +148,11 @@ def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) 
     # fallback is only for test doubles that expose plain rows.
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
-    return projection.trip_summary(trip, rows)
+    summary = projection.trip_summary(trip, rows)
+    from . import ledger_board
+
+    summary["title"] = ledger_board.trip_display_label(trip)
+    return summary
 
 
 def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str, Any]:

@@ -49,8 +49,28 @@ def test_trips_ui_exposes_owner_filter_without_source_writes(store):
         html=board.trips_page(role='owner')
     assert 'trip-management-owner' in html
     assert "data-owner='andre'" in html and "data-owner='aslan'" in html
-    assert '김동언(안드레)' in html
+    assert '1022_합성 · 안드레' in html
+    assert '김동언(안드레)' not in html
     assert list(store.conn.iterdump())==before
+
+
+def test_andre_trip_labels_use_only_the_owner_suffix(store):
+    andre=create(store,'andre','b')
+    andre_trip=store.get_trip(andre['tab_id'])
+    aslan=create(store,'aslan','a')
+    aslan_trip=store.get_trip(aslan['tab_id'])
+    with patch.object(board,'_STORE',store),patch.object(board,'current_role',return_value='owner'):
+        from webapp import ledger_design, site_shell
+        andre_head=ledger_design._head_html(andre_trip)
+        aslan_head=ledger_design._head_html(aslan_trip)
+        assert '<h1>1022_합성 · 안드레' in andre_head
+        assert '<h1>1022_합성' in aslan_head
+        assert '<h1>1022_합성 · 안드레' not in aslan_head
+        assert '1022_합성 · 안드레' in ledger_design._trip_switch_dialog(andre_trip)
+        assert '1022_합성 · 안드레' in site_shell._active_trip_nav(andre['tab_id'])
+        assert '1022_합성 · 안드레' in site_shell._screen_title('/board','',{'tab':andre['tab_id']})
+        assert '1022_합성 · 안드레' in site_shell._breadcrumb('/board',{'tab':andre['tab_id']},'')
+    assert andre_trip['display_key']=='andre::2026::1022_합성'
 
 def test_andre_income_references_agree_across_rows_participants_and_insurance(tmp_path,monkeypatch):
     import datetime as dt
