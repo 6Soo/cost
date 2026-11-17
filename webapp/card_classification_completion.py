@@ -131,10 +131,11 @@ def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
     server, or completing an unrelated import never migrates recorded expenses.
     """
     conn = flow.board.conn
+    from .ledger_store_records import booked_sql
     selected = {row[0] for row in conn.execute(
         "SELECT t.transaction_id FROM import_batch_rows r JOIN transactions t USING(transaction_id)"
         " WHERE r.batch_id=? AND t.classification_source='inference'"
-        " AND EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)", (batch_id,))}
+        " AND EXISTS(" + booked_sql(conn, 't') + ")", (batch_id,))}
     if transaction_ids is not None:
         selected.intersection_update(transaction_ids)
     if not selected:

@@ -63,6 +63,7 @@ def candidates(conn, ids=None):
     """Rows still to complete; with `ids`, only among those rows (the scan then skips the rest of the batch)."""
     from .card_classification_completion import missing_assignment_sql
     from app.manual_overrides import exists_sql as manual_exists_sql
+    from .ledger_store_records import booked_sql
     scope = '' if ids is None else ' WHERE transaction_id IN (SELECT value FROM json_each(?))'
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
@@ -88,7 +89,7 @@ def candidates(conn, ids=None):
         " AND COALESCE(t.classification_source,'') NOT IN"
         " ('user_decision','user_exception','owner_booking','manual','manual_hold')"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+        " AND NOT EXISTS(" + booked_sql(conn, 't') + ")"
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
         " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id") +
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"

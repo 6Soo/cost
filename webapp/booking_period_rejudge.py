@@ -42,10 +42,11 @@ def store_digest(conn, tid, digest, detail):
 
 
 def recorded_rows(conn) -> set:
-    """Recorded lodging/flight purchases (a board row exists)."""
+    """Recorded lodging/flight purchases (a ledger row exists)."""
+    from .ledger_store_records import booked_sql
     return {r[0] for r in conn.execute(
         "SELECT t.transaction_id FROM transactions t WHERE t.item IN (?,?) AND t.transaction_direction='purchase'"
-        " AND t.amount_krw>0 AND EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)",
+        " AND t.amount_krw>0 AND EXISTS(" + booked_sql(conn, 't') + ")",
         ITEMS)}
 
 

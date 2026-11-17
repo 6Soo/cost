@@ -786,6 +786,7 @@ class CardFlow:
         from datetime import date
         from app.classify import _pattern_for
         from app.normalize import normalize_merchant
+        from .ledger_store_records import booked_sql
         trips = [trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])
                  and trip.get('starts_on') and trip.get('ends_on')]
         if not trips:
@@ -800,7 +801,7 @@ class CardFlow:
             " OR (t.classification_source='inference' AND t.classification_basis LIKE '%AUTO_INFERRED:%'))"
             " AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
             " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-            " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+            " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
             " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
             " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
             " AND NOT EXISTS(SELECT 1 FROM transactions f WHERE f.card_tail=t.card_tail"
@@ -859,6 +860,7 @@ class CardFlow:
         from app.classify import PERIOD_OTA_ORIGIN, _pattern_for
         from app.normalize import normalize_merchant
         from . import ota_catalog
+        from .ledger_store_records import booked_sql
         rows = self.board.conn.execute(
             "SELECT t.transaction_id, t.source_hash, t.amount_krw, COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant"
             " FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id"
@@ -869,7 +871,7 @@ class CardFlow:
             " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
             " AND COALESCE(t.duplicate_of,'')=''"
             " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-            " AND NOT EXISTS(SELECT 1 FROM board_rows b2 WHERE b2.row_id='card-'||t.transaction_id)"
+            " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
             " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)",
             (batch_id,)).fetchall()
         def eligible(row):
@@ -1842,6 +1844,7 @@ class CardFlow:
     def _pending_reclassification(self, batch_id):
         from .card_classification_completion import missing_assignment_sql
         from app.manual_overrides import exists_sql as manual_exists_sql
+        from .ledger_store_records import booked_sql
         return {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
                 " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
@@ -1850,7 +1853,7 @@ class CardFlow:
                 " 'authority_review','rule_conflict','inference_conflict'))"
                 " OR (" + missing_assignment_sql() +
                 " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-                " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+                " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
                 " AND NOT EXISTS(SELECT 1 FROM transactions f WHERE f.issuer=t.issuer"
                 " AND f.card_tail=t.card_tail AND f.original_approval_number=t.approval_number"
                 " AND COALESCE(f.original_approval_number,'')!=''"
@@ -2521,6 +2524,7 @@ def _cleanup_card_where(board):
     from app.card_export_profiles import redundant_purchase_conflicts
     from . import read_scope
     from .card_cleanup_queries import completed_assignment_sql, completed_period_sql
+    from .ledger_store_records import booked_sql
     completed = completed_assignment_sql(board)
     redundant = read_scope.remember(('cleanup-redundant-sources', id(board)),
                                    lambda: redundant_purchase_conflicts(board.conn))
@@ -2538,7 +2542,7 @@ def _cleanup_card_where(board):
         " OR t.classification_source='refund_original' OR " + completed + "))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+        " AND NOT EXISTS(" + booked_sql(board.conn, 't') + ")"
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id"
         " AND d.revision=(SELECT MAX(d2.revision) FROM review_decisions d2 WHERE d2.transaction_id=t.transaction_id)"
         " AND COALESCE(d.display_tab_id,'')!='')"
