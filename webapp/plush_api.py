@@ -412,8 +412,10 @@ def _page_values(query: dict[str, list[str]], *, default_size: int = 50) -> tupl
 
 
 def _card_transaction_page(ledger_board: Any, query: dict[str, list[str]], *,
-                           page: int, page_size: int, search: str) -> dict[str, Any]:
+                           page: int, page_size: int, search: str,
+                           trip_names: dict[str, str]) -> dict[str, Any]:
     from . import card_transactions
+    from app.card_destination import display_destination
 
     try:
         period = _first(query, "period")
@@ -505,6 +507,7 @@ def _card_transaction_page(ledger_board: Any, query: dict[str, list[str]], *,
             "foreign_currency": str(item.get("foreign_currency") or "") or None,
             "status": str(item.get("classification_state") or ""),
             "trip": str(item.get("display_tab_id") or item.get("trip_id") or ""),
+            "trip_name": display_destination(item, trip_names=trip_names),
             "card": str(item.get("card_label") or ""),
         })
     return {"rows": rows, "total_count": total_count, "page": page,
@@ -629,8 +632,13 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
     rows: list[dict[str, Any]] = []
     if view == "cards":
         try:
+            trip_names = {
+                str(trip["tab_id"]): str(trip.get("display_title") or trip.get("display_key") or "")
+                for trip in _visible_trips(board, access, session, True)
+            }
             data = _card_transaction_page(ledger_board, query, page=page,
-                                          page_size=page_size, search=q)
+                                          page_size=page_size, search=q,
+                                          trip_names=trip_names)
         except _ProjectionError:
             raise
         except Exception:
@@ -645,7 +653,7 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
             {"key": "description", "label": "내용"}, {"key": "amount", "label": "금액(원)"},
             {"key": "foreign_amount", "label": "원통화 금액"},
             {"key": "foreign_currency", "label": "원통화"},
-            {"key": "status", "label": "상태"},
+            {"key": "trip_name", "label": "여행"},
         ]
     elif view == "ota":
         data = _ota_transaction_page(board, query, page=page, search=q)
