@@ -107,7 +107,9 @@ fn record(decision: &Decision, legacy_source: &str, evidence_digest: &str) -> Va
     })
 }
 
-const RECORD_COLUMNS: [&str; 12] = [
+const RECORD_COLUMNS: [&str; 14] = [
+    "source_hash",
+    "revision",
     "actor_kind",
     "actor_ref",
     "attribution",
@@ -148,7 +150,9 @@ pub fn save_decision(
         )));
     };
     let tid = tid.to_string();
-    let after = record(decision, legacy_source, evidence_digest);
+    let mut after = record(decision, legacy_source, evidence_digest);
+    after["source_hash"] = json!(source_hash.as_str());
+    after["revision"] = json!(revision);
     let before: Option<Value> = conn
         .query_row(
             &format!(
