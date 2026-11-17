@@ -98,7 +98,8 @@ def _trip_label(tab_id):
     if str(tab_id or '').startswith('quarter:'):
         return '분기 기타비용'
     trip = _trip(tab_id)
-    return str((trip or {}).get('display_title') or (trip or {}).get('display_key') or tab_id or '')
+    from . import ledger_board
+    return ledger_board.trip_display_label(trip, str(tab_id or ''))
 
 
 BRAND = '숲길여행 회계'
@@ -131,7 +132,11 @@ def _breadcrumb(path, query, title):
     q = _query_dict(query)
     tab = _first(q.get('trip') or q.get('tab'))
     trip = _trip(tab)
-    trip_title = _trip_label(tab) if str(tab or '').startswith('quarter:') else str((trip or {}).get('display_title') or (trip or {}).get('display_key') or '')
+    if str(tab or '').startswith('quarter:'):
+        trip_title = _trip_label(tab)
+    else:
+        from . import ledger_board
+        trip_title = ledger_board.trip_display_label(trip)
     if path_name in ('/', '/trips'):
         return ''
     if path_name == '/board' and tab and trip_title:
@@ -167,7 +172,7 @@ def _active_trip_nav(tab_id, role='owner'):
     links = []
     for trip in trips:
         tab = str(trip.get('tab_id') or '')
-        label = str(trip.get('display_title') or trip.get('display_key') or tab)
+        label = ledger_board.trip_display_label(trip, tab)
         start, end = trip.get('starts_on') or '', trip.get('ends_on') or ''
         period = f'{short_date(start)}~{short_date(end)}' if start and end else short_date(start or end)
         current = tab == tab_id
