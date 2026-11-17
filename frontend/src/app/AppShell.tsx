@@ -18,7 +18,7 @@ import {
 import { cn } from "../lib/cn";
 
 export type AppRole = "owner" | "viewer";
-export type AppTrip = { id: string; title: string; href?: string };
+export type AppTrip = { id: string; title: string; href?: string; starts_on?: string; kind?: "trip" | "quarter" };
 export type AppShellProps = {
   role: AppRole;
   trips: AppTrip[];
@@ -152,6 +152,9 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
   const currentPath = normalizedPath(path);
   const mainItems = role === "owner" ? ownerNavigation : viewerNavigation;
   const managementItems = role === "owner" ? ownerManagement : [];
+  const recentTrips = trips
+    .filter((trip) => trip.kind !== "quarter" && !trip.id.startsWith("quarter:"))
+    .sort((a, b) => (b.starts_on ?? "").localeCompare(a.starts_on ?? ""));
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -250,7 +253,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
               <NavigationLinks items={ownerNavigation} path={currentPath} />
               <div className="cost-sidebar-section">
                 <p className="cost-sidebar-heading">최근 여행</p>
-                <TripLinks trips={trips} onTripSelect={onTripSelect} currentPath={path} />
+                <TripLinks trips={recentTrips} onTripSelect={onTripSelect} currentPath={path} />
               </div>
             </>
           ) : (
