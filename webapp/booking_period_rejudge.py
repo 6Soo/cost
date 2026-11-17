@@ -168,6 +168,9 @@ def correct(conn, record, *, request_id, actor='automatic'):
     conn.execute('UPDATE transactions SET display_tab_id=?, trip_id=?, classification_basis=?, revision=revision+1'
                  ' WHERE transaction_id=? AND revision=?', (trip, trip, basis, tid, row['revision']))
     conn.execute('UPDATE ledger_entries SET display_tab_id=?, trip_id=? WHERE transaction_id=?', (trip, trip, tid))
+    # M6: 예약 이용기간 재판정도 통합 장부를 함께 고친다.
+    from app.ledger import sync_ledger_row
+    sync_ledger_row(conn, tid, display_tab_id=trip, trip_id=trip)
     old_payload = board[2]
     payload.update(display_tab_id=trip, classification_basis=basis, revision=board[1] + 1)
     new_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True)
