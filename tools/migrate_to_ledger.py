@@ -30,7 +30,7 @@ from app.db import LEDGER_SCHEMA_SQL, _execute_statements  # noqa: E402
 # `ledger` 테이블 컬럼 가운데 payload/다른 테이블에서 채우는 것들.
 PAYLOAD_COLUMNS = (
     'entry_kind', 'item', 'description', 'amount_krw', 'occurred_on',
-    'display_tab_id', 'service_period', 'reservation_no', 'evidence_type',
+    'display_tab_id', 'trip_id', 'service_period', 'reservation_no', 'evidence_type',
     'source_kind', 'source_event_id', 'source_fact_digest', 'source_merchant',
     'source_issuer', 'source_card_last4', 'source_approval_number',
     'source_approval_date', 'source_posting_date', 'source_local_amount',
@@ -53,6 +53,10 @@ def _payload_values(row_id: str, kind: str, payload: dict) -> dict:
     values['transaction_id'] = _card_transaction_id(row_id)
     values['entry_kind'] = payload.get('row_kind') or payload.get('entry_kind') or kind or 'expense'
     values['display_tab_id'] = payload.get('display_tab_id')
+    # 계약 규칙 3: `trip_id`는 호환용이고 새 쓰기에서는 `display_tab_id`와 같다.
+    # 기존 `ledger_entries`에 trip_id가 있으면 그 값이 우선이다(read_existing에서 채운다).
+    if not values.get('trip_id'):
+        values['trip_id'] = values['display_tab_id'] or ''
     # NOT NULL 컬럼은 None 이 아니라 빈 문자열로 채운다.
     for name in PAYLOAD_COLUMNS:
         if name in ('amount_krw', 'revision', 'display_tab_id'):
@@ -148,48 +152,53 @@ def compare(before: dict, after: dict) -> list[str]:
 
 
 def migrate(conn: sqlite3.Connection, *, apply: bool) -> dict:
-    """새 장부 스키마를 만들고 기존 행을 옮긴다. 멱등이다."""
+    """새 장부 스키마를 만들고 기존 행을 옮긴다. 멱등이다.
+
+    트랜잭션은 이 함수가 스스로 연다(SAVEPOINT). 호출자가 autocommit으로 열었든
+    이미 트랜잭션 안에 있든 같은 방식으로 동작해야, 예행이 테이블을 남기지 않는다.
+    """
     before = summarize(conn)
     rows, meta = read_existing(conn)
-    _execute_statements(conn, LEDGER_SCHEMA_SQL)
+    conn.execute('SAVEPOINT cost_ledger_migrate')
+    try:
+        _execute_statements(conn, LEDGER_SCHEMA_SQL)
 
-    columns = ('entry_id', 'transaction_id') + PAYLOAD_COLUMNS + ENTRY_COLUMNS + ('created_at',)
-    inserted = 0
-    skipped = 0
-    create_columns = set(ENTRY_COLUMNS) | {'created_at'}
-    for values in rows:
-        if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
-            skipped += 1
-            continue
-        # 기장되지 않은 행은 이관 시각을 쓴다. 원본 값은 바꾸지 않는다.
-        values.setdefault('committed_at', '')
-        values.setdefault('created_at', values['committed_at'] or '')
-        for name in create_columns:
-            values.setdefault(name, '')
-        if values['created_at'] == '':
-            # 기장되지 않은 행은 이관 시각을 쓴다. 원본 값은 바꾸지 않는다.
-            values['created_at'] = values.get('committed_at') or ''
-        statement = (f'INSERT INTO ledger({",".join(columns)}) '
-                     f'VALUES ({",".join("?" * len(columns))})')
-        conn.execute(statement, [values.get(c) for c in columns])
-        inserted += 1
+        columns = ('entry_id', 'transaction_id') + PAYLOAD_COLUMNS + ENTRY_COLUMNS + ('created_at',)
+        inserted = 0
+        skipped = 0
+        for values in rows:
+            if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
+                skipped += 1
+                continue
+            values.setdefault('committed_at', '')
+            values.setdefault('created_at', values['committed_at'] or '')
+            for name in set(ENTRY_COLUMNS) | {'created_at'}:
+                values.setdefault(name, '')
+            statement = (f'INSERT INTO ledger({",".join(columns)}) '
+                         f'VALUES ({",".join("?" * len(columns))})')
+            conn.execute(statement, [values.get(c) for c in columns])
+            inserted += 1
 
-    after = summarize(conn)
-    problems = compare(before, after)
-    result = dict(
-        status='APPLIED' if apply else 'PREVIEW',
-        migrated_rows=len(rows),
-        inserted=inserted,
-        skipped_existing=skipped,
-        ledger_entries_source_rows=meta['ledger_entries_rows'],
-        ledger_total_rows=conn.execute('SELECT COUNT(*) FROM ledger').fetchone()[0],
-        problems=problems,
-    )
-    if not apply:
-        conn.rollback()
-    else:
-        conn.commit()
-    return result
+        after = summarize(conn)
+        result = dict(
+            status='APPLIED' if apply else 'PREVIEW',
+            migrated_rows=len(rows),
+            inserted=inserted,
+            skipped_existing=skipped,
+            ledger_entries_source_rows=meta['ledger_entries_rows'],
+            ledger_total_rows=conn.execute('SELECT COUNT(*) FROM ledger').fetchone()[0],
+            problems=compare(before, after),
+        )
+        if apply:
+            conn.execute('RELEASE SAVEPOINT cost_ledger_migrate')
+        else:
+            conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_migrate')
+            conn.execute('RELEASE SAVEPOINT cost_ledger_migrate')
+        return result
+    except BaseException:
+        conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_migrate')
+        conn.execute('RELEASE SAVEPOINT cost_ledger_migrate')
+        raise
 
 
 def main(argv=None) -> int:
@@ -206,15 +215,12 @@ def main(argv=None) -> int:
 
     conn = sqlite3.connect(str(path), isolation_level=None)
     try:
-        conn.execute('BEGIN IMMEDIATE')
+        # `migrate`가 SAVEPOINT를 스스로 연다. 여기서 BEGIN IMMEDIATE를 열면
+        # 예행이 롤백되지 않고 테이블이 남는다.
         result = migrate(conn, apply=args.apply)
     except SystemExit as exc:
-        conn.rollback()
         print(json.dumps({'status': 'ERROR', 'reason': str(exc)}, ensure_ascii=False))
         return 1
-    except BaseException:
-        conn.rollback()
-        raise
     finally:
         conn.close()
 
