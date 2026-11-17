@@ -250,6 +250,6 @@
 - 작업공간: `integration/m3-m5-remediation-20261117`, 완료 커밋(현재 HEAD).
 - 검증: Python 표적 120 passed, frontend Vitest 24파일/143 passed, frontend build 성공, Rust workspace tests 전체 통과, clippy `-D warnings` 통과, 320px ego-browser probe overflow 0.
 - 상태: M3 저장 audit/repair는 합성 범위 PASS이나 운영 2,636행 backfill·신선 백업복원 전이라 PARTIAL. M4 F-03~06은 표적 계약과 320px 재검증 PASS이나 P-01~10 전체 수락은 미완료. M5 Rust 큐·provider-independent server/node·P2·계수기·백업 코드는 합성 범위 PASS이나 실제 클라우드 이전·PC-off·일일 역방향 운영 백업은 PARTIAL/BLOCKED.
-- 배포·운영 DB 쓰기·고객 원문 접근은 하지 않았다. `graphify query/update`는 셸에서 실행 파일을 찾지 못했다. 남은 첫 작업은 신선 백업·복원 게이트를 갖춘 M3 운영 적용 검토이며, 제공자·과금·인증 결정 없이는 M5 전체 완료를 선언하지 않는다.
+- 배포·운영 DB 쓰기·고객 원문 접근은 하지 않았다. graphify 0.9.111의 PATH 누락을 사용자 PATH와 `.local/bin/graphify.cmd` shim으로 복구했고 `graphify update .` 및 제한 질의를 성공시켰다(SQL parser 미설치 경고는 별도 기록). 남은 첫 작업은 신선 백업·복원 게이트를 갖춘 M3 운영 적용 검토이며, 제공자·과금·인증 결정 없이는 M5 전체 완료를 선언하지 않는다.
 
 
