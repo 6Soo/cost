@@ -1,3 +1,9 @@
+# 2026-11-17 — 예전 UI 여행 목록 정렬 복원
+
+- **상태:** 사용자 요청 “뒤죽박죽이잖아. 예전 ui에서 정렬방식을 확인하고 복원해” 구현 완료. 커밋 `5f5dd7d0`.
+- **근거/구현:** 예전 `webapp/site_shell.py::_active_trip_nav` 기준을 확인해 진행 중 여행만 남기고(이전·마감·보관 제외), 현재 선택 여행은 예외로 보존하며, `starts_on` 오름차순 → `display_key` 오름차순으로 정렬하고 8개 제한을 복원했다. 분기 기타비용은 최근 여행 목록에서 제외한다.
+- **검사:** `frontend` 대상 테스트 4 passed, 전체 Vitest 145 passed, TypeScript typecheck PASS, Vite build PASS, `webapp/tests/test_plush_api.py webapp/tests/test_plush_ui.py` 42 passed. 운영 배포는 이번 복원 작업에서 실행하지 않았다.
+- **남은 일:** 없음. 운영 반영이 필요하면 현재 커밋을 독립 검수한 뒤 승인된 배포 절차를 사용한다.
 # 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 배포 완료
 
 - **상태:** 사용자 “최근여행목록오류수정” → “배포해” COMPLETE. PR991 병합 `e8bf7a33`(트리=검수/배포 후보), actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613`, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`, backend8752/gateway8790. 독립 gpt-6.1-sol medium 정확 SHA APPROVE(findings0). 프런트58·공식 영향46·타입/빌드 통과 근거 재사용, 검수자17건/타입 독립 통과. CI는 결제 문제로 시작 전 차단(annotation 확인), 실제 검사 실패로 대체한 것이 아니다.
