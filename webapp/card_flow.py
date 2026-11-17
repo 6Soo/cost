@@ -1321,6 +1321,12 @@ class CardFlow:
         payload = json.dumps(record, ensure_ascii=False, sort_keys=True)
         conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)',
                      (row_id, 'expense', board_tab, 1, payload))
+        # M6: 같은 `record`를 통합 장부에도 쓴다. 여기서 실패하면 기장 전체가
+        # 롤백되므로 화면 행만 남는 부분 상태가 없다.
+        from app.ledger import write_ledger_row
+        write_ledger_row(conn, entry['transaction_id'], entry, now=entry['now'],
+                         batch=entry.get('batch_id', ''), row_id=row_id,
+                         entry_kind='expense', record=record)
         conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,'
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','automatic' if entry.get('automatic_record') else 'owner',entry['now'],row_id))

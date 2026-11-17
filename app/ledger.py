@@ -27,8 +27,77 @@ from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
                  StoreError, canonical, decided_sql, utc_now)
 
-__all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
+__all__ = ["preview", "commit", "preview_digest", "recordable_rows",
+           "write_ledger_row"]
 
+
+def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
+                     batch: str = "", row_id: str = "", entry_kind: str = "expense",
+                     record: dict | None = None) -> None:
+    """M6 통합 장부 한 행을 쓴다. 기장 경로들이 같은 모양을 쓰도록 한 곳에 둔다.
+
+    `entry_id`는 기존 `row_id` 규칙(`card-<transaction_id>`)을 그대로 쓴다(계약 규칙 1).
+    `record`(화면 행 payload)를 주면 그 필드를 그대로 옮겨 적어 `board_rows`와
+    `ledger`가 서로 다른 말을 하지 않게 한다.
+
+    호출자는 이 함수를 이미 열린 트랜잭션 안에서 불러야 한다. 여기서 실패하면
+    같은 트랜잭션의 기존 기장도 함께 롤백된다.
+    """
+    values = dict(
+        entry_id=row_id or 'card-' + transaction_id,
+        transaction_id=transaction_id,
+        entry_kind=entry_kind,
+        item=entry.get('item') or '',
+        description=entry.get('description') or '',
+        amount_krw=entry.get('amount_krw'),
+        occurred_on=entry.get('occurred_on') or '',
+        display_tab_id=entry.get('display_tab_id'),
+        trip_id=entry.get('trip_id') or entry.get('display_tab_id') or '',
+        service_period='', reservation_no='', evidence_type='',
+        source_kind='', source_event_id=transaction_id, source_fact_digest='',
+        source_merchant=entry.get('merchant') or '',
+        source_issuer='', source_card_last4='', source_approval_number='',
+        source_approval_date='', source_posting_date='',
+        source_local_amount='', source_currency='', event_kind='',
+        classification_state=entry.get('classification_state') or '',
+        classification_source=entry.get('classification_source') or '',
+        classification_basis=entry.get('classification_basis') or '',
+        confirmed_by='', memo='', operator_note='',
+        revision=1, committed_at=now, batch_id=batch or '', created_at=now,
+    )
+    if record:
+        # 화면 행이 만든 값을 그대로 쓴다. 이름만 통합 장부 컬럼으로 바꾼다.
+        for key in ('service_period', 'reservation_no', 'evidence_type',
+                    'source_kind', 'source_fact_digest', 'source_merchant',
+                    'source_issuer', 'source_card_last4', 'source_approval_number',
+                    'source_approval_date', 'source_posting_date',
+                    'source_local_amount', 'source_currency', 'event_kind',
+                    'classification_state', 'classification_source',
+                    'classification_basis', 'confirmed_by', 'memo', 'operator_note'):
+            value = record.get(key)
+            if value is not None:
+                values[key] = value
+        values['source_event_id'] = record.get('source_event_id') or values['source_event_id']
+        values['display_tab_id'] = record.get('display_tab_id')
+        values['trip_id'] = record.get('trip_id') or record.get('display_tab_id') or ''
+        values['amount_krw'] = record.get('amount_krw', values['amount_krw'])
+        values['occurred_on'] = record.get('occurred_on') or values['occurred_on']
+        values['revision'] = record.get('revision') or 1
+    columns = list(values)
+    # 재시도(멱등 replay)에서 이미 쓴 행이면 다시 쓰지 않는다. 기존 기장도
+    # `_already_booked`/`BOARD_ROW_CONFLICT`로 같은 방식으로 걸러진다.
+    if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
+        return
+    if values['transaction_id'] and conn.execute(
+            'SELECT 1 FROM ledger WHERE transaction_id=?', (values['transaction_id'],)).fetchone():
+        return
+    conn.execute(
+        f'INSERT INTO ledger({",".join(columns)}) VALUES ({",".join("?" * len(columns))})',
+        [values[c] for c in columns])
+
+
+# 내부 호출 이름. 공개 이름은 `write_ledger_row`이고 여기서 한 번만 별칭을 준다.
+_write_ledger_row = write_ledger_row
 
 def recordable_rows(rows):
     """Unique transactions that can be newly booked from a preview."""
@@ -823,6 +892,11 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                      entry["display_tab_id"], entry.get("trip_id", ""),
                      entry["amount_krw"], entry["merchant"], entry["occurred_on"],
                      entry["transaction_direction"], entry["source_hash"], now))
+                # M6: 같은 트랜잭션 안에서 통합 장부에도 쓴다. 여기서 실패하면
+                # 위 기장도 함께 롤백되므로 옛 테이블에만 남는 부분 상태가 없다.
+                _write_ledger_row(store.conn, transaction_id, entry,
+                                  now=now,
+                                  batch=entry.get("source_batch_id", batch_id))
                 booked.append(transaction_id)
                 store.log_change("ledger.booked", transaction_id,
                                  {"batch_id": entry.get("source_batch_id", batch_id),
