@@ -5,6 +5,8 @@ Verbatim extraction preserving exact DDL, defaults, and column check semantics.
 """
 from __future__ import annotations
 
+from app.db import LEDGER_SCHEMA_SQL  # noqa: F401  re-exported, one canonical DDL
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS board_rows (
     row_id TEXT PRIMARY KEY,
@@ -392,6 +394,20 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
     reverts_event_id TEXT NOT NULL DEFAULT ''
 );
 """
+
+
+def ensure_ledger_schema(conn) -> None:
+    """Create the M6 unified `ledger` table and its indexes, additively.
+
+    Deliberately outside `SCHEMA_SQL`: the production startup gate requires
+    every `app.db` schema object to already exist, so a board database that has
+    not run `tools/migrate_to_ledger.py` yet must still open. Existing
+    `board_rows` and `ledger_entries` stay real tables (dual-write), because
+    their INSERT call sites are unchanged.
+    """
+    from app.db import _execute_statements
+
+    _execute_statements(conn, LEDGER_SCHEMA_SQL)
 
 
 def _ensure_ledger_outbox_evidence(conn) -> None:
