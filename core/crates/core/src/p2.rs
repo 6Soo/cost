@@ -201,13 +201,13 @@ impl P2Runner for CodexExec {
             .join()
             .map_err(|_| ERR_RESPONSE)?
             .map_err(|_| ERR_RESPONSE)?;
-        if !status.success() || output.len() > MAX_REQUEST_BYTES {
+        if output.len() > MAX_REQUEST_BYTES {
             return Err(ERR_EXECUTION);
         }
         let envelope: Value = serde_json::from_slice(&output).map_err(|_| ERR_RESPONSE)?;
         let envelope = envelope.as_object().ok_or(ERR_RESPONSE)?;
         match envelope.get("ok").and_then(Value::as_bool) {
-            Some(true) if exact_keys(envelope, &["ok", "result"]) => {
+            Some(true) if status.success() && exact_keys(envelope, &["ok", "result"]) => {
                 let answer = envelope.get("result").ok_or(ERR_RESPONSE)?;
                 validate(request, answer)
             }

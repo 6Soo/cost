@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,18 @@ def make_server(config, binary):
         nodes[identity] = (token, cap)
     if not nodes or len(nodes) > 32:
         raise RuntimeErrorCode('NODES_INVALID')
+    backup_root, backup_manifest, backup_files = None, None, {}
+    if config.get('backup_snapshot'):
+        from tools import m5_backup
+        backup_root = Path(config['backup_snapshot'])
+        if not backup_root.is_absolute():
+            raise RuntimeErrorCode('BACKUP_PATH_INVALID')
+        try:
+            m5_backup.verify_snapshot(backup_root)
+            backup_manifest = m5_backup._read_manifest(backup_root)
+            backup_files = {row['path']: row for row in backup_manifest['files']}
+        except m5_backup.BackupError:
+            raise RuntimeErrorCode('BACKUP_SNAPSHOT_INVALID') from None
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -111,10 +123,47 @@ def make_server(config, binary):
             self.end_headers()
             self.wfile.write(payload)
 
-        def do_POST(self):
+        def identity(self):
             header = self.headers.get('Authorization', '')
-            identity = next((name for name, (token, _) in nodes.items()
-                             if hmac.compare_digest(header.encode('utf-8'), ('Bearer ' + token).encode('ascii'))), None)
+            return next((name for name, (token, _) in nodes.items()
+                         if hmac.compare_digest(header.encode('utf-8'), ('Bearer ' + token).encode('ascii'))), None)
+
+        def do_GET(self):
+            identity = self.identity()
+            if identity is None:
+                self.reply(401, {'ok': False, 'code': 'NODE_AUTH_REQUIRED'})
+                return
+            if backup_root is None or config['nodes'][identity].get('backup') is not True:
+                self.reply(403, {'ok': False, 'code': 'NODE_BACKUP_FORBIDDEN'})
+                return
+            if self.path == '/v1/backup/manifest':
+                self.reply(200, backup_manifest)
+                return
+            prefix = '/v1/backup/files/'
+            relative = unquote(self.path[len(prefix):]) if self.path.startswith(prefix) else ''
+            if relative not in backup_files:
+                self.reply(404, {'ok': False, 'code': 'NOT_FOUND'})
+                return
+            try:
+                from tools import m5_backup
+                path = m5_backup._member_path(backup_root, relative, must_exist=True)
+                with path.open('rb') as source:
+                    size = os.fstat(source.fileno()).st_size
+                    if size != backup_files[relative]['size']:
+                        raise RuntimeErrorCode('BACKUP_SNAPSHOT_INVALID')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/octet-stream')
+                    self.send_header('Content-Length', str(size))
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    while block := source.read(1024 * 1024):
+                        self.wfile.write(block)
+            except (OSError, RuntimeErrorCode, m5_backup.BackupError):
+                self.close_connection = True
+
+        def do_POST(self):
+            identity = self.identity()
             if identity is None:
                 self.reply(401, {'ok': False, 'code': 'NODE_AUTH_REQUIRED'})
                 return
@@ -197,7 +246,8 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class Client:
-    def __init__(self, base_url, token_file, *, allow_loopback_http=False):
+    def __init__(self, base_url, token_file, *, allow_loopback_http=False,
+                 max_download_bytes=16 * 1024 ** 3):
         url = urlsplit(base_url)
         local = False
         try:
@@ -210,6 +260,43 @@ class Client:
             raise RuntimeErrorCode('NODE_URL_INVALID')
         self.base, self.token = base_url.rstrip('/'), token_from(token_file)
         self.opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=ssl.create_default_context()))
+        if type(max_download_bytes) is not int or max_download_bytes <= 0:
+            raise RuntimeErrorCode('NODE_DOWNLOAD_LIMIT_INVALID')
+        self.max_download_bytes = max_download_bytes
+
+    def get_json(self, path):
+        if path != '/v1/backup/manifest':
+            raise RuntimeErrorCode('NODE_BACKUP_PATH_INVALID')
+        request = Request(self.base + path, headers={'Authorization': 'Bearer ' + self.token})
+        try:
+            with self.opener.open(request, timeout=30) as response:
+                raw = response.read(MAX_BYTES + 1)
+                if len(raw) > MAX_BYTES:
+                    raise RuntimeErrorCode('NODE_RESPONSE_TOO_LARGE')
+                return json.loads(raw)
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            raise RuntimeErrorCode('NODE_BACKUP_FAILED') from None
+
+    def download(self, path, target):
+        if not path.startswith('/v1/backup/files/') or any(c in path for c in ('?', '#', '\\', '\r', '\n')):
+            raise RuntimeErrorCode('NODE_BACKUP_PATH_INVALID')
+        request = Request(self.base + path, headers={'Authorization': 'Bearer ' + self.token})
+        try:
+            with self.opener.open(request, timeout=60) as response:
+                length = response.headers.get('Content-Length', '')
+                if not length.isdecimal() or int(length) > self.max_download_bytes:
+                    raise RuntimeErrorCode('NODE_RESPONSE_TOO_LARGE')
+                expected, written = int(length), 0
+                with Path(target).open('xb') as destination:
+                    while block := response.read(min(1024 * 1024, expected - written + 1)):
+                        written += len(block)
+                        if written > expected:
+                            raise RuntimeErrorCode('NODE_RESPONSE_TOO_LARGE')
+                        destination.write(block)
+                if written != expected:
+                    raise RuntimeErrorCode('NODE_BACKUP_INCOMPLETE')
+        except (HTTPError, URLError, TimeoutError, OSError):
+            raise RuntimeErrorCode('NODE_BACKUP_FAILED') from None
 
     def call(self, body):
         payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
@@ -332,6 +419,10 @@ def main(argv=None):
 
             while True:
                 try:
+                    if config.get('backup_destination'):
+                        from tools.m5_backup import pull_snapshot
+                        backup = pull_snapshot(client, config['backup_destination'])
+                        print(json.dumps({'backup': backup}), flush=True)
                     summary = node_once(client, execute)
                     print(json.dumps({'ok': True, **summary}), flush=True)
                 except RuntimeErrorCode as exc:

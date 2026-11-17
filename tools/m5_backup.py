@@ -5,6 +5,7 @@ Source paths and file contents are kept out of errors and return summaries.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -279,7 +280,7 @@ def _hash_file(path: Path) -> tuple[str, int]:
 
 def _sqlite_integrity(path: Path) -> None:
     try:
-        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
             connection.execute("PRAGMA query_only=ON")
             result = connection.execute("PRAGMA integrity_check").fetchall()
         if result != [("ok",)]:
@@ -516,12 +517,19 @@ def _backup_sqlite(source: Path, target: Path) -> None:
         src.execute("PRAGMA query_only=ON")
         dest = sqlite3.connect(target)
         src.backup(dest, pages=256, sleep=0.05)
+        # The backup API copies the source's WAL journal mode into the snapshot.
+        # Normalize the closed snapshot file so verification does not create
+        # extra -wal/-shm members beside the manifest-listed database.
+        journal_mode = dest.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if journal_mode != ("delete",):
+            _fail("DATABASE_SNAPSHOT_FAILED")
         dest.close()
         dest = None
         src.close()
         src = None
         _sqlite_integrity(target)
-        with target.open("rb") as handle:
+        # Windows requires a writable descriptor for FlushFileBuffers/fsync.
+        with target.open("r+b") as handle:
             os.fsync(handle.fileno())
     except BackupError:
         raise

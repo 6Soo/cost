@@ -9,6 +9,30 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "m5-split-runtime-backup-and-subscription-boundary",
+      "paths": ["tools/m5_runtime.py", "tools/m5_backup.py", "tools/m5_p2_adapter.py", "tests/test_m5_runtime.py", "tests/test_m5_runtime_integration.py", "tests/test_m5_backup.py", "tests/test_m5_p2_adapter.py"],
+      "tests": ["tests/test_m5_runtime.py", "tests/test_m5_runtime_integration.py", "tests/test_m5_backup.py", "tests/test_m5_p2_adapter.py"],
+      "reason": "Real executable HTTP node leases, restricted P2 adapter, and authenticated reverse-backup restore"
+    },
+    {
+      "name": "m3-reproducible-extractor-manifest",
+      "paths": ["tools/core_bridge/extract_baseline.py", "tests/test_extractor_baseline_manifest.py"],
+      "tests": ["tests/test_extractor_baseline_manifest.py", "tests/test_core_bridge_ota_input.py"],
+      "reason": "Immutable baseline output, SQLite snapshot, dependency and input binding"
+    },
+    {
+      "name": "m5-content-free-request-metrics",
+      "paths": ["app/http_request_counts.py", "webapp/http_counting.py", "tests/test_http_request_counts.py"],
+      "tests": ["tests/test_http_request_counts.py"],
+      "reason": "Persisted request counters without request contents or customer identifiers"
+    },
+    {
+      "name": "m4-remediation-acceptance",
+      "paths": ["tests/test_m4_acceptance_resume.py", "tests/test_plush_periods.py", "tests/test_stored_period_records.py", "docs/agents/m3-m5-checkpoint-20261117.json"],
+      "tests": ["tests/test_m4_acceptance_resume.py", "tests/test_plush_periods.py", "tests/test_stored_period_records.py"],
+      "reason": "Synthetic thousand-row period pagination completeness and bounded API latency"
+    },
+    {
       "name": "card-trip-payment-cutoff",
       "paths": ["tests/test_card_trip_cutoff.py", "app/trip_selection.py", "app/ledger.py", "app/classification_correction.py", "app/manual_google_evidence.py", "app/source_recheck.py", "app/ai_classification.py", "app/ai_review_repair.py", "webapp/ledger_store.py", "core/crates/core/src/trips/select.rs", "core/crates/core/src/plan/mod.rs"],
       "tests": ["tests/test_card_trip_cutoff.py", "tests/test_source_recheck.py", "tests/test_manual_google_evidence.py", "tests/test_ai_review_repair.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_jeju_trip_card_scope.py", "webapp/tests/test_automatic_classification_completion.py"],
