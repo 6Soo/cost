@@ -23,6 +23,7 @@ export type AppProps = {
   role?: AppRole;
   trips?: AppTrip[];
   path?: string;
+  currentTripId?: AppShellProps["currentTripId"];
   onTripSelect?: AppShellProps["onTripSelect"];
   children?: ReactNode;
 };
@@ -131,10 +132,10 @@ export function ComponentGallery() {
   );
 }
 
-export function App({ role = "owner", trips = [], path, onTripSelect, children }: AppProps) {
+export function App({ role = "owner", trips = [], path, currentTripId, onTripSelect, children }: AppProps) {
   const currentPath = path ?? (typeof window === "undefined" ? "/" : window.location.pathname);
   return (
-    <AppShell role={role} trips={trips} path={currentPath} onTripSelect={onTripSelect}>
+    <AppShell role={role} trips={trips} path={currentPath} currentTripId={currentTripId} onTripSelect={onTripSelect}>
       {children ?? <ComponentGallery />}
     </AppShell>
   );

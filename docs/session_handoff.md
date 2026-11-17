@@ -1,12 +1,20 @@
 # 2026-11-18 — Google 장부용 복사 성능·2열 왼쪽 정렬 수정 완료
 
-- **요청/결과:** 사용자 요청 “Google 장부용 복사가 오래 걸리는 문제 수정”, “붙여넣기 시에 2열이 가운데 정렬이 아닌 왼쪽 가로 맞춤 형식으로 되게”의 로컬 구현·검사를 완료했다. 운영 배포·PR 생성·독립 검수는 이번 범위에서 실행하지 않았다.
+- **요청/결과:** 사용자 요청 “Google 장부용 복사가 오래 걸리는 문제 수정”, “붙여넣기 시에 2열이 가운데 정렬이 아닌 왼쪽 가로 맞춤 형식으로 되게”의 로컬 구현·검사를 완료했다. 운영 배포·PR 생성·독립 검수는 이어서 진행하며 아래 운영 반영 절에 기록한다.
 - **복사 성능:** `app/google_authority.py`가 snapshot과 generation별 rows JSON을 최대 8개 LRU 캐시하고 절대 경로·파일 identity·`mtime_ns`·크기로 무효화한다. 원자적 교체 경합은 최대 4회 재시도하며 읽기 전후 identity와 schema·generation 검증을 통과한 값만 `deepcopy`로 제공한다. 합성 20,000행(5,098,128 bytes)에서 최초 233.150ms, 캐시 반복 중앙값 112.147ms·p95 130.949ms, 원자 교체 후 최초 202.337ms로 최초 대비 약 2.1배 빨라졌다.
 - **붙여넣기 정렬:** `app/google_tsv.py`는 기존 `tsv` 응답 형식을 유지하면서 같은 데이터의 `html` 표를 함께 반환하고 모든 셀에 `text-align:left`를 적용한다. `webapp/static/js/ledger_design.js`는 한 copy 이벤트에 `text/plain` TSV와 `text/html` 표를 함께 기록하며 `다시 복사`에도 HTML을 보존한다. 구형 응답에 HTML이 없을 때만 plain text로 후퇴하고 rich copy 실패는 성공으로 표시하지 않는다.
 - **검사:** 표적 검사는 88, 23+4 subtests, 10, 21, 15, 55 passed다. 공식 `python tools/run_quality_checks.py --base 259bc18741b4075e47464c017d18093231bc1ba2 --run`는 **654 passed·41 subtests passed·skip 0·known failure 0**, pytest/compile/costcore build exit0이다. 실제 클립보드에서 `text/plain`과 `text/html` 동시 기록, HTML 셀 왼쪽 정렬, 최초·다시 복사 HTML 유지, 기존 TSV 동일성, 실제 `Ctrl+V` 결과 일치, rich copy 실패 시 수동 안내를 확인했다.
 - **영향 검사 보완:** 최초 공식 실행은 실제 실패가 아니라 `UNKNOWN_IMPACT:2`로 중단됐다. `config/test-impact-map.json`의 `google-readonly` 그룹에 `tests/card_pipeline/test_google_authority.py`, `tests/card_pipeline/test_google_tsv.py`를 등록한 뒤 위 전체 검사를 재실행해 통과했다.
 - **구현/검증 커밋:** 구현 `052ef49f`, 영향 검사 매핑 `fab0e3c5`. 기준 `origin/main`은 `259bc18741b4075e47464c017d18093231bc1ba2`다. graphify update는 완료했으며 SQL parser 미설치로 `.sql` 2개가 기여하지 못한 경고를 구분했다. `graphify-out/`은 기존 저장소 이력에 추적되지 않은 약 117.8MB 산출물이므로 이번 커밋에 포함하지 않았다.
 - **남은 일/보호:** 로컬 구현·검사 잔여는 없고 운영에는 미배포다. 공유 작업 트리 `C:/AX/cost`, 운영 DB, 포트 `8751/8752/8790`, 다른 세션의 안드레 여행 표기 배포는 수정하지 않았다. 운영 반영이 필요하면 이 브랜치의 exact SHA 독립 검수와 승인된 배포 절차를 별도로 수행한다. 이 완료 문서 때문에 재배포하지 않는다.
+
+# 2026-11-17 — 현재 여행 탭의 왼쪽 목록 선택 표시
+
+- **요청/상태:** 사용자 요청 “현재 보고있는 탭이 왼쪽 여행 목록에도 표기되게”. 코드 커밋 `74b6d80b2847f5b70edfc368780f274d7bc76da6`으로 구현했다. 작업 트리는 `C:/AX/cost-active-trip-nav`, 브랜치 `fix/active-trip-sidebar-20261117`, 기준 `259bc18741b4075e47464c017d18093231bc1ba2`다. 원본 `C:/AX/cost`와 사용자 변경은 보존했다.
+- **구현:** 현재 여행 ID를 `AppShell`에 명시적으로 전달하고, 경로에 비슷한 ID 문자열이 포함되는지만 보던 선택 판정을 정확한 ID 동일 비교로 바꿔 왼쪽 여행 목록, 상단 여행 전환, 태블릿 조회자 메뉴가 같은 현재 여행을 표시하게 했다. 서버 셸은 `/board`, `/receipts`, `/participants`, `/participants/insurance-match`, `/export`, `/expense/new`, `/income/new`, `/reserve-links`에서 현재 여행 문맥을 전달하며, 8개 뒤의 여행도 현재 선택 상태를 잃지 않는다.
+- **실제 검사:** `npm ci` 성공(179 packages), `webapp/tests/test_site_shell.py` 14 passed, `app-shell-ui.test.tsx` 13 passed, TypeScript typecheck와 `git diff --check` PASS. 커밋 후 공식 `python tools/run_quality_checks.py --base origin/main --run`은 **227 passed + 26 subtests**, 브라우저 필수 검사 21건 모두 실행, skip 0, known failure 0, JUnit error 0, 도구/Python/compile exit0의 `PASSED` 결과다. `/receipts`, `/participants`, `/expense/new` 선택 표시와 `trip-a`/`trip-a-long` 접두사 오인, 9개 목록의 현재 여행 표시 회귀 검사를 포함한다.
+- **그래프/한계:** 코드 수정 뒤 `graphify update .`를 실행했고 28,702 nodes·79,142 edges·849 communities를 생성했다. SQL parser 누락 2개·기호 없는 파일 58개 경고는 있었다. 저장소 기준선에 그래프 산출물이 없어 생성된 미추적 `graphify-out/`은 이번 코드 변경에 임의 포함하지 않았다. 운영 배포와 인증된 실브라우저 수동 확인은 실행하지 않았으므로 운영 반영 완료로 집계하지 않는다.
+- **잔여/차단:** 구현·표적 검사·공식 영향 검사는 완료했고 차단 사항은 없다. 운영 반영이 필요하면 이 SHA를 독립 검수한 뒤 승인된 배포 절차를 사용한다. 문서만을 위한 재배포는 하지 않는다.
 
 # 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 

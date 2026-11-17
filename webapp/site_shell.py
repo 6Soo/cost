@@ -163,7 +163,7 @@ def _active_trip_nav(tab_id, role='owner'):
         trips = [trip for trip in trips if trip.get('tab_id') == tab_id or ledger_board.is_default_listed_trip(trip)]
     except Exception:
         trips = []
-    trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))[:8]
+    trips = sorted(trips, key=lambda trip: (trip.get('starts_on') or '9999-99-99', trip.get('display_key') or ''))
 
     def short_date(value):
         bits = str(value or '').split('-')
@@ -305,9 +305,11 @@ def wrap_document(document, path, *, status=200):
     heading = ' '.join(html.unescape(re.sub(r'<[^>]*>', '', h1_match.group(1))).split()) if h1_match else ''
     title = _screen_title(path, original_title, query, heading)
     tab_id = _request_tab(path, query)
-    nav_tab_id = tab_id if urlsplit(path).path == '/board' else ''
-    back_href = ''
     page_path = urlsplit(path).path
+    trip_context_paths = {'/board', '/receipts', '/participants', '/participants/insurance-match',
+                          '/export', '/expense/new', '/income/new', '/reserve-links'}
+    nav_tab_id = tab_id if page_path in trip_context_paths else ''
+    back_href = ''
     if page_path == '/board':
         back_href = '/trips'
     elif section == 'trips' and page_path != '/trips':
