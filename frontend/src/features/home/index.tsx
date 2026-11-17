@@ -3,6 +3,7 @@ import type { Bootstrap, JobSummary, TripSummary } from '../../api/types';
 import { Amount, EmptyState, InlineNotice, JobStatus, Loading } from '../../components';
 import { getJSON, ApiError } from '../../api/client';
 import { humanDate } from '../ledger/urlState';
+import { listedTrips } from '../../lib/trips';
 import './home.css';
 
 type HomePayload = {
@@ -58,10 +59,7 @@ export function HomePage({ bootstrap }: PageProps) {
     return () => controller.abort();
   }, []);
 
-  const trips = (data?.trips ?? bootstrap.trips)
-    .slice()
-    .sort((a, b) => b.starts_on.localeCompare(a.starts_on))
-    .slice(0, 6);
+  const trips = listedTrips(data?.trips ?? bootstrap.trips);
 
   return (
     <main className="cost-home">
@@ -82,7 +80,7 @@ export function HomePage({ bootstrap }: PageProps) {
         <div className="cost-section-heading">
           <div>
             <p className="cost-eyebrow">여행별 손익</p>
-            <h2 id="cost-home-trips-title">최근 여행</h2>
+            <h2 id="cost-home-trips-title">여행 목록</h2>
           </div>
           <a href="/trips">모든 여행</a>
         </div>
