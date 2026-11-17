@@ -346,6 +346,8 @@ def replay(conn, request_id):
 
 def _unbook(conn, tid):
     conn.execute('DELETE FROM ledger_entries WHERE transaction_id=?', (tid,))
+    if _has_table(conn, 'ledger'):
+        conn.execute('DELETE FROM ledger WHERE transaction_id=?', (tid,))
     if _has_table(conn, 'board_rows'):
         conn.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
 
@@ -359,6 +361,9 @@ def _rebook(conn, tid, before):
     if board and _has_table(conn, 'board_rows'):
         conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
                      (board['row_id'], board['row_kind'], board['display_tab_id'], board['revision'], board['payload_json']))
+        # M6: 되살릴 때 통합 장부도 함께 되살린다.
+        from webapp.ledger_store_records import sync_ledger_from_record
+        sync_ledger_from_record(conn, json.loads(board['payload_json'] or '{}'))
 
 
 def move_approval_projection(conn, keep_tid, dup_tid, *, request_id, actor='automatic'):
@@ -413,6 +418,11 @@ def move_approval_projection(conn, keep_tid, dup_tid, *, request_id, actor='auto
                           utc_now(), request_id))
         conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
                      ('card-' + keep_tid, board['row_kind'], attribution['display_tab_id'], revision, encoded))
+        # M6: 중복 정리의 이동도 통합 장부에 함께 반영한다.
+        from webapp.ledger_store_records import sync_ledger_from_record
+        sync_ledger_from_record(conn, dict(payload, row_id='card-' + keep_tid,
+                                           display_tab_id=attribution['display_tab_id'],
+                                           revision=revision))
     conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
                  (keep_tid, dup_tid))
     _unbook(conn, dup_tid)
