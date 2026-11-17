@@ -102,6 +102,10 @@ def _sync_projection(conn, tid, row, request_id, *, attribution_changed):
     if attribution_changed:
         conn.execute('UPDATE ledger_entries SET item=?,description=?,display_tab_id=?,trip_id=? WHERE transaction_id=?',
             (row['item'],row['description'],row['display_tab_id'],row['trip_id'],tid))
+        # M6: 통합 장부에도 같은 값을 쓴다. 귀속이 바뀐 경우에만 반영한다.
+        from .ledger import sync_ledger_row
+        sync_ledger_row(conn, tid, item=row['item'], description=row['description'],
+                        display_tab_id=row['display_tab_id'], trip_id=row['trip_id'])
     board = _dict_row(conn, 'board_rows', 'row_id', 'card-'+tid)
     if not board:
         return
@@ -218,6 +222,10 @@ def restore(conn, expected, request_id):
                 ledger = detail['before']['ledger']
                 conn.execute('UPDATE ledger_entries SET item=?,description=?,display_tab_id=?,trip_id=? WHERE transaction_id=?',
                     (ledger['item'],ledger['description'],ledger['display_tab_id'],ledger['trip_id'],tid))
+                # M6: 되돌리기도 통합 장부까지 함께 되돌린다.
+                from .ledger import sync_ledger_row
+                sync_ledger_row(conn, tid, item=ledger['item'], description=ledger['description'],
+                                display_tab_id=ledger['display_tab_id'], trip_id=ledger['trip_id'])
             board = detail['before']['board']
             if board:
                 now = _dict_row(conn,'board_rows','row_id','card-'+tid)

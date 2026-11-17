@@ -620,6 +620,14 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                              (tab, trip, tid))
                 if values[2].startswith('GOOGLE_MANUAL_ROW · '):
                     conn.execute('UPDATE ledger_entries SET item=? WHERE transaction_id=?', (item, tid))
+            # M6: 통합 장부에도 같은 값을 쓴다. 넘기지 않은 값은 건드리지 않는다.
+            from .ledger import sync_ledger_row
+            if correction:
+                sync_ledger_row(conn, tid, item=item, display_tab_id=tab, trip_id=trip,
+                                classification_state='classified')
+            else:
+                # 이 경로는 빈 항목·빈 귀속만 채우므로 통합 장부도 조건부로 맞춘다.
+                sync_ledger_row(conn, tid, classification_state='classified')
             board = conn.execute('SELECT payload_json,display_tab_id FROM board_rows WHERE row_id=?', ('card-'+tid,)).fetchone()
             if board:
                 payload = json.loads(board[0])

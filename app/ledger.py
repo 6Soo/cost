@@ -31,6 +31,12 @@ __all__ = ["preview", "commit", "preview_digest", "recordable_rows",
            "write_ledger_row"]
 
 
+def _ledger_table_exists(conn) -> bool:
+    """통합 장부 테이블이 있나. 없으면 아직 이관 전 DB다."""
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone())
+
+
 def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
                      batch: str = "", row_id: str = "", entry_kind: str = "expense",
                      record: dict | None = None) -> None:
@@ -84,6 +90,10 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
         values['occurred_on'] = record.get('occurred_on') or values['occurred_on']
         values['revision'] = record.get('revision') or 1
     columns = list(values)
+    # 아직 이관하지 않은 DB(통합 장부 없음)는 이중 쓰기를 건너뛴다. 이관 전에는
+    # `ledger`와 어긋날 대상이 없으므로 기존 기장이 그대로 정본이다.
+    if not _ledger_table_exists(conn):
+        return
     # 재시도(멱등 replay)에서 이미 쓴 행이면 다시 쓰지 않는다. 기존 기장도
     # `_already_booked`/`BOARD_ROW_CONFLICT`로 같은 방식으로 걸러진다.
     if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
@@ -98,6 +108,34 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
 
 # 내부 호출 이름. 공개 이름은 `write_ledger_row`이고 여기서 한 번만 별칭을 준다.
 _write_ledger_row = write_ledger_row
+
+
+def sync_ledger_row(conn, transaction_id: str, *, item=None, description=None,
+                    display_tab_id=None, trip_id=None, classification_state=None) -> None:
+    """교정 경로가 `ledger_entries`·`board_rows`와 같은 값을 `ledger`에도 쓰게 한다.
+
+    넘기지 않은 인자는 건드리지 않는다. 통합 장부에 행이 없으면(아직 이관하지 않은
+    DB) 아무것도 하지 않는다 — 이관 전에는 통합 장부가 없으므로 교정 대상도 아니다.
+    """
+    if not _ledger_table_exists(conn):
+        return
+    if not conn.execute('SELECT 1 FROM ledger WHERE transaction_id=?',
+                        (transaction_id,)).fetchone():
+        return
+    pairs = []
+    values = []
+    for column, value in (('item', item), ('description', description),
+                          ('display_tab_id', display_tab_id), ('trip_id', trip_id),
+                          ('classification_state', classification_state)):
+        if value is not None:
+            pairs.append(column + '=?')
+            values.append(value)
+    if trip_id is not None and display_tab_id is None:
+        pass  # 호출자가 trip_id만 준 경우에도 그대로 반영한다.
+    if not pairs:
+        return
+    conn.execute(f'UPDATE ledger SET {",".join(pairs)} WHERE transaction_id=?',
+                 (*values, transaction_id))
 
 def recordable_rows(rows):
     """Unique transactions that can be newly booked from a preview."""

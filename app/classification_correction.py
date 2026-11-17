@@ -155,6 +155,11 @@ def apply(conn, expected, corrections, trips, *, request_id, allow_recorded_ai=F
                 if target['ledger']:
                     conn.execute('UPDATE ledger_entries SET item=?,description=?,display_tab_id=?,trip_id=? WHERE transaction_id=?',
                         (after['item'],after['description'],trip,trip,tid))
+                # M6: 통합 장부에도 같은 교정을 쓴다.
+                from .ledger import sync_ledger_row
+                sync_ledger_row(conn, tid, item=after['item'], description=after['description'],
+                                display_tab_id=trip, trip_id=trip,
+                                classification_state='classified')
                 if target['board']:
                     board = target['board']
                     payload = json.loads(board['payload_json'])

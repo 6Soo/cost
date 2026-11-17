@@ -117,6 +117,13 @@ def _sync(conn, tid, values, request_id, *, old_board=None):
     fields = FIELDS + (('description',) if 'description' in values else ())
     conn.execute('UPDATE ledger_entries SET '+','.join(k+'=?' for k in fields)+' WHERE transaction_id=?',
                  (*[values[k] for k in fields],tid))
+    # M6: PROC-072 이동도 통합 장부에 함께 반영한다. 하나라도 빠지면
+    # 화면과 기장 기록이 서로 다른 말을 한다.
+    from .ledger import sync_ledger_row
+    sync_ledger_row(conn, tid, item=values.get('item'),
+                    description=values.get('description'),
+                    display_tab_id=values.get('display_tab_id'),
+                    trip_id=values.get('trip_id'))
     board = _state(conn,tid)['board']
     if not board:
         return
