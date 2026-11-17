@@ -70,7 +70,7 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
         classification_basis=entry.get('classification_basis') or '',
         confirmed_by='', memo='', operator_note='',
         customer_id='', customer_name='', nickname='', income_kind='',
-        event_type='', created_by_request='',
+        event_type='', created_by_request='', ota_evidence_json='',
         revision=1, committed_at=now, batch_id=batch or '', created_at=now,
     )
     if record:
@@ -87,6 +87,9 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
             value = record.get(key)
             if value is not None:
                 values[key] = value
+        if record.get('ota_evidence'):
+            values['ota_evidence_json'] = json.dumps(
+                record['ota_evidence'], ensure_ascii=False, sort_keys=True)
         values['source_event_id'] = record.get('source_event_id') or values['source_event_id']
         values['display_tab_id'] = record.get('display_tab_id')
         values['trip_id'] = record.get('trip_id') or record.get('display_tab_id') or ''
