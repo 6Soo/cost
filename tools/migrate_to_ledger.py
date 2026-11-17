@@ -36,6 +36,7 @@ PAYLOAD_COLUMNS = (
     'source_approval_date', 'source_posting_date', 'source_local_amount',
     'source_currency', 'event_kind', 'classification_state', 'confirmed_by',
     'memo', 'operator_note', 'revision',
+    'classification_source', 'classification_basis',
     # 수입·수기 행 필드. 운영에는 지금 0건이지만 앞으로 생길 수 있다.
     'customer_id', 'customer_name', 'nickname', 'income_kind',
     'event_type', 'created_by_request',
@@ -54,10 +55,14 @@ def _payload_values(row_id: str, kind: str, payload: dict) -> dict:
     values = {name: payload.get(name) for name in PAYLOAD_COLUMNS}
     values['entry_id'] = row_id                      # 계약 규칙 1
     values['transaction_id'] = _card_transaction_id(row_id)
+    # 구조가 가변인 OTA 근거는 JSON 문자열로 그대로 옮긴다.
+    ota = payload.get('ota_evidence')
+    values['ota_evidence_json'] = (
+        json.dumps(ota, ensure_ascii=False, sort_keys=True) if ota else '')
     values['entry_kind'] = payload.get('row_kind') or payload.get('entry_kind') or kind or 'expense'
     values['display_tab_id'] = payload.get('display_tab_id')
     # 계약 규칙 3: `trip_id`는 호환용이고 새 쓰기에서는 `display_tab_id`와 같다.
-    # 기존 `ledger_entries`에 trip_id가 있으면 그 값이 우선이다(read_existing에서 채운다).
+    # payload에 빈값이면 `ledger_entries`의 trip_id(있으면)를 유지한다.
     if not values.get('trip_id'):
         values['trip_id'] = values['display_tab_id'] or ''
     # NOT NULL 컬럼은 None 이 아니라 빈 문자열로 채운다.
@@ -78,8 +83,10 @@ def read_existing(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
     entries = {}
     if has_ledger_entries:
         for r in conn.execute(
-                'SELECT transaction_id, batch_id, committed_at FROM ledger_entries'):
-            entries[r[0]] = {'batch_id': r[1] or '', 'committed_at': r[2]}
+                'SELECT transaction_id, batch_id, committed_at, trip_id'
+                ' FROM ledger_entries'):
+            entries[r[0]] = {'batch_id': r[1] or '', 'committed_at': r[2],
+                             'trip_id': r[3] or ''}
 
     rows = []
     seen = set()
@@ -94,6 +101,9 @@ def read_existing(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
         if entry:
             values['batch_id'] = entry['batch_id']
             values['committed_at'] = entry['committed_at']
+            # 화면 행 payload에 trip_id가 없을 때 기장 기록의 값을 지킨다.
+            if not values.get('trip_id'):
+                values['trip_id'] = entry['trip_id']
         if values['entry_id'] in seen:
             raise SystemExit('MIGRATION_DUPLICATE_ENTRY_ID: ' + values['entry_id'])
         seen.add(values['entry_id'])
@@ -166,7 +176,8 @@ def migrate(conn: sqlite3.Connection, *, apply: bool) -> dict:
     try:
         _execute_statements(conn, LEDGER_SCHEMA_SQL)
 
-        columns = ('entry_id', 'transaction_id') + PAYLOAD_COLUMNS + ENTRY_COLUMNS + ('created_at',)
+        columns = (('entry_id', 'transaction_id') + PAYLOAD_COLUMNS
+                   + ENTRY_COLUMNS + ('ota_evidence_json', 'created_at'))
         inserted = 0
         skipped = 0
         for values in rows:

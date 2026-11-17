@@ -131,6 +131,8 @@ def sync_ledger_from_record(conn: Any, record: dict) -> None:
         income_kind=record.get('income_kind') or '',
         event_type=record.get('event_type') or '',
         created_by_request=record.get('created_by_request') or '',
+        ota_evidence_json=json.dumps(record['ota_evidence'], ensure_ascii=False,
+                                     sort_keys=True) if record.get('ota_evidence') else '',
         revision=record.get('revision') or 1,
     )
     if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (row_id,)).fetchone():

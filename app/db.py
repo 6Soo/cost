@@ -236,6 +236,9 @@ CREATE TABLE IF NOT EXISTS ledger (
     income_kind            TEXT NOT NULL DEFAULT '',
     event_type             TEXT NOT NULL DEFAULT '',
     created_by_request     TEXT NOT NULL DEFAULT '',
+    -- OTA 근거 JSON. 구조가 가변이라 컬럼으로 펼 수 없다. 화면 행 payload의
+    -- `ota_evidence`를 그대로 옮겨 적는다(운영 12건).
+    ota_evidence_json      TEXT NOT NULL DEFAULT '',
     revision               INTEGER NOT NULL DEFAULT 1,
     committed_at           TEXT,               -- 기장 시각(구 ledger_entries.committed_at)
     batch_id               TEXT NOT NULL DEFAULT '',
