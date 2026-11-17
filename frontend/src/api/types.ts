@@ -5,6 +5,7 @@ export type Role = "owner" | "viewer";
 export interface TripSummary {
   id: string;
   title: string;
+  display_key?: string;
   kind: "trip" | "quarter";
   previous: boolean;
   starts_on: string;

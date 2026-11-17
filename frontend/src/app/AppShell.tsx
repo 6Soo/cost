@@ -18,7 +18,7 @@ import {
 import { cn } from "../lib/cn";
 
 export type AppRole = "owner" | "viewer";
-export type AppTrip = { id: string; title: string; href?: string; starts_on?: string; kind?: "trip" | "quarter" };
+export type AppTrip = { id: string; title: string; href?: string; starts_on?: string; display_key?: string; kind?: "trip" | "quarter"; previous?: boolean; closed?: boolean; archived?: boolean };
 export type AppShellProps = {
   role: AppRole;
   trips: AppTrip[];
@@ -26,6 +26,7 @@ export type AppShellProps = {
   children: ReactNode;
   onTripSelect?: (tripId: string) => void;
   className?: string;
+  currentTripId?: string;
 };
 type ThemeMode = "light" | "dark";
 type NavItem = { label: string; href: string; match: string[]; icon: IconSvgElement };
@@ -146,7 +147,7 @@ function NavigationLinks({ items, path, className }: {
   );
 }
 
-export function AppShell({ role, trips, path, children, onTripSelect, className }: AppShellProps) {
+export function AppShell({ role, trips, path, children, onTripSelect, className, currentTripId = "" }: AppShellProps) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const shellRef = useRef<HTMLDivElement>(null);
   const currentPath = normalizedPath(path);
@@ -154,7 +155,17 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
   const managementItems = role === "owner" ? ownerManagement : [];
   const recentTrips = trips
     .filter((trip) => trip.kind !== "quarter" && !trip.id.startsWith("quarter:"))
-    .sort((a, b) => (b.starts_on ?? "").localeCompare(a.starts_on ?? ""));
+    // Match site_shell._active_trip_nav: open trips, current-trip exception,
+    // earliest start first, display_key tie-break, missing dates last.
+    .filter((trip) => trip.id === currentTripId || !(trip.previous || trip.closed || trip.archived))
+    .sort((a, b) => {
+      const aDate = a.starts_on || "9999-99-99";
+      const bDate = b.starts_on || "9999-99-99";
+      if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+      const aKey = a.display_key || "";
+      const bKey = b.display_key || "";
+      return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+    });
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -252,7 +263,7 @@ export function AppShell({ role, trips, path, children, onTripSelect, className 
             <>
               <NavigationLinks items={ownerNavigation} path={currentPath} />
               <div className="cost-sidebar-section">
-                <p className="cost-sidebar-heading">최근 여행</p>
+                <p className="cost-sidebar-heading">진행 중 여행</p>
                 <TripLinks trips={recentTrips} onTripSelect={onTripSelect} currentPath={path} />
               </div>
             </>
