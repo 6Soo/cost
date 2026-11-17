@@ -37,6 +37,7 @@ from .ledger_store_records import (
     allocation_display_row,
     allocation_history_projection,
     deserialize_row_record,
+    sync_ledger_from_record as _sync_ledger,
     fetch_active_allocations,
     fetch_active_tab_allocations,
     fetch_allocation_row,
@@ -404,6 +405,7 @@ class LedgerStore:
                 " VALUES (?,?,?,?,?)",
                 (record["row_id"], "expense", record["display_tab_id"], 1, _canonical(record)),
             )
+            _sync_ledger(self.conn, record)
         for row in board.INCOMES:
             record = _row_to_record("income", dict(row))
             self.conn.execute(
@@ -411,6 +413,7 @@ class LedgerStore:
                 " VALUES (?,?,?,?,?)",
                 (record["row_id"], "income", record["display_tab_id"], 1, _canonical(record)),
             )
+            _sync_ledger(self.conn, record)
 
     def close(self) -> None:
         worker = getattr(self, '_card_completion_worker', None)
@@ -775,6 +778,7 @@ class LedgerStore:
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                _sync_ledger(self.conn, dict(restored, row_id=row_id, revision=new_revision))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
                     " event_id, change_mode, actor, created_at, client_request_id,"
@@ -1348,6 +1352,7 @@ class LedgerStore:
                          row_id, current["revision"]))
                     if cursor.rowcount == 0:
                         raise SaveError("PREVIEW_STALE", f"선택한 행이 바뀌었어요: {row_id}")
+                    _sync_ledger(self.conn, dict(new, row_id=row_id))
                     self.conn.execute(
                         "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
                         " event_id, change_mode, actor, created_at, client_request_id)"
@@ -3125,6 +3130,7 @@ class LedgerStore:
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                _sync_ledger(self.conn, dict(new, row_id=row_id))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id)"
@@ -3390,6 +3396,7 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?)",
                     (row_id, "expense", record["display_tab_id"], 1, _canonical(record)),
                 )
+                _sync_ledger(self.conn, dict(record, row_id=row_id))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id)"
@@ -3721,6 +3728,7 @@ class LedgerStore:
             "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision,"
             " payload_json) VALUES (?,?,?,?,?)",
             (row_id, "expense", None, 1, _canonical(record)))
+        _sync_ledger(self.conn, dict(record, row_id=row_id, display_tab_id=None))
         self.conn.execute(
             "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
             " event_id, change_mode, actor, created_at, client_request_id, kind,"
@@ -4972,6 +4980,7 @@ class LedgerStore:
                     )
                     if cursor.rowcount == 0:
                         raise SaveError("DELETE_PREVIEW_STALE", "미리보기 뒤 장부가 바뀌었어요. 다시 확인해 주세요")
+                    _sync_ledger(self.conn, updated)
                     self.conn.execute(
                         "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
                         " event_id, change_mode, actor, created_at, client_request_id,"
@@ -5731,6 +5740,7 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?)",
                     (row_id, "income", record["display_tab_id"], 1, _canonical(record)),
                 )
+                _sync_ledger(self.conn, dict(record, row_id=row_id))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id)"
@@ -5845,6 +5855,7 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?)",
                     (row_id, "expense", record["display_tab_id"], 1, _canonical(record)),
                 )
+                _sync_ledger(self.conn, dict(record, row_id=row_id))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id)"
@@ -6010,6 +6021,7 @@ class LedgerStore:
                             "INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json)"
                             " VALUES (?,?,?,?,?)",
                             (row_id, "expense", record["display_tab_id"], 1, _canonical(record)))
+                        _sync_ledger(self.conn, dict(record, row_id=row_id))
                         self.conn.execute(
                             "INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,"
                             "change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -6180,6 +6192,7 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?)",
                     (row_id, "income", record["display_tab_id"], 1, _canonical(record)),
                 )
+                _sync_ledger(self.conn, dict(record, row_id=row_id))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id)"
