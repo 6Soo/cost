@@ -928,11 +928,12 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(saved['reservation_no'], '')
 
     def test_canonical_undated_ota_inference_flows_through_classification_and_expense(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-08-01').replace(b'2026-10-02', b'2026-08-02')
         from types import SimpleNamespace
         from app import ota_payments
         from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
         from webapp import ota_payment_review
-        header, source_line = CARD.splitlines(keepends=True)
+        header, source_line = card_source.splitlines(keepends=True)
         fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
         fields[4], fields[5], fields[8] = 'AGODA', '30000', '30000'
         csv_data = header + (','.join(fields) + '\n').encode('utf-8')
@@ -1361,9 +1362,10 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
 
     def test_preview_and_choices_revalidate_a_changed_schedule_on_the_next_request(self):
+        card_source = CARD.replace(b'2026-10-01', b'2026-04-10').replace(b'2026-10-02', b'2026-04-11')
         trip=self.board.create_trip(starts_on='2026-04-08',ends_on='2026-04-12',
                                     destination='합성 여행',client_request_id='synthetic-trip')['tab_id']
-        batch=self.flow.pipeline.receive(CARD,'synthetic.csv')['batch_id']
+        batch=self.flow.pipeline.receive(card_source,'synthetic.csv')['batch_id']
         row=self.flow.pipeline.get_batch(batch)['rows'][0]
         self.flow.pipeline.save_rule({'conditions':{'merchant_normalized':row['merchant']},
                                      'optional':{'source_hash':row['source_hash'],'inferred_assignment':{

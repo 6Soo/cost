@@ -108,7 +108,12 @@ def load(conn, trips, directory):
                     or paid[0].get('paid_on') != row['approval_date']):
                 raise ValueError('SOURCE_RECHECK_CANCELLATION_INVALID')
             target, trip_basis = '', 'TRIP-097 · 취소 완료 예약은 실제 이용기간 근거에서 제외'
-        elif kind == 'payment_outside_trip':
+        elif kind in ('payment_outside_trip', 'past_trip'):
+            if kind == 'past_trip':
+                from .trip_selection import past_trip
+                previous = next((t for t in trips if (t.get('trip_id') or t.get('tab_id')) == review['before_tab']), {})
+                if not past_trip(row, previous):
+                    raise ValueError('SOURCE_RECHECK_NOT_PAST_TRIP')
             target, trip_basis = infer_trip(dict(row, trip_id='', display_tab_id=''), trips, reconsider=True)
         else:
             raise ValueError('SOURCE_RECHECK_INVALID')
@@ -173,6 +178,9 @@ def allowed(conn, row, correction, manifest, fact, valid):
     if fact['purpose'] == 'cancelled_booking_payment':
         return bool(quarter and correction['display_tab_id'] == quarter[0]
                     and correction['item'] == '분기 기타비용')
+    if fact['purpose'] == 'past_trip':
+        from .trip_selection import past_trip
+        return (past_trip(row, trip) and not past_trip(row, valid.get(correction['display_tab_id'], {})))
     day = row.get('approval_date') or ''
     try:
         date.fromisoformat(day)

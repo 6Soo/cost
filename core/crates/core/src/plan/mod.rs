@@ -339,6 +339,40 @@ pub fn plan_with_periods(
                 Fresh::Changed => {}
             }
         }
+        if !has_history {
+            let target = text(&chosen, "display_tab_id");
+            let payment_row = ctx
+                .links
+                .link(&tid)
+                .filter(|link| !link.inferred)
+                .and_then(|link| resolved.get(&link.original_id))
+                .unwrap_or(row);
+            let approval = text(payment_row, "approval_date");
+            let payment = if approval.is_empty() {
+                text(payment_row, "posting_date")
+            } else {
+                approval
+            };
+            if let Some(trip) = typed.iter().find(|trip| trip.trip_id == target)
+                && crate::trips::past_trip(&input::txn_of(payment_row), trip)
+                && let Ok(day) = crate::dates::parse_iso(&payment)
+            {
+                let (year, quarter) = crate::dates::quarter_of(day);
+                input::set(
+                    &mut chosen,
+                    "display_tab_id",
+                    format!("quarter:{year}:{quarter}"),
+                );
+                input::set(&mut chosen, "trip_id", "");
+                input::set(&mut chosen, "classification_state", "classified");
+                input::set(&mut chosen, "classification_source", "inference");
+                input::set(
+                    &mut chosen,
+                    "classification_basis",
+                    "TRIP-099 · 결제일보다 7일 넘게 전에 종료된 여행 제외 · 결제일 분기 기타비용",
+                );
+            }
+        }
         let now = values(&chosen);
         if now == current {
             let judged = periods

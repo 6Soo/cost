@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from .partial_refund import read_only_scope
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
@@ -123,6 +124,7 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
     return None
 
 
+@read_only_scope()
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
              additional_holds=None, group_original=None,
@@ -244,7 +246,10 @@ def preview(store, batch_id: str, *, trip_validator=None,
             continue
         # Re-verify authority at the moment of the preview. A row whose trip or
         # tab the parent no longer accepts is held, not booked.
-        blocked = _authority_block(entry, trip_validator, tab_validator)
+        # Pair normalization may replace a legacy trip with the refunds tab.
+        # The shared post-pair guard validates the actual destination below.
+        blocked = _authority_block(entry, trip_validator, tab_validator, conn=store.conn,
+                                   check_past_trip=False)
         if blocked:
             entry["blocked"] = blocked[0]
             entry["reason"] = blocked[1]
@@ -255,6 +260,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
         rows.append(entry)
 
     _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_validator)
+    _guard_past_trip_pairs(store.conn, rows, ready, unresolved)
 
     # Two ready rows that would land on the same transaction, or that share an
     # approval number with different content, are not guessed apart.
@@ -461,7 +467,7 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
                 if not row.get("already_booked"):
                     row["display_tab_id"] = REFUND_TAB
                     row["trip_id"] = ""
-        block = _authority_block(target, trip_validator, tab_validator)
+        block = _authority_block(target, trip_validator, tab_validator, conn=store.conn)
         if block or not target.get("item"):
             _block_pair(pair, block[0] if block else "refund_pair_incomplete",
                         block[1] if block else "환불에 이어받을 항목이 없어 함께 보류해요", ready, unresolved)
@@ -506,7 +512,43 @@ def _merge_metadata(entries: list, entry_metadata) -> None:
             entry['occurred_on'] = ledger_date_for_booking(service_day, entry['occurred_on'])
 
 
-def _authority_block(entry: dict, trip_validator, tab_validator):
+def _past_trip_block(conn, entry):
+    if conn is None or not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trip_tabs'").fetchone():
+        return None
+    from .trip_selection import past_trip
+    source = conn.execute('SELECT approval_date,posting_date,transaction_direction,amount_krw FROM transactions WHERE transaction_id=?',
+                          (entry['transaction_id'],)).fetchone()
+    if not source:
+        return None
+    from .card_destination import trip_payment_source
+    payment = trip_payment_source(conn, dict(transaction_id=entry['transaction_id'], approval_date=source[0],
+        posting_date=source[1], transaction_direction=source[2], amount_krw=source[3]))
+    if payment is None:
+        return None  # Existing unlinked/excess/held refund protections remain authoritative.
+    for target in {entry.get('trip_id'), entry.get('display_tab_id')} - {None, ''}:
+        trip = conn.execute('SELECT ends_on FROM trip_tabs WHERE tab_id=?', (target,)).fetchone()
+        if trip and past_trip(payment, dict(ends_on=trip[0])):
+            return ('past_trip', 'TRIP-099 · 결제일보다 7일 넘게 전에 끝난 여행에는 기록할 수 없어요')
+    return None
+
+
+@read_only_scope()
+def _guard_past_trip_pairs(conn, rows, ready, unresolved):
+    """Recheck inherited destinations after either Python or Rust pair assembly."""
+    from .partial_refund import refund_group
+    for entry in list(ready):
+        block = _past_trip_block(conn, entry)
+        if not block:
+            continue
+        ids = {entry['transaction_id']}
+        link = entry.get('refund_link') or {}
+        if link:
+            original = entry['transaction_id'] if link.get('role') == 'original' else link['counterpart_id']
+            ids.update(refund_group(conn, original))
+        _block_pair([r for r in rows if r['transaction_id'] in ids], *block, ready, unresolved)
+
+
+def _authority_block(entry: dict, trip_validator, tab_validator, *, conn=None, check_past_trip=True):
     """(blocked_code, reason) when the parent no longer accepts this row."""
     trip = str(entry.get("trip_id") or "")
     if trip:
@@ -520,7 +562,7 @@ def _authority_block(entry: dict, trip_validator, tab_validator):
             return ("tab_unverified", "항목 구분을 재검증할 함수가 필요해요")
         if not tab_validator(tab):
             return ("tab_no_longer_valid", "지금은 쓸 수 없는 항목 구분이에요")
-    return None
+    return _past_trip_block(conn, entry) if check_past_trip else None
 
 
 def preview_digest(result: dict) -> str:
@@ -638,6 +680,7 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
     )
 
 
+@read_only_scope()
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
@@ -758,7 +801,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                 transaction_id = entry["transaction_id"]
                 # Re-checked here, not only above: this is the last point before
                 # the money moves.
-                block = _authority_block(entry, trip_validator, tab_validator)
+                block = _authority_block(entry, trip_validator, tab_validator, conn=store.conn)
                 if block:
                     if transaction_id in sealed_members:
                         raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
