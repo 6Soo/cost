@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections import Counter
+from html import escape
 
 COLUMNS = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
 EVIDENCE_TYPES = {
@@ -76,7 +77,7 @@ def expense_tsv(rows: list[dict], *, layout: str) -> dict:
         else:
             held.append({"transaction_id": transaction_id, "reason": reason})
     ordered = sorted(ready, key=lambda r: (r["date"], str(r["transaction_id"])))
-    lines = ["\t".join([
+    cells = [[
         row["date"],
         _text(row["payee"]),
         _text(row["category"]),
@@ -84,9 +85,19 @@ def expense_tsv(rows: list[dict], *, layout: str) -> dict:
         _text(row.get("reservation_no")),
         EVIDENCE_TYPES[row["evidence"]],
         str(row["amount_krw"]),
-    ]) for row in ordered]
+    ] for row in ordered]
+    lines = ["\t".join(values) for values in cells]
+    html_rows = tuple(
+        "<tr>" + "".join(
+            f'<td style="text-align:left">{escape(value)}</td>' for value in values
+        ) + "</tr>"
+        for values in cells
+    )
     return {
         "tsv": "\n".join(lines) + ("\n" if lines else ""),
+        # Google Sheets keeps the explicit alignment from HTML while text/plain
+        # remains byte-for-byte compatible with callers that expect TSV.
+        "html": "<table><tbody>" + "".join(html_rows) + "</tbody></table>",
         "row_count": len(lines),
         "total_krw": sum(row["amount_krw"] for row in ordered),
         "held": held,
