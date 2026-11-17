@@ -1,3 +1,9 @@
+# 2026-11-17 — 최근 여행 목록 정렬 오류 수정
+
+- **요청/구현:** 사용자 “최근여행목록오류수정”. 최신 origin/main에서 분리한 `C:/AX/cost-recent-trips`, 브랜치 `fix/recent-trips-20261117`, 코드 커밋 `2a29e1a3`. 사이드바 최근 여행을 starts_on 내림차순으로 정렬한 뒤 기존 8개 제한을 적용한다. 분기 기타비용을 제외하고 날짜 없는 여행은 뒤로 둔다. 원래 bootstrap 배열·조회 권한 메뉴·장부 데이터는 보존한다.
+- **실제 검사:** 회귀/기존 셸 테스트 12 passed, TypeScript typecheck와 Vite production build PASS. 커밋 후 공식 `python tools/run_quality_checks.py --base origin/main --run`은 plush API/integration/UI 46 passed, py_compile PASS, known failure 0. 최초 커밋 전 실행 NO_CHANGES는 검증 건수에서 제외했다. graphify update는 CLI 미설치로 실패(그래프 파일 없음). 브라우저 렌더 검사는 미실행: DOM 구조·스타일 변경 없는 목록 선택 로직 수정이며 DOM 회귀 검사로 검증했다.
+- **완료/잔여:** 구현·로컬 검증 완료. 운영 배포·PR 병합·독립 SHA 검수는 미실행. 운영에는 아직 반영되지 않았다. 원래 workspace와 사용자 변경 보존. 운영 반영을 이어갈 경우 해당 브랜치 exact SHA 독립 검수·PR/배포 게이트를 수행한다. 기존 기록의 다른 승인 과제를 이 요청으로 재실행하지 않는다.
+
 # 2026-11-17 — M4 UI-0 완전 종료: 수락 검증·간극 종결·병합·운영 배포 완료
 
 - **요청/결과:** “m3닫고 m4도 진행해”의 M4를 닫았다. React 프런트는 이미 main에 있어 화면 재작성이 아니라 **수락 검증 보강·소수 간극 수정**이었고, 13결함 핵심 수락 기준을 시험(브라우저 렌더 포함)으로 검증·간극을 종결·병합·배포했다.
