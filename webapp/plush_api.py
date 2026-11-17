@@ -1476,10 +1476,13 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
         board = _board_instance(board)
         ledger_board, access, session = _auth(handler)
         query = _query(parsed)
-        if path == "/api/plush/bootstrap":
-            result = _bootstrap(ledger_board, access, session, board)
-        elif path == "/api/plush/home":
-            result = _home(ledger_board, access, session, board)
+        # One request reads each Google snapshot and row set once. Bootstrap and
+        # home both walk every trip, and each trip re-reads the same 1.7MB files
+        # through plush_income: ~3.5s for 72 trips uncached, ~0.8s inside one scope.
+        from . import read_scope
+        if path in ("/api/plush/bootstrap", "/api/plush/home"):
+            projection_fn = _bootstrap if path == "/api/plush/bootstrap" else _home
+            result = read_scope.scoped(projection_fn)(ledger_board, access, session, board)
         elif path == "/api/plush/ledger":
             result = _ledger(ledger_board, access, session, board, query)
         elif path == "/api/plush/row":
