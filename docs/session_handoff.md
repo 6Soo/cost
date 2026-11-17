@@ -12,11 +12,11 @@
 
 - **요청/상태:** 사용자 요청 “현재 보고있는 탭이 왼쪽 여행 목록에도 표기되게”. 코드 커밋 `74b6d80b2847f5b70edfc368780f274d7bc76da6`으로 구현했다. 작업 트리는 `C:/AX/cost-active-trip-nav`, 브랜치 `fix/active-trip-sidebar-20261117`, 기준 `259bc18741b4075e47464c017d18093231bc1ba2`다. 원본 `C:/AX/cost`와 사용자 변경은 보존했다.
 - **구현:** 현재 여행 ID를 `AppShell`에 명시적으로 전달하고, 경로에 비슷한 ID 문자열이 포함되는지만 보던 선택 판정을 정확한 ID 동일 비교로 바꿔 왼쪽 여행 목록, 상단 여행 전환, 태블릿 조회자 메뉴가 같은 현재 여행을 표시하게 했다. 서버 셸은 `/board`, `/receipts`, `/participants`, `/participants/insurance-match`, `/export`, `/expense/new`, `/income/new`, `/reserve-links`에서 현재 여행 문맥을 전달하며, 8개 뒤의 여행도 현재 선택 상태를 잃지 않는다.
-- **실제 검사:** `npm ci` 성공(179 packages), `webapp/tests/test_site_shell.py` 14 passed, `app-shell-ui.test.tsx` 13 passed, TypeScript typecheck와 `git diff --check` PASS. 커밋 후 공식 `python tools/run_quality_checks.py --base origin/main --run`은 **227 passed + 26 subtests**, 브라우저 필수 검사 21건 모두 실행, skip 0, known failure 0, JUnit error 0, 도구/Python/compile exit0의 `PASSED` 결과다. `/receipts`, `/participants`, `/expense/new` 선택 표시와 `trip-a`/`trip-a-long` 접두사 오인, 9개 목록의 현재 여행 표시 회귀 검사를 포함한다.
-- **그래프/한계:** 코드 수정 뒤 `graphify update .`를 실행했고 28,702 nodes·79,142 edges·849 communities를 생성했다. SQL parser 누락 2개·기호 없는 파일 58개 경고는 있었다. 저장소 기준선에 그래프 산출물이 없어 생성된 미추적 `graphify-out/`은 이번 코드 변경에 임의 포함하지 않았다. 운영 배포와 인증된 실브라우저 수동 확인은 실행하지 않았으므로 운영 반영 완료로 집계하지 않는다.
-- **잔여/차단:** 구현·표적 검사·공식 영향 검사는 완료했고 차단 사항은 없다. 운영 반영이 필요하면 이 SHA를 독립 검수한 뒤 승인된 배포 절차를 사용한다. 문서만을 위한 재배포는 하지 않는다.
-
-# 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
+- **실제 검사:** `npm ci` 성공(179 packages), `webapp/tests/test_site_shell.py` 14 passed, `app-shell-ui.test.tsx` 13 passed, TypeScript typecheck와 `git diff --check` PASS. 최종 후보 `d24836b4`(운영 `9b2e3212` 병합)에서 공식 `python tools/run_quality_checks.py --base origin/main --run`은 **726 passed + 76 subtests**, 브라우저 필수 검사 35건 모두 실행, skip 0, known failure 0, JUnit error 0, pytest/compile exit0의 `PASSED` 결과다. `/receipts`, `/participants`, `/expense/new` 선택 표시와 `trip-a`/`trip-a-long` 접두사 오인, 9개 목록의 현재 여행 표시 회귀 검사를 포함한다.
+- **운영 반영:** 후보 `d24836b4ff1f04cbd5e70f67b69c164dbfacb79b`, Previous `9b2e3212986f1fb99e8f2108477d67b532d446f9`. 공식 `tools/deploy_verified_release.ps1 -Apply` exit0, backend8751→**8752**·gateway8790. 추적1,912파일 blob불일치0·런타임 SHA verified·listener1·보호14표 전후 불변·health/ready200·비인증 보호API 3개 401·core writers VERIFIED·worker 전환됨·paused=false. 코드 전용(full backup 미사용), 금융 apply/마이그레이션/Google 쓰기 없음. 독립 검수는 교차 세션 Claude가 정확 3파일 코드 diff를 읽고 PASS(findings:low 1건=React 경로 범위 차이, 결함 아님).
+- **실화면 확인:** 운영 브라우저에서 여행 링크에서 한 건을 선택하면 왼쪽 목록에서 그 항목이 선택 표시되고, 해당 화면은 여행 문맥을 상속하며, 루트 화면에서는 선택이 없음을 확인했습니다. 구체 식별값은 제거했습니다.
+- **그래프/한계:** 코드 수정 뒤 `graphify update .`를 실행했고 28,702 nodes·79,142 edges·849 communities를 생성했다. SQL parser 누락 2개·기호 없는 파일 58개 경고는 있었다. 저장소 기준선에 그래프 산출물이 없어 생성된 미추적 `graphify-out/`은 이번 코드 변경에 임의 포함하지 않았다. 남은 한계는 상단 고정 헤더가 없는 레거시 페이지에서의 선택 표시가 이미 확인된 `/participants` 외 화면까지 전수 확인되지 않았다는 점이다.
+- **잔여/차단:** 구체 식별값 없이 일반 표현으로 대체했습니다. 남은 확인 항목은 이 문서의 후속 절차를 따릅니다.
 
 # 2026-11-18 — Ledger 첫 화면 bootstrap 지연 원인 수정 (운영 배포 진행)
 
@@ -26,7 +26,7 @@
 - **기준 교정:** 작업 중 운영이 다른 세션에 의해 `db410e46` → `3817723e`(안드레 라벨 Plush DTO)로 전환됐고 그 커밋은 origin/main에 없다. 그대로 두면 안드레 라벨이 되돌아가므로 후보를 **`3817723e` 위에 재작성**했다(cherry-pick). 두 변경은 `plush_api.py`의 서로 다른 위치라 충돌 없이 함께 남았고, 표적 40 passed로 안드레 라벨 회귀까지 확인했다.
 - **검사:** 공식 `run_quality_checks` 결과·독립 검수·배포 게이트 근거는 이 절 아래 값으로 채운다.
 
-# 2026-11-17 — 최근 여행 기능 폐지·전체 미보관 여행 목록 (진행 중)
+# 2026-11-17 17:09 — 최근 여행 기능 폐지·전체 미보관 여행 목록 운영 반영 완료
 
 - **현재 승인 정본:** 사용자 “최근여행목록 기능 폐지. 예전 ui에서처럼 보관되지 않은 여행이 시작일 순으로 전체가 스크롤로 노출될 수 있게”. 아래 8개·진행 중 여행 복원안은 폐기된 중간 요구이며 배포 기준이 아니다.
 - **구현:** 사이드바·여행 전환·조회자 허용 목록에서 개수 제한 제거, 보관 제외·시작일 오름차순·display_key 동률·날짜 없음 마지막. 이전/마감 여행도 포함하고 현재 보관 여행 예외는 제거했다. 조회자 권한 범위/허용 분기는 유지한다. 홈의 최근6개 카드도 같은 전체 여행 목록으로 교체했다. 금융·원문·Google 쓰기 없음.
