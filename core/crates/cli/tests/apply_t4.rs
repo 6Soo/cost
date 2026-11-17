@@ -469,3 +469,139 @@ fn interrupted_write_is_recovered_by_backfilling_decisions_only() {
     let (_, again) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
     assert_eq!(again["backfilled"], 0, "{again}");
 }
+
+fn storage_audit(p: &Pair) -> (i32, Value) {
+    let mut context: Value = serde_json::from_str(&p.opts).unwrap();
+    if !context["periods"].is_object() {
+        context["periods"] = serde_json::json!({});
+    }
+    let core = core_path(p);
+    costcore(
+        &[
+            "audit-decisions",
+            "--db",
+            p.rust_db.to_str().unwrap(),
+            "--core",
+            core.to_str().unwrap(),
+            "--host-root",
+            p.dir.to_str().unwrap(),
+        ],
+        &context.to_string(),
+    )
+}
+
+#[test]
+fn storage_audit_detects_missing_despite_unchanged_plan_and_repairs_without_board_writes() {
+    let mut p = pair("periods");
+    let (code, out) = run_rust(&p, &p.digest);
+    assert_eq!(code, 0, "{out}");
+    let board_before = dump(&p.rust_db);
+    let core = core_path(&p);
+    Connection::open(&core)
+        .unwrap()
+        .execute("DELETE FROM decisions", [])
+        .unwrap();
+    let before = dump(&core);
+    let (code, audit) = storage_audit(&p);
+    assert_eq!(code, 1, "{audit}");
+    assert_eq!(audit["coverage"]["missing"], 2, "{audit}");
+    assert_eq!(
+        audit["coverage"]["classification_changes_required"], 0,
+        "{audit}"
+    );
+    assert_eq!(dump(&core), before, "audit must never write or migrate");
+    let mut context: Value = serde_json::from_str(&p.opts).unwrap();
+    context["decisions_only"] = true.into();
+    p.opts = context.to_string();
+    let (code, repaired) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
+    assert_eq!(code, 0, "{repaired}");
+    assert_eq!(repaired["written"], 0);
+    assert_eq!(repaired["backfilled"], 2);
+    assert_eq!(dump(&p.rust_db), board_before);
+    assert_eq!(storage_audit(&p).0, 0);
+    let core_before = dump(&core);
+    let (code, again) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
+    assert_eq!(code, 0, "{again}");
+    assert_eq!(again["backfilled"], 0, "{again}");
+    assert_eq!(dump(&core), core_before);
+}
+
+#[test]
+fn storage_only_repair_excludes_classification_changes_and_protected_rows() {
+    let mut p = pair("general");
+    let mut context: Value = serde_json::from_str(&p.opts).unwrap();
+    context["decisions_only"] = true.into();
+    context["periods"] = serde_json::json!({});
+    p.opts = context.to_string();
+    let (code, out) = run_rust_with(&p, &p.digest, &["--backfill-decisions"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["written"], 0);
+    assert_eq!(dump(&p.rust_db), p.original);
+    let core = Connection::open(core_path(&p)).unwrap();
+    let count: i64 = core
+        .query_row(
+            "SELECT COUNT(*) FROM decisions WHERE transaction_id IN ('g4','g5','g6','g7')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "closed/manual/hold/P2 decisions must not be manufactured"
+    );
+    let (_, audit) = storage_audit(&p);
+    assert!(
+        audit["coverage"]["classification_changes_required"]
+            .as_u64()
+            .unwrap()
+            >= 3,
+        "{audit}"
+    );
+}
+
+#[test]
+fn audit_and_repair_detect_identity_and_period_corruption_without_mutating_sources() {
+    let mut p = pair("periods");
+    assert_eq!(run_rust(&p, &p.digest).0, 0);
+    let board_before = dump(&p.rust_db);
+    let core = core_path(&p);
+    Connection::open(&core).unwrap().execute("UPDATE decisions SET source_hash=?,revision=999,service_period_json='{}' WHERE transaction_id='p1'", ["0".repeat(64)]).unwrap();
+    let (code, bad) = storage_audit(&p);
+    assert_eq!(code, 1);
+    assert_eq!(bad["coverage"]["source_mismatch"], 1, "{bad}");
+    assert_eq!(bad["coverage"]["period_mismatch"], 1, "{bad}");
+    let mut context: Value = serde_json::from_str(&p.opts).unwrap();
+    context["decisions_only"] = true.into();
+    p.opts = context.to_string();
+    let (code, out) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["backfilled"], 1, "{out}");
+    assert_eq!(storage_audit(&p).0, 0);
+    assert_eq!(dump(&p.rust_db), board_before);
+}
+
+#[test]
+fn storage_only_mode_requires_explicit_backfill_and_period_facts_before_opening_core() {
+    let mut p = pair("general");
+    let mut context: Value = serde_json::from_str(&p.opts).unwrap();
+    context["decisions_only"] = true.into();
+    context["periods"] = serde_json::json!({});
+    p.opts = context.to_string();
+    let (code, out) = run_rust_with(&p, &p.digest, &[]);
+    assert_ne!(code, 0, "{out}");
+    assert_eq!(
+        out["error"]["code"],
+        "CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS"
+    );
+    assert!(!core_path(&p).exists());
+    context.as_object_mut().unwrap().remove("periods");
+    p.opts = context.to_string();
+    let (code, out) = run_rust_with(&p, &p.digest, &["--backfill-decisions"]);
+    assert_ne!(code, 0, "{out}");
+    assert_eq!(
+        out["error"]["code"],
+        "CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS"
+    );
+    assert!(!core_path(&p).exists());
+    assert_eq!(dump(&p.rust_db), p.original);
+}

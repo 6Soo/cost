@@ -2254,6 +2254,20 @@ def _login_entry_body(has_login: bool) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def parse_request(self):
+        valid = super().parse_request()
+        if valid:
+            from . import http_counting
+            http_counting.begin(self)
+        return valid
+
+    def send_response(self, code, message=None):
+        from . import http_counting
+        http_counting.begin(self)
+        self._http_status = code
+        self._http_body_started = False
+        super().send_response(code, message)
+
     def end_headers(self):
         # Authentication responses own their cookies, including logout clearing.
         path = self.path.split("?", 1)[0]
@@ -2266,6 +2280,7 @@ class Handler(BaseHTTPRequestHandler):
                 if header:
                     self.send_header("Set-Cookie", header)
         super().end_headers()
+        self._http_body_started = True
 
     def log_message(self, *args):  # keep test output quiet
         pass
@@ -2291,7 +2306,9 @@ class Handler(BaseHTTPRequestHandler):
         """
         token = _REQUEST_STORE.set(getattr(self.server, "card_store", None))
         try:
-            super().handle_one_request()
+            from . import http_counting
+            with http_counting.request(self):
+                super().handle_one_request()
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             self.close_connection = True
         finally:

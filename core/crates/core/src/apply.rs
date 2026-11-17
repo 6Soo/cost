@@ -24,6 +24,8 @@ use crate::store::decisions::{projection, save_decision, stored_digests_in};
 use crate::store::write_columns::Write;
 use crate::store::{StoreError, latest_version, read_plan_input_in};
 
+pub mod completeness;
+
 #[derive(Debug, Error)]
 pub enum ApplyError {
     #[error("CLASSIFICATION_PREVIEW_STALE")]
@@ -34,6 +36,8 @@ pub enum ApplyError {
     PayloadInvalid,
     #[error("CORE_SCHEMA_MISMATCH")]
     CoreSchemaMismatch,
+    #[error("CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS")]
+    RepairInvalid,
     #[error("저장 계층 오류: {0}")]
     Store(#[from] StoreError),
     #[error("sqlite 오류: {0}")]
@@ -123,6 +127,10 @@ pub fn apply(
     request: &ApplyRequest<'_>,
     links: &dyn Links,
 ) -> Result<ApplyOutcome, ApplyError> {
+    let storage_repair_only = request.context["decisions_only"].as_bool() == Some(true);
+    if storage_repair_only && (!request.backfill || !request.context["periods"].is_object()) {
+        return Err(ApplyError::RepairInvalid);
+    }
     attach_core(conn, core)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut input = read_plan_input_in(&tx)?;
@@ -147,7 +155,11 @@ pub fn apply(
     let stored = stored_digests_in(&tx, "core")?;
     let periods = PeriodEvidence {
         facts,
-        changed: changed_since(&stored, &current).into_iter().collect(),
+        changed: if storage_repair_only {
+            current.keys().cloned().collect()
+        } else {
+            changed_since(&stored, &current).into_iter().collect()
+        },
     };
     let result = plan_with_periods(&input, links, &periods).map_err(|_| ApplyError::PlanFailed)?;
     if result.digest != request.expected_digest {
@@ -155,7 +167,9 @@ pub fn apply(
     }
     let request_id = format!("apply-{}", &result.digest[..24]);
     let (mut written, mut skipped_unjudged, mut skipped_mismatch) = (0, 0, 0);
-    for target in &result.targets {
+    // A storage repair can populate the core without changing any financial or
+    // board projection. Targets whose classification would change are excluded.
+    for target in result.targets.iter().filter(|_| !storage_repair_only) {
         let decision = result
             .outcomes
             .iter()
@@ -252,7 +266,7 @@ fn decision_only(
     };
     let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let current: Vec<&str> = crate::plan::FIELDS.iter().map(|k| text(k)).collect();
-    save_decision(
+    let changed = save_decision(
         tx,
         "core",
         decision,
@@ -263,7 +277,10 @@ fn decision_only(
         request_id,
     )?;
     let derived = projection(tx, "core", tid)?;
-    Ok(derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())))
+    Ok(
+        changed
+            && derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())),
+    )
 }
 
 fn insert_log(

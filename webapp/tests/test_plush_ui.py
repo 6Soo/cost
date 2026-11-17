@@ -78,6 +78,19 @@ def test_deep_links_serve_undecorated_shell(dist, path):
     assert handler.response_headers["Cache-Control"] == "no-store"
 
 
+def test_unknown_react_address_is_404_after_session_validation(dist):
+    _, handler = call("/ui/not-a-screen", dist)
+    assert handler.status == 404
+    assert handler.json == {"code": "NOT_FOUND"}
+    assert not handler.wfile.getvalue()
+
+
+def test_unknown_react_address_does_not_bypass_auth(dist):
+    _, handler = call("/ui/not-a-screen", dist, session=None)
+    assert handler.status == 401
+    assert not handler.wfile.getvalue()
+
+
 def test_redirect_preserves_query(dist):
     _, handler = call("/ui?tab=synthetic", dist)
     assert handler.status == 308
@@ -123,6 +136,10 @@ def http_ui(dist, monkeypatch, tmp_path):
     access = access_control.attach_to_ledger_store(store)
     access.ensure_owner("synthetic-ui-owner")
     access.create_account(user_id="synthetic-ui-viewer", role="viewer")
+    trip = store.create_trip(
+        starts_on="2026-11-01", ends_on="2026-11-02", destination="합성여행",
+        display_key="11월_합성여행", client_request_id="synthetic-ui-primary-trip")
+    access.synthetic_ui_trip_tab = trip["tab_id"]
     ledger_board.bind_access(access)
     access_control.bind_synthetic_sessions(True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -177,3 +194,18 @@ def test_http_stale_session_cannot_retrieve_built_asset(http_ui):
     with pytest.raises(urllib.error.HTTPError) as caught:
         urllib.request.urlopen(req)
     assert caught.value.code == 401
+
+
+def test_http_unknown_react_address_is_404_after_auth(http_ui):
+    import urllib.error
+    import urllib.request
+    from webapp import access_control
+
+    port, _ = http_ui
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/ui/not-a-screen",
+        headers={access_control.SyntheticSessionAdapter.HEADER: "synthetic-ui-owner"})
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(req)
+    assert caught.value.code == 404
+    assert b'<main id="root">' not in caught.value.read()

@@ -1,0 +1,44 @@
+{
+  "assignment": "6c7769d88f163652ef9bc4d48d93d333e77d92df2e257fc77432a813a5fecd50",
+  "updated_at": "2026-11-17",
+  "workspace": "C:/Users/kkokk/.paseo/worktrees/28lt5mey/m3-m5-remediation-20261117",
+  "targets": {
+    "M3": {
+      "status": "PARTIAL",
+      "scope": "detect and safely backfill missing stored decisions; preserve manual/financial protections",
+      "evidence": "independent review F-02; existing Rust apply/store changes and tests",
+      "next": "operational backup/restore gate and decisions-only backfill of 2,636 diagnostic candidates"
+    },
+    "M4": {
+      "status": "PARTIAL",
+      "scope": "stored service-period projection, HTML 404, 320px layout, forbidden waiting-screen semantics",
+      "evidence": "independent review F-03..F-06; existing React/Python tests",
+      "next": "complete P-01~10 acceptance evidence; 320px browser probe now PASS"
+    },
+    "M5": {
+      "status": "PARTIAL",
+      "scope": "provider-independent queue/node/P2 runtime and request metrics",
+      "evidence": "independent review F-01; existing Rust jobs/p2/runtime scaffolding",
+      "next": "provider decision, cloud migration, PC-off and reverse daily backup verification"
+    },
+    "F7": {
+      "status": "PARTIAL",
+      "scope": "input/output reproducibility manifest binding",
+      "evidence": "independent review F-07",
+      "next": "retain baseline output and add production input snapshot binding when source manifest is available"
+    }
+  },
+  "blocked": [
+    "actual cloud provider selection/contract/account and production migration",
+    "PC-off and reverse daily backup/restore in production",
+    "operational customer-data backfill or deployment without fresh safety gate"
+  ],
+  "checks_remaining": [
+    "operational safety gate for M3",
+    "M4 P-01~10 acceptance evidence",
+    "provider/cloud boundary for M5",
+    "final diff review",
+    "docs/session_handoff checkpoint update"
+  ],
+  "exact_next_action": "review final diff and preserve PARTIAL/BLOCKED boundaries; do not deploy"
+}

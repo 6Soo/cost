@@ -255,7 +255,7 @@ def _refund_links(conn, transaction_ids) -> dict:
 
 
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None,
-          backfill=False):
+          backfill=False, decisions_only=False):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
 
     `periods` is `periods_for(conn)`; without it the Rust period evidence is empty and stored periods are unknown.
@@ -266,6 +266,10 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     if conn.in_transaction:
         raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
     request = {'trips': trips, 'nets': nets or {}, 'evidence': evidence or {}, 'reconsider': bool(reconsider)}
+    if decisions_only:
+        if not backfill or periods is None:
+            raise ValueError('CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS')
+        request['decisions_only'] = True
     links = _refund_links(conn, transaction_ids)
     if links is not None:
         request['links'] = links
@@ -406,6 +410,51 @@ def load_stored_periods() -> dict | None:
         _READ_ERROR.update(error=f'{type(error).__name__}: {error}', stale=_LAST_READ['periods'] is not None)
         _publish_status()
         return _LAST_READ['periods'] if _LAST_READ['periods'] is not None else {}
+
+
+_PERIOD_RECORD_CACHE: dict = {}
+_LAST_RECORD_READ: dict = {'path': None, 'records': None}
+
+
+def load_stored_period_records() -> dict | None:
+    """Read periods and source identity in one bounded, read-only batch.
+
+    Callers must compare source_hash/revision with the current source transaction
+    before displaying a period. A last-good snapshot may only be reused for the
+    same configured core file, and the ordinary read-status reports the error.
+    Values are flat normalized period dictionaries plus source_hash/revision.
+    """
+    if not stored_periods_enabled():
+        return None
+    path = str(Path(os.environ[CORE_DB_ENV]).resolve())
+    signature = _core_signature()
+    cached = _PERIOD_RECORD_CACHE.get('entry')
+    try:
+        if signature is not None and cached is not None and cached[0] == signature:
+            records = {key: dict(value) for key, value in cached[1].items()}
+        else:
+            with closing(sqlite3.connect(Path(path).as_uri() + '?mode=ro', uri=True,
+                                         timeout=READ_TIMEOUT)) as conn:
+                conn.execute('PRAGMA query_only=ON')
+                rows = conn.execute('SELECT transaction_id,source_hash,revision,service_period_json FROM decisions').fetchall()
+            records = {}
+            for tid, source_hash, revision, period in rows:
+                try:
+                    normalized = _normalized(period)
+                except (TypeError, ValueError, AttributeError):
+                    normalized = {'kind': 'unknown'}
+                records[str(tid)] = {**normalized, 'source_hash': source_hash, 'revision': revision}
+            if signature is not None and _core_signature() == signature:
+                _PERIOD_RECORD_CACHE['entry'] = (signature, records)
+        _LAST_RECORD_READ.update(path=path, records=records)
+        _READ_ERROR.update(error='', stale=False)
+        _schedule_publish()
+        return {key: dict(value) for key, value in records.items()}
+    except (OSError, sqlite3.Error) as exc:
+        previous = _LAST_RECORD_READ['records'] if _LAST_RECORD_READ['path'] == path else None
+        _READ_ERROR.update(error=type(exc).__name__, stale=previous is not None)
+        _schedule_publish()
+        return {key: dict(value) for key, value in (previous or {}).items()}
 
 
 def _not_judged(row) -> bool:

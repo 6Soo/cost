@@ -29,7 +29,7 @@ def test_existing_browser_urls_serve_the_same_shell_without_redirect(dist, path)
     handler = Handler()
     handler.headers["Accept"] = "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"
     board = SimpleNamespace(ACCESS_ENFORCEMENT=True, require_session=lambda *_: object())
-    assert plush_ui.dispatch_primary(handler, urlsplit(path + "?tab=trip%20one&q=cost"), board=board, dist=dist)
+    assert plush_ui.dispatch_primary(handler, urlsplit(path + "?q=cost"), board=board, dist=dist)
     assert handler.status == 200
     assert "Location" not in handler.response_headers
     assert handler.wfile.getvalue() == b'<main id="root"></main>'
@@ -64,7 +64,7 @@ def test_primary_pages_keep_session_gate(dist):
     assert handler.status == 401 and not handler.wfile.getvalue()
 
 
-@pytest.mark.parametrize("path", ["/", "/trips", "/board?tab=demo", "/cards/all", "/receipts", "/google-ledger", "/access/admin", "/rules"])
+@pytest.mark.parametrize("path", ["/", "/trips", "/cards/all", "/receipts", "/google-ledger", "/access/admin", "/rules"])
 def test_actual_http_browser_uses_primary_shell(http_ui, monkeypatch, path):
     monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", True)
     port, _ = http_ui
@@ -75,6 +75,39 @@ def test_actual_http_browser_uses_primary_shell(http_ui, monkeypatch, path):
         assert response.status == 200
         assert response.url.endswith(path)
         assert response.read() == b'<main id="root"></main>'
+
+
+def test_actual_http_board_accepts_existing_trip_for_owner_and_viewer(http_ui, monkeypatch):
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", True)
+    port, access = http_ui
+    tab_id = access.synthetic_ui_trip_tab
+    original_visible_tabs = access.visible_tabs
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id: (
+        {tab_id} if user_id == "synthetic-ui-viewer" else original_visible_tabs(user_id)))
+    for user in ("synthetic-ui-owner", "synthetic-ui-viewer"):
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/board?tab={tab_id}", headers={
+            "Accept": "text/html", access_control.SyntheticSessionAdapter.HEADER: user,
+        })
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 200
+            assert response.read() == b'<main id="root"></main>'
+
+
+def test_actual_http_board_hides_missing_and_inaccessible_trip_ids(http_ui, monkeypatch):
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", True)
+    port, access = http_ui
+    responses = []
+    for user, tab_id in (("synthetic-ui-owner", "trip-not-present"),
+                         ("synthetic-ui-viewer", access.synthetic_ui_trip_tab)):
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/board?tab={tab_id}", headers={
+            "Accept": "text/html", access_control.SyntheticSessionAdapter.HEADER: user,
+        })
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request)
+        assert caught.value.code == 404
+        responses.append(caught.value.read())
+    assert responses[0] == responses[1]
+    assert b'<main id="root">' not in responses[0]
 
 
 def test_actual_http_unknown_session_cannot_read_primary_shell(http_ui, monkeypatch):

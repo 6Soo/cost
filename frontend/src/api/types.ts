@@ -14,6 +14,7 @@ export interface TripSummary {
   profit: string;
   closed: boolean;
   archived: boolean;
+  protected?: boolean;
 }
 
 export interface Bootstrap {
@@ -59,6 +60,9 @@ export interface LedgerRow {
   currency: string;
   payment: string;
   period: string;
+  period_status?: "verified" | "inferred" | "unknown" | "stale";
+  period_basis?: string;
+  period_manual_blank?: boolean;
   evidence_summary: string;
   revision?: string | number;
   read_only: boolean;

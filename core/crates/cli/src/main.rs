@@ -2,6 +2,7 @@
 //! 출력은 JSON 한 줄이며 고객 원문·거래 ID는 담지 않는다(비공개 상세는 보호 경로 파일에만).
 
 mod links_ota;
+mod p2_cli;
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -31,6 +32,7 @@ const DEFAULT_HOST: &str = "D:/WebLedgerHost";
 /// CLI 오류. 운영 명령(plan·apply)은 `ShadowError`를 거치지 않고, 비교·보호 경로 도우미의 오류만 `Shadow`로 담는다.
 #[derive(Debug)]
 enum CliError {
+    Remote(&'static str),
     UsageInvalid,
     PlanResponseInvalid,
     Stdin,
@@ -39,6 +41,7 @@ enum CliError {
     Apply(ApplyError),
     Store,
     CoreSchemaMismatch,
+    PeriodFactsRequired,
     Shadow(ShadowError),
     Guard(GuardError),
     ConfigInvalid,
@@ -49,6 +52,7 @@ impl CliError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     fn code(&self) -> String {
         match self {
+            Self::Remote(code) => (*code).to_owned(),
             Self::UsageInvalid => "USAGE_INVALID".to_owned(),
             Self::PlanResponseInvalid => "PLAN_RESPONSE_INVALID".to_owned(),
             Self::Stdin => "INPUT_INVALID".to_owned(),
@@ -63,6 +67,10 @@ impl CliError {
             }
             Self::Pipeline(PipelineError::Store(_)) | Self::Store => "STORE_ERROR".to_owned(),
             Self::CoreSchemaMismatch => "CORE_SCHEMA_MISMATCH".to_owned(),
+            Self::PeriodFactsRequired => "PERIOD_FACTS_REQUIRED".to_owned(),
+            Self::Apply(ApplyError::RepairInvalid) => {
+                "CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS".to_owned()
+            }
             Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
             Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
             Self::Apply(_) => "APPLY_FAILED".to_owned(),
@@ -144,6 +152,10 @@ fn python_bridge(flags: &Flags) -> PythonBridge {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("server") => remote::runtime("server", &args[1..]),
+        Some("node") => remote::runtime("node", &args[1..]),
+        Some("queue") => finish(remote::queue(&args[1..]).map_err(CliError::Remote), "ok"),
+        Some("p2") => finish(p2_cli::run(&args[1..]).map_err(CliError::Remote), "ok"),
         None | Some("--version") => {
             println!("costcore {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -156,6 +168,7 @@ fn main() -> ExitCode {
         Some("links") => finish(links_cmd(&args[1..]), "ok"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
+        Some("audit-decisions") => finish(audit_decisions(&args[1..]), "ok"),
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
         Some("periods") => finish(periods(&args[1..]), "ok"),
         Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
@@ -437,6 +450,11 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect()
     });
+    if context["decisions_only"] == json!(true)
+        && (!flags.on("--backfill-decisions") || !context["periods"].is_object())
+    {
+        return Err(CliError::Apply(ApplyError::RepairInvalid));
+    }
     let links = if context["links"].is_object() {
         links_from(&context["links"])
     } else {
@@ -462,6 +480,52 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
         0,
         json!({"ok": true, "result": out.summary, "written": out.written,
             "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch, "backfilled": out.backfilled}),
+    ))
+}
+
+/// Inspect persisted core decisions independently of the recomputed shadow.
+/// Both databases are read-only; public output contains only counts.
+fn audit_decisions(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+    let core_path = PathBuf::from(flags.get("--core").ok_or(CliError::UsageInvalid)?);
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    if !flags.on("--allow-live") {
+        reject_live_db(&db, &host)?;
+    }
+    let mut body = String::new();
+    std::io::stdin().read_to_string(&mut body)?;
+    let context: Value = serde_json::from_str(&body).map_err(|_| CliError::Stdin)?;
+    if !context["periods"].is_object() {
+        return Err(CliError::PeriodFactsRequired);
+    }
+    let links = if context["links"].is_object() {
+        links_from(&context["links"])
+    } else {
+        python_bridge(&flags).refund_links(&db, None)?
+    };
+    let board = cost_core::store::projection::open_board_readonly(&db)?;
+    let core = cost_core::store::projection::open_board_readonly(&core_path)?;
+    board.execute_batch("BEGIN").map_err(|_| CliError::Store)?;
+    core.execute_batch("BEGIN").map_err(|_| CliError::Store)?;
+    let report = cost_core::apply::completeness::audit(&board, &core, &context, &links)?;
+    let passed = report.eligible_missing == 0
+        && report.eligible_stale == 0
+        && report.projection_mismatch == 0
+        && report.source_mismatch == 0
+        && report.period_mismatch == 0
+        && report.classification_change_required == 0
+        && report.orphaned == 0;
+    Ok((
+        if passed { 0 } else { 1 },
+        json!({"ok":passed,"coverage": {
+        "scanned":report.scanned,"stored":report.stored,"eligible":report.eligible,
+        "missing":report.eligible_missing,"stale":report.eligible_stale,
+        "projection_mismatch":report.projection_mismatch,"source_mismatch":report.source_mismatch,
+        "period_mismatch":report.period_mismatch,"orphaned":report.orphaned,
+        "classification_changes_required":report.classification_change_required,
+        "protected_or_preserved":report.protected_or_preserved,"kept":report.kept,
+        "plan_digest":report.plan_digest}}),
     ))
 }
 
@@ -570,3 +634,4 @@ fn rejudge(args: &[String]) -> Result<(u8, Value), CliError> {
                "unchanged": current.len() - changed.len(), "fn_version": period::PERIOD_FN_VERSION}),
     ))
 }
+mod remote;

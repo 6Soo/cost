@@ -61,10 +61,37 @@ def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> boo
     # Production sessions and their refusal handling use the same gate as /ui/.
     if not board.ACCESS_ENFORCEMENT:
         return False
-    return dispatch(handler, parsed._replace(path="/ui/"), board=board, dist=dist)
+    return dispatch(handler, parsed._replace(path="/ui/"), board=board, dist=dist,
+                    primary_path=parsed.path)
 
 
-def dispatch(handler, parsed, *, board, dist: Path | None = None) -> bool:
+def _primary_tab_visible(board, session, tab_id: str) -> bool:
+    """Check a primary board deep link without revealing other viewers' trips."""
+    if tab_id == "refunds":
+        return True
+    is_owner = getattr(board, "is_owner_session", None)
+    owner = bool(is_owner(session)) if callable(is_owner) else False
+    if tab_id == "unclassified":
+        return owner
+    store_factory = getattr(board, "_active_store", None)
+    store = store_factory() if callable(store_factory) else None
+    if store is None or not hasattr(store, "list_trips"):
+        return False
+    trips = [trip for trip in store.list_trips(include_archived=True)
+             if not trip.get("deleted")]
+    existing = {str(trip.get("tab_id") or "") for trip in trips}
+    if owner:
+        return tab_id in existing
+    access_factory = getattr(board, "access_store", None)
+    access = access_factory() if callable(access_factory) else None
+    if access is None:
+        return False
+    allowed = set(access.visible_tabs(session.user_id))
+    return tab_id in existing and tab_id in allowed
+
+
+def dispatch(handler, parsed, *, board, dist: Path | None = None,
+             primary_path: str | None = None) -> bool:
     """Serve a UI request after validating the actual board session.
 
     ``board`` is the ledger_board module, whose require_session function is also
@@ -77,6 +104,12 @@ def dispatch(handler, parsed, *, board, dist: Path | None = None) -> bool:
     if session is None:
         handler._send_json({"code": "AUTH_REQUIRED"}, code=401)
         return True
+    if primary_path == "/board":
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        tab_id = (query.get("tab") or query.get("trip") or [""])[0]
+        if tab_id and not _primary_tab_visible(board, session, str(tab_id)):
+            handler._send_json({"code": "NOT_FOUND"}, code=404)
+            return True
     if parsed.path == "/ui":
         handler.send_response(308)
         handler.send_header("Location", "/ui/" + ("?" + parsed.query if parsed.query else ""))
@@ -103,6 +136,11 @@ def dispatch(handler, parsed, *, board, dist: Path | None = None) -> bool:
     if is_asset and suffix not in _ASSET_TYPES:
         handler._send_json({"code": "NOT_FOUND"}, code=404)
         return True
+    if not is_asset and relative not in ("", "index.html"):
+        page_path = "/" + relative
+        if page_path not in PRIMARY_ROUTES:
+            handler._send_json({"code": "NOT_FOUND"}, code=404)
+            return True
     if not is_asset:
         target = root / "index.html"
     if not target.is_file():

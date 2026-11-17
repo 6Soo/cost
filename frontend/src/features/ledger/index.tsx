@@ -42,6 +42,29 @@ function safeMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : fallback;
 }
 
+function PeriodValue({ row }: { row: LedgerRow }) {
+  if (row.period_status === 'stale') {
+    return <span className="cost-ledger__period-stale">현재 원본과 다른 저장 판정이라 기간을 표시하지 않습니다.</span>;
+  }
+  if (row.period_status === 'unknown') {
+    return <span className="cost-ledger__period-unknown">
+      {row.period_manual_blank ? '사용자가 비워 둔 이용 기간' : '기간 근거 없음'}
+    </span>;
+  }
+  if (row.period_status === 'inferred') {
+    return (
+      <span className="cost-ledger__period-inferred">
+        {row.period && <span>{row.period.replace('~', '–')}</span>}
+        <small>추정 · {row.period_basis || '저장된 판정 근거'}</small>
+      </span>
+    );
+  }
+  if (row.period_status === 'verified') {
+    return <span>확인됨 · {row.period.replace('~', '–')}</span>;
+  }
+  return row.period.replace('~', '–');
+}
+
 function LedgerDesktopTable({
   rows,
   onOpen,
@@ -62,6 +85,7 @@ function LedgerDesktopTable({
       ),
     },
     { key: 'category', header: '항목', cell: (row: LedgerRow) => row.category || '항목 없음' },
+    { key: 'period', header: '이용 기간', cell: (row: LedgerRow) => <PeriodValue row={row} /> },
     { key: 'amount', header: '금액', align: 'end' as const, cell: (row: LedgerRow) => <Amount value={row.amount} currency={currencyLabel(row.currency)} /> },
     { key: 'evidence', header: '근거', cell: (row: LedgerRow) => row.evidence_summary || '근거 요약 없음' },
   ];
@@ -91,6 +115,7 @@ function LedgerMobileList({
             <strong>{row.merchant || row.description || '내용 없음'}</strong>
             <span className="cost-ledger__mobile-bottom">
               <span>{row.category || '항목 없음'}</span>
+              {(row.period || row.period_status) && <span className="cost-ledger__mobile-period"><PeriodValue row={row} /></span>}
               {row.evidence_summary && <span>{row.evidence_summary}</span>}
             </span>
           </button>
@@ -179,6 +204,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     && !isClosed
     && tab !== 'unclassified'
     && !quarterTab;
+  const protectedTrip = tab === 'unclassified' || data?.trip.protected === true;
 
   function openRow(row: LedgerRow) {
     update({ row: row.id });
@@ -194,7 +220,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   }
 
   async function copyForGoogle() {
-    if (!tab || kind !== 'expense' || bootstrap.role !== 'owner' || copyPending) return;
+    if (!tab || kind !== 'expense' || bootstrap.role !== 'owner' || protectedTrip || copyPending) return;
     setCopyPending(true);
     setCopyNotice(null);
     setCopyText('');
@@ -218,7 +244,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   }
 
   async function exportTrip() {
-    if (!tab || quarterTab || bootstrap.role !== 'owner' || exportPending) return;
+    if (!tab || quarterTab || bootstrap.role !== 'owner' || protectedTrip || exportPending) return;
     setExportPending(true);
     setExportNotice(null);
     setExportHref(null);
@@ -259,7 +285,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
             <FormField id="cost-ledger-trip" label="여행 전환">
               <Select id="cost-ledger-trip" value={tab} onChange={(event) => update({ tab: event.currentTarget.value, row: null, page: null })}>
                 {trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}
-                {tab === 'unclassified' && <option value="unclassified">이전 귀속 목록</option>}
+                {tab === 'unclassified' && <option value="unclassified">내부 보호 · 이전 귀속 결과</option>}
               </Select>
             </FormField>
           </div>
@@ -273,6 +299,9 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         )}
       </header>
 
+      {protectedTrip && <InlineNotice tone="info" title="내부 보호 · 이전 귀속 결과 열람">
+        기존 원본과 귀속 기록을 보존하며 읽기 전용으로 확인합니다.
+      </InlineNotice>}
       {data?.closed && <InlineNotice tone="info" title="마감 기간 · 읽기 전용">이 기간은 기존 마감 보호를 유지합니다. 교정 기능은 서버가 허용한 경우에만 표시됩니다.</InlineNotice>}
       {loadError && <InlineNotice tone="error" title="장부를 불러오지 못했습니다">{loadError}</InlineNotice>}
 
@@ -315,8 +344,8 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </div>
         {bootstrap.role === 'owner' && (
           <div className="cost-ledger__actions">
-            {kind === 'expense' && !quarterTab && <ActionButton type="button" variant="secondary" pending={copyPending} pendingLabel="복사 준비 중" onClick={copyForGoogle}>Google 장부용 복사</ActionButton>}
-            {!quarterTab && <ActionButton type="button" variant="ghost" pending={exportPending} pendingLabel="XLSX 생성 중" onClick={exportTrip}>XLSX 내보내기</ActionButton>}
+            {kind === 'expense' && !quarterTab && !protectedTrip && <ActionButton type="button" variant="secondary" pending={copyPending} pendingLabel="복사 준비 중" onClick={copyForGoogle}>Google 장부용 복사</ActionButton>}
+            {!quarterTab && !protectedTrip && <ActionButton type="button" variant="ghost" pending={exportPending} pendingLabel="XLSX 생성 중" onClick={exportTrip}>XLSX 내보내기</ActionButton>}
             {ownerCanWrite && <ActionButton type="button" variant="primary" onClick={() => setEntryKind(kind)}> {kind === 'expense' ? '수기 지출 추가' : '수입 직접 입력'}</ActionButton>}
           </div>
         )}

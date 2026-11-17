@@ -29,6 +29,11 @@
 .cost-ledger__row-open { display: grid; gap: 4px; min-width: 160px; min-height: 44px; justify-items: start; padding: 4px 0; border: 0; background: transparent; color: var(--cost-text); text-align: left; font: inherit; cursor: pointer; }
 .cost-ledger__row-open strong { overflow-wrap: anywhere; }
 .cost-ledger__row-open span { color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__period-inferred { display: grid; gap: 2px; }
+.cost-ledger__period-inferred small,
+.cost-ledger__period-stale,
+.cost-ledger__period-unknown { color: var(--cost-text-secondary); font-size: .8125rem; }
+.cost-ledger__mobile-period { min-width: 0; }
 @media (hover: hover) {
   .cost-ledger__row-open:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 }

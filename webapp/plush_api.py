@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
 from . import plush_projection as projection
+from . import plush_periods
 
 
 ROUTES = (
@@ -120,7 +121,7 @@ def _trip_for_query(board: Any, access: Any, session: Any, owner: bool,
             raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
         trip = {
             "tab_id": "unclassified", "display_key": "unclassified",
-            "display_title": "분류대기", "starts_on": "", "ends_on": "",
+            "display_title": "내부 보호 · 이전 귀속 결과", "starts_on": "", "ends_on": "",
             "tab_kind": "other", "archived": False, "visual_closed": False,
         }
         return trip, list(board.list_tab_rows(None))
@@ -216,6 +217,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     rows = _with_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
+    rows = plush_periods.annotate(rows, board)
     all_rows = list(rows)
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
@@ -254,7 +256,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     start = (page - 1) * page_size
     selected = rows[start:start + page_size]
     closed = bool(trip.get("visual_closed") or trip.get("archived"))
-    read_only = (not owner) or closed
+    read_only = (not owner) or closed or trip.get("tab_id") == "unclassified"
     return {
         "trip": _trip_summary(board, trip, all_rows),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
@@ -289,8 +291,9 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     trip = next((item for item in _visible_trips(board, access, session, owner)
                  if str(item.get("tab_id")) == tab_id), None)
     closed = bool((trip or {}).get("visual_closed") or (trip or {}).get("archived"))
-    read_only = (not owner) or closed or row.get("revision") is None
+    read_only = (not owner) or closed or tab_id in {"", "unclassified"} or row.get("revision") is None
     display_row = board.projected(row) if hasattr(board, "projected") else row
+    display_row = plush_periods.annotate([display_row], board)[0]
     fields = []
     actions = []
     if owner and not read_only:

@@ -80,6 +80,35 @@ def test_unknown_trip_and_row_answer_404(bound_store):
     assert body["message"] == "없는 행이에요"
 
 
+def test_unclassified_is_an_owner_only_protected_previous_attribution_result(bound_store, monkeypatch):
+    store, access = bound_store
+    row = {
+        "row_id": "card-syn-protected", "row_kind": "expense", "display_tab_id": None,
+        "occurred_on": "2026-11-16", "amount_krw": 8000, "item": "숙박비",
+        "source_kind": "카드", "source_event_id": "syn-protected", "source_merchant": "합성 가맹점",
+        "service_period": "", "revision": 1,
+    }
+    monkeypatch.setattr(store, "list_tab_rows", lambda tab_id: [row] if tab_id is None else [])
+    monkeypatch.setattr(store, "projected", lambda value: value)
+    status, ledger = call("/api/plush/ledger?tab=unclassified", "syn-owner", store)
+    assert status == 200
+    assert ledger["trip"]["title"] == "내부 보호 · 이전 귀속 결과"
+    assert ledger["trip"]["protected"] is True
+    assert ledger["rows"][0]["read_only"] is True
+
+    monkeypatch.setattr(store, "get_row", lambda row_id: row if row_id == row["row_id"] else None)
+    status, detail = call("/api/plush/row?id=card-syn-protected", "syn-owner", store)
+    assert status == 200
+    assert detail["read_only"] is True
+    assert detail["edit_fields"] == []
+    assert detail["actions"] == []
+
+    access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
+    status, hidden = call("/api/plush/ledger?tab=unclassified", "syn-viewer", store)
+    assert status == 404
+    assert hidden["code"] == "RESOURCE_NOT_FOUND"
+
+
 def test_row_detail_has_owner_actions_but_no_legacy_html_href(bound_store):
     store, _ = bound_store
     status, detail = call("/api/plush/row?id=expense-demo-c1", "syn-owner", store)

@@ -46,6 +46,7 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
         "profit": money(income - expense),
         "closed": bool(trip.get("visual_closed") or trip.get("archived")),
         "archived": bool(trip.get("archived")),
+        "protected": str(trip.get("tab_id") or "") == "unclassified",
     }
 
 
@@ -83,11 +84,19 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any
         # currency must never relabel the KRW amount (e.g. 135000 USD).
         "currency": "KRW",
         "payment": str(payment or ""),
-        "period": str(row.get("service_period") or ""),
+        "period": str(row.get("_plush_period", row.get("service_period")) or ""),
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
         "read_only": bool(read_only),
     }
+    period_status = row.get("_plush_period_status")
+    if period_status in {"verified", "inferred", "unknown", "stale"}:
+        result["period_status"] = period_status
+    period_basis = row.get("_plush_period_basis")
+    if period_basis:
+        result["period_basis"] = str(period_basis)
+    if row.get("_plush_period_manual_blank") is True:
+        result["period_manual_blank"] = True
     source_amount = row.get("foreign_amount", row.get("amount"))
     if row.get('google_income') and row.get('amount_missing'):
         result['amount'] = '미확인'
