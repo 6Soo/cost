@@ -27,6 +27,9 @@ EXPECTED_COLUMNS = {
     'event_kind', 'classification_state', 'classification_source',
     'classification_basis', 'confirmed_by', 'memo', 'operator_note',
     'revision', 'committed_at', 'batch_id', 'created_at',
+    # 수입·수기 행 payload 필드. 없으면 읽기를 통합 장부로 바꿀 때 값이 사라진다.
+    'customer_id', 'customer_name', 'nickname', 'income_kind',
+    'event_type', 'created_by_request',
 }
 
 

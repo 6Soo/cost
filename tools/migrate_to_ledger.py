@@ -36,6 +36,9 @@ PAYLOAD_COLUMNS = (
     'source_approval_date', 'source_posting_date', 'source_local_amount',
     'source_currency', 'event_kind', 'classification_state', 'confirmed_by',
     'memo', 'operator_note', 'revision',
+    # 수입·수기 행 필드. 운영에는 지금 0건이지만 앞으로 생길 수 있다.
+    'customer_id', 'customer_name', 'nickname', 'income_kind',
+    'event_type', 'created_by_request',
 )
 # `ledger_entries`에서만 오는 것들. 카드 거래의 기장 사실이다.
 ENTRY_COLUMNS = ('committed_at', 'batch_id')

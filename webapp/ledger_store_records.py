@@ -125,6 +125,12 @@ def sync_ledger_from_record(conn: Any, record: dict) -> None:
         confirmed_by=record.get('confirmed_by') or '',
         memo=record.get('memo') or '',
         operator_note=record.get('operator_note') or '',
+        customer_id=record.get('customer_id') or '',
+        customer_name=record.get('customer_name') or '',
+        nickname=record.get('nickname') or '',
+        income_kind=record.get('income_kind') or '',
+        event_type=record.get('event_type') or '',
+        created_by_request=record.get('created_by_request') or '',
         revision=record.get('revision') or 1,
     )
     if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (row_id,)).fetchone():

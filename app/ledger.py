@@ -69,6 +69,8 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
         classification_source=entry.get('classification_source') or '',
         classification_basis=entry.get('classification_basis') or '',
         confirmed_by='', memo='', operator_note='',
+        customer_id='', customer_name='', nickname='', income_kind='',
+        event_type='', created_by_request='',
         revision=1, committed_at=now, batch_id=batch or '', created_at=now,
     )
     if record:
@@ -79,7 +81,9 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
                     'source_approval_date', 'source_posting_date',
                     'source_local_amount', 'source_currency', 'event_kind',
                     'classification_state', 'classification_source',
-                    'classification_basis', 'confirmed_by', 'memo', 'operator_note'):
+                    'classification_basis', 'confirmed_by', 'memo', 'operator_note',
+                    'customer_id', 'customer_name', 'nickname', 'income_kind',
+                    'event_type', 'created_by_request'):
             value = record.get(key)
             if value is not None:
                 values[key] = value

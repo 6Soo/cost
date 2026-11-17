@@ -404,6 +404,20 @@
       "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py", "webapp/tests/test_owner_metadata.py"]
     },
     {
+      "name": "m6-ledger-merge",
+      "paths": ["app/db.py", "tools/migrate_to_ledger.py",
+                "tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py"],
+      "tests": ["tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py",
+                "tests/card_pipeline/test_quarter_tab.py",
+                "webapp/tests/test_ledger_store.py",
+                "webapp/tests/test_ledger_apply.py",
+                "webapp/tests/test_refund_group_commit.py"]
+    },
+    {
       "name": "board-read-boundaries",
       "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py", "tests/test_board_*.py"],
       "tests": ["tests/test_board_http_shapes.py", "tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py", "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_owner_metadata.py", "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"]
