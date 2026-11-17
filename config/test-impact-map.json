@@ -340,8 +340,8 @@
     },
     {
       "name": "google-readonly",
-      "paths": ["app/google_*.py", "webapp/google_*.py", "webapp/live_sync.py"],
-      "tests": ["tests/card_pipeline/test_google_tsv.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_google_viewer_http.py"]
+      "paths": ["app/google_*.py", "webapp/google_*.py", "webapp/live_sync.py", "tests/card_pipeline/test_google_authority.py", "tests/card_pipeline/test_google_tsv.py"],
+      "tests": ["tests/card_pipeline/test_google_authority.py", "tests/card_pipeline/test_google_tsv.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_google_viewer_http.py"]
     },
     {
       "name": "authentication",
