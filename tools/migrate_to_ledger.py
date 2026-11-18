@@ -144,6 +144,10 @@ def read_existing(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
             source_merchant=entry['source_merchant'],
             source_kind='카드',
             source_event_id=txid,
+            # 원문 해시도 옮긴다. `accounting_audit`가 화면 행의
+            # `source_fact_digest`를 카드 원행 `source_hash`와 대조하므로, 빠지면
+            # 이 행을 되살린 보드 행이 재생성 시 출처 불일치로 보인다.
+            source_fact_digest=entry['source_hash'],
             event_kind=entry['transaction_direction'],
             batch_id=entry['batch_id'],
             committed_at=entry['committed_at'],
@@ -254,11 +258,15 @@ def migrate(conn: sqlite3.Connection, *, apply: bool) -> dict:
 
     트랜잭션은 이 함수가 스스로 연다(SAVEPOINT). 호출자가 autocommit으로 열었든
     이미 트랜잭션 안에 있든 같은 방식으로 동작해야, 예행이 테이블을 남기지 않는다.
+
+    `read_existing()`은 SAVEPOINT **안**에서 부른다. entry_id 충돌로 `SystemExit`을
+    내면 이 `except`가 롤백하지 않고 빠져나가 장부가 반쯤 채워지는 일이 생긴다.
+    계획 단계는 DB를 쓰지 않지만, 같은 try 안에 두어야 실패 시 깔끔히 끝난다.
     """
-    before = summarize(conn)
-    rows, meta = read_existing(conn)
     conn.execute('SAVEPOINT cost_ledger_migrate')
     try:
+        before = summarize(conn)
+        rows, meta = read_existing(conn)
         _execute_statements(conn, LEDGER_SCHEMA_SQL)
 
         columns = (('entry_id', 'transaction_id') + PAYLOAD_COLUMNS

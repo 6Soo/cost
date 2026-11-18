@@ -229,3 +229,28 @@ def test_compare_sources_reports_a_lost_entry_row(tmp_path):
         assert problems and problems[0].startswith('SOURCE_ROWS_NOT_IN_LEDGER')
     finally:
         conn.close()
+
+
+# ---- `booked_sql`: 세 저장소의 합집합. 일부만 이관된 DB에서 옛 영수증을 놓치면 안 된다.
+def test_booked_sql_counts_entries_when_ledger_has_unrelated_rows(tmp_path):
+    """`ledger`에 다른 행이 하나라도 있으면 정본이 되는데, 그때도 옛 영수증만 있는
+    기장 거래를 합집합으로 읽어야 한다. 놓치면 '미기장'으로 뒤집힌다."""
+    conn = _base_db(tmp_path)
+    try:
+        # 이관이 일부만 끝난 상태: 다른 거래가 먼저 ledger에 들어간다.
+        _insert_ledger(conn, 'card-other', 'other', tab='0701_오사카', amount=1000, item='식비')
+        # 이 거래는 옛 영수증에만 있다(이관 전 기장).
+        _put_entries(conn, 't1')
+        from webapp.ledger_store_records import booked_sql, ledger_is_authoritative
+        assert ledger_is_authoritative(conn) is True
+        sql = booked_sql(conn, 't')
+        exists = conn.execute("SELECT EXISTS(" + sql + ")"
+                              " FROM transactions t WHERE t.transaction_id='t1'").fetchone()[0]
+        assert exists == 1, 'ledger에 다른 행이 있다고 옛 영수증 기장을 미기장으로 판정했다'
+
+        # 같은 식으로 `plan`도 그 거래를 재분류 대상으로 삼지 않아야 한다.
+        from app.automatic_classification import plan
+        result = plan(conn, TRIPS)
+        assert 't1' not in [t['id'] for t in result['targets']]
+    finally:
+        conn.close()
