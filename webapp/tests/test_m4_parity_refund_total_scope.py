@@ -123,6 +123,33 @@ def test_partial_refund_stays_on_the_trip_on_both_paths(bound_store, legacy_owne
     assert trip["expense"] == "70000"
 
 
+def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store):
+    """열람자는 환불 탭 귀속 제외를 받지 않는다: 짝의 각 부호와 순액이 두 경로에서 같다.
+
+    RFND-022·ITEM-011의 제외는 소유자 귀속 판단이다. 열람자 조회는 같은 스냅샷에서
+    짝을 숨기지 않아야 하며, 두 경로의 합계도 그래서 0원이 아니라 순액이다.
+    """
+    store, access = bound_store
+    tab = make_trip(store)
+    _seed_refund_pair(store, tab, 150000, -150000, prefix="TX-", approval="SYNVIEWER")
+    make_expense(store, tab, 30000, desc="합성 식비")
+    grant_viewer_tabs(access, "syn-viewer", [tab])
+
+    ledger_board.current_role = lambda: "viewer"
+    legacy = legacy_expense_map(tab)
+    pair = {"card-TX-P": 150000, "card-TX-C": -150000}
+    assert all(legacy.get(row_id) == amount for row_id, amount in pair.items()), (
+        f"열람자 레거시가 짝을 숨김: {legacy}")
+    assert sum(legacy.values()) == 30000
+
+    react_rows, _count, filtered_total, trip = react_all_pages(
+        store, tab, user="syn-viewer", kind="expense")
+    assert {rid: str(amount) for rid, amount in legacy.items()} == react_rows
+    assert filtered_total == "30000"
+    assert trip["expense"] == "30000"
+
+
+
 # ---------------------------------------------------------------------------
 # 2) 분기 기타비용 탭: 레거시 화면과 공통 조회가 같은 탭 행·건수·합계를 본다
 # ---------------------------------------------------------------------------
