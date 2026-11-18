@@ -54,7 +54,7 @@ def test_compact_assemble_does_not_change_cases_or_evidence(setup):
     assert len(p2_case.prompt(short).encode('utf-8')) < len(p2_case.prompt(full).encode('utf-8'))
 
 
-def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path):
+def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path, monkeypatch):
     source = p2_case.ROOT
     policy_dir = tmp_path / 'docs/policy'
     policy_dir.mkdir(parents=True)
@@ -70,3 +70,5 @@ def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path):
                     + '\n### TRIP-999 · 정책이 추가된 미검수 사례\n\n*보호*\n\n정본 미검수.\n',
                     encoding='utf-8')
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
+    monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
+    assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
