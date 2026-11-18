@@ -1,5 +1,8 @@
 """Opt-in P2 context packet tests; no live AI, payments or Google writes."""
 import json
+import re
+
+import pytest
 
 from app import p2_case, p2_policy_pack
 from webapp.tests.test_autonomous_cleanup import setup, receive, make_weak_rows, create_trip
@@ -69,6 +72,44 @@ def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path, monkeypatch):
     trip.write_text(trip.read_text(encoding='utf-8')
                     + '\n### TRIP-999 · 정책이 추가된 미검수 사례\n\n*보호*\n\n정본 미검수.\n',
                     encoding='utf-8')
+    assert p2_policy_pack.compact_policy_context(tmp_path) is None
+    monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
+    assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
+
+
+@pytest.mark.parametrize('scenario,requirements', [
+    ('ota_one_to_one', {'link': ['LINK-002', 'LINK-003']}),
+    ('ota_m_to_n_undated', {'item': ['ITEM-080'], 'link': ['LINK-003']}),
+    ('ota_unrelated_non_pg', {'date': ['DATE-023'], 'link': ['LINK-002']}),
+    ('lodging_stay_nights', {'trip': ['TRIP-039', 'TRIP-042']}),
+    ('flight_departure_arrival', {'trip': ['TRIP-040'], 'item': ['ITEM-082']}),
+    ('service_date_unverified', {'date': ['DATE-109'], 'trip': ['TRIP-038']}),
+    ('refund_one_to_many', {'refund': ['RFND-004', 'RFND-018', 'RFND-029']}),
+    ('closed_quarter', {'process': ['PROC-072']}),
+    ('p2_unmatched_evidence', {'process': ['PROC-010'], 'link': ['LINK-044']}),
+])
+def test_synthetic_scenario_rule_coverage(scenario, requirements):
+    """Coverage of explicitly identified policy clauses, not model answer parity."""
+    policy = p2_case.policy_context(('link', 'refund'), compact=True)
+    for area, ids in requirements.items():
+        present = set(re.findall(r'(?m)^### ([A-Z]{3,6}-\\d{3}) · ', policy[area]))
+        assert set(ids) <= present, f'{scenario}: missing required {area} rule'
+
+
+def test_changed_existing_policy_body_forces_full_fallback(tmp_path, monkeypatch):
+    source = p2_case.ROOT
+    catalog = tmp_path / 'docs/policy'
+    catalog.mkdir(parents=True)
+    (tmp_path / 'docs/DECISION_POLICY.md').write_bytes(
+        (source / 'docs/DECISION_POLICY.md').read_bytes())
+    for area in ('process', 'trip', 'item', 'date'):
+        (catalog / (area + '.md')).write_bytes(
+            (source / 'docs/policy' / (area + '.md')).read_bytes())
+    trip = catalog / 'trip.md'
+    original = trip.read_text(encoding='utf-8')
+    assert '### TRIP-042 ·' in original
+    trip.write_text(original.replace('### TRIP-042 ·', '### TRIP-042 ·', 1)
+                    + '\\n<!-- New unreviewed policy note -->\\n', encoding='utf-8')
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
     monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
     assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
