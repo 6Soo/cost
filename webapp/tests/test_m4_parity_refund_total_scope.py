@@ -236,4 +236,3 @@ def test_quarter_tab_income_row_is_read_by_both_paths(bound_store, legacy_owner)
     assert react_rows == legacy_income
     assert int(body["filtered_total"]) == 50000
     assert body["trip"]["income"] == "50000"
-
