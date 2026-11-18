@@ -129,8 +129,16 @@ def _p2_metadata(conn, request, response, bundle):
     current = {tid: p2_case.sanitize(r) for tid, r in originals.items()}
     if any(current.get(c['transaction_id']) != c['transaction'] for c in bundle['cases']):
         raise ValueError('AI_CASE_STALE')
-    if p2_case.policy_context(bundle['policy'].keys() - {'CORE'}) != bundle['policy']:
-        raise ValueError('AI_POLICY_STALE')
+    # The compact packet is admissible only if its exact content is reproduced
+    # from today's reviewed source snapshot. Never accept a client-provided
+    # reduced packet merely because it names valid IDs. Unreviewed policy
+    # revisions fail closed to the full legacy context.
+    policy_areas = bundle['policy'].keys() - {'CORE'}
+    full_policy = p2_case.policy_context(policy_areas)
+    if bundle['policy'] != full_policy:
+        verified_compact = p2_case.policy_context(policy_areas, compact=True)
+        if bundle['policy'] != verified_compact:
+            raise ValueError('AI_POLICY_STALE')
     refs = {}
     for evidence in bundle['evidence']:
         refs.setdefault(evidence['transaction_id'], set()).add(evidence['ref'])

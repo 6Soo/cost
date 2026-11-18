@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest>=8.0,<10
+# Used by the synthetic P2 tool-free response schema validation test.
+jsonschema>=4.23,<5
 playwright>=1.50,<2
