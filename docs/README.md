@@ -57,6 +57,7 @@
 
 ## 검사·조사 근거
 
+- [저장소 전체 경량화 정적 감사 — 파일·코드·문서·검증 우선순위 (2026-11-18)](audits/repository-lightweight-review-20261118.md)
 - [2026년 3분기 AI 분기 검수 보고](agents/artifacts/ai-quarter-review-2026Q3.md)
 - [자동 기록 원자성·금액 묶음 정렬 확인 (2026-11-13)](agents/artifacts/amount-group-and-revision-20261113.md)
 - [배포된 계약과 기존 검사 대조 (2026-11-12)](agents/artifacts/baseline-check-reconciliation-20261112.md)
