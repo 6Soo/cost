@@ -16,18 +16,9 @@
 
 ## 영역별 판정 규칙
 
-- [코드와 규칙이 다른 곳](policy/CODE_GAPS.md)
-- [판정 규칙 — 이용기간·날짜](policy/date.md)
-- [판정 규칙 — Google 장부](policy/google.md)
-- [판정 규칙 — 수입·참가자](policy/income.md)
-- [판정 규칙 — 항목 분류](policy/item.md)
-- [판정 규칙 — OTA↔카드 연결](policy/link.md)
-- [판정 규칙 — 처리 원칙](policy/process.md)
-- [판정 규칙 — 영수증](policy/receipt.md)
-- [판정 규칙 — 장부 기록](policy/record.md)
-- [판정 규칙 — 환불·취소](policy/refund.md)
-- [판정 규칙 — 수집·원본](policy/source.md)
-- [판정 규칙 — 여행 귀속](policy/trip.md)
+- [업무 단계별 규칙 안내 — 11개 영역·규칙 ID 검색](policy/README.md)
+- [판정의 공통 우선순위와 사용자 예외](DECISION_POLICY.md)
+- [코드와 규칙이 다른 곳 — 실제 수정 전 재검증](policy/CODE_GAPS.md)
 
 ## 절차서
 
