@@ -51,7 +51,14 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
                    if row.get("row_kind") == "income" and row.get("google_income")]
     expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")
     if cost_income:
-        income = sum(_display_amount(row) for row in cost_income)
+        # An unreadable COST amount is not a zero either (SPEC §11.2.1 계약 4,
+        # GGL-014). Summing it would present a confirmed figure lower than what
+        # the rows say, so it must reach the same answer the Google branch is
+        # already required to give.
+        if any(row.get("amount_missing") for row in cost_income):
+            income = None
+        else:
+            income = sum(_display_amount(row) for row in cost_income)
     elif google_rows and trip.get("google_verified"):
         # Only a verified block may stand in for a missing COST figure, and only
         # when every row it relies on has a readable amount (GGL-014).
