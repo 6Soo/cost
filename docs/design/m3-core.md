@@ -428,35 +428,13 @@ tools/core_bridge/          Python 다리(읽기 전용)
 
 ### 7.2 단위
 
-| ID | 단위 | 옛 ID | 의존 | 권장 구현 → 검수 | 수락 조건 |
-| --- | --- | --- | --- | --- | --- |
-| U1 | 작업공간 골격·게이트 | U1 | — | Sonnet → Sol | **완료**(#871, 후속 #872). 크레이트 통합은 U2가 한다 |
-| U2 | 판정 도메인 타입 + 크레이트 통합 | U2 | U1 | Luna → Claude sonnet | §2의 타입 전부. `supersede` 25칸 표 테스트. `Amount::Unreadable`이 `Decision`이 될 수 없음. `compile_fail` 4개(§7.1). 작업공간을 `cost-core` + `costcore`로 통합(§6.1), 발급 기능 플래그·허용 목록 스캔 삭제 |
-| U3 | 저장 계층 | U3 | U2 | Luna → Claude sonnet | `cost-core::store`. `core.sqlite` 스키마(§3.2)와 이관 번호. `board.sqlite` 읽기 전용 투영이 `mode=ro`·`query_only`·짧은 트랜잭션으로 `scope.read_projection`(`tools/p2_batch/scope.py:26-54`)과 같은 열을 읽음. 출처 대응표(§3.2) 전 값 매핑 테스트. 쓰기 열 목록에 원천 열이 없음을 테스트로 고정 |
-| U4 | Python 다리·합성 골든 생산기 | U4 | U1 | Sonnet → Sol | `tools/core_bridge`의 `snapshot`·`facts`·`links`·`plan`·`extract` 명령(읽기 전용, `python -I`). `links`는 환불 짝, 환불 묶음 판정 결과, OTA 대사 결과를 낸다(U12~U14의 골든 B, 비교 대상은 최종 연결). 기존 판정 테스트의 합성 입력과 조합 입력으로 `core/golden/synthetic/` 생성. 고객 자료가 골든에 들어가지 않음을 검사하는 테스트. Python 품질 검사 목록 밖 실패 0 |
-| U5 | 규칙 표 형식·엔진 1단계 | U5 | U2, U4 | Luna → Claude sonnet | §4.1 형식, `normalize_rule`과 같은 거부 조건·오류 코드, `rule_matches` 이관, 내장 패턴·업종·skyticket 데이터화(§4.3 순서 1~3). `_classify_transaction` 합성 골든(여행 해석기 없음) 100% 일치. 운영 규칙 211개가 오류 없이 적재됨(헤드가 집계 확인) |
-| U6 | 사용자 예외·추론 배정 데이터화 | U6 | U5 | Luna → Claude sonnet | 후쿠타케·3820 싱가포르·3820 잔여·추론 배정 출처 우선(§4.2 stage 60)을 `owner_exception`·`inferred_assignment` 규칙으로. 각 규칙에 `DECISION_POLICY.md` §5의 ID. `classify_transaction` 합성 골든 100%. Python 쪽이 아직 자주 바뀌는 영역이라 판정 단계에서 가장 늦게 시작한다 |
-| U7 | 날짜·분기·완료 기간·열린 범위 | U7 | U2 | Sonnet → Sol | `cost-core::dates`. `quarter_costs`, `closed_period`(`app/closed_period.py:11-66`), `reconciliation` 날짜 함수(`app/reconciliation.py:27-104`), `_open_p2_tab`(`app/classification_correction.py:18-37`)의 Rust판과 `OpenScope` 생성. 날짜는 **`YYYY-MM-DD`만** 받고 그 밖의 값은 날짜 파손으로 `Protected`. Python 날짜 해석과의 바이트 동등은 요구하지 않는다. 경계일(2025 전체, 2026Q1, 2026-06-30, 분기 끝) 골든 100%와 비정형 입력이 거부되는 사례 |
-| U8 | 여행 귀속 추론 | U8 | U7, U4 | Luna → Claude sonnet | `cost-core::trips`. `infer_trip`·`card_trip_candidates`·`trip_selection`·`stay_trip` 이관. 동률 고정 순서(`app/automatic_classification.py:166-169`) 재현. 합성 골든 100%. CODE_GAPS의 TRIP-044 등 규칙집과 다른 곳은 Python 동작을 재현하고 차이 후보로 표시만 한다. U6과 같은 이유로 늦게 시작한다 |
-| U9 | P1 계획 조립·보호 | U9 | U3, U5, U6, U8 | Luna → Claude sonnet | `plan` 이관: 보호 순서(`app/automatic_classification.py:479-502`), 이력 복원, 신규 판정, `links`·`facts` 사용, digest. 연결 입력은 하나의 트레이트 뒤에 두어 어댑터 `links`(2차 전환 전)와 Rust 연결(2차 전환 뒤)을 바꿔 끼운다. 결과는 `Judgement`이며 정상 거래에 `Decided` 외 값이 없음. `plan` 합성 골든 100% |
-| U10 | 그림자 실행·평가 사례 연결 | U10+U11 | U3, U4(엔진은 U9 전까지 대역). `--planner rust` 실행 확인은 U9 뒤 | Sonnet → Sol | `costcore shadow`: A·B·C 세 값, 유형 키 집계, 허용 목록 검사(`eval_cases.validate_public` 방식), `config/core-known-diffs.txt` 형식과 판정(목록 밖 1건이면 실패, 해소 보고), 비공개 파일은 보호 경로 밖에 쓰면 거부. `eval_cases.py`에 `--planner rust`와 사례별 Python/Rust 비교 출력(공개값 허용 목록 유지), 기존 `tests/test_quarter_review_eval_cases.py` 통과 + 새 합성 사례 테스트 |
-| U11 | 투영 쓰기·1차 전환 도구·절차서 | U14 | U3, U9, U10 | Luna → **Claude opus**(전환 지점) | `apply`와 같은 쓰기(행 revision 결속, 장부 행 빈 칸만 채움, 화면 행 payload·이력, change_log)와 미리보기 digest. 연결 입력은 어댑터 `links`. 합성 DB와 운영 사본에서 Python `apply`와 결과 DB 차이 0(옛 T4). 설정 플래그로 판정 작성자 전환·되돌림. `docs/playbooks/core-cutover.md`의 1차 부분. **운영 DB에 실행하지 않는다** |
-| U12 | 환불 짝·환불 묶음 판정 | U15+U16 | U2, U3, U4, U7, U9, U10 | Luna → **Claude opus** | `cost-core::links::refund`. ① 짝 도출: `app/partial_refund.py`의 원승인번호 1:N(`_number_links` `:146-208`, RFND-004·005), 외화 금액 연결과 날짜순 점유(`:226-282`, `config/refund-pairing.json`, RFND-011~016), 남는 외화 취소 개수 보류(`:70-78`, `:384-389`, RFND-014), 동액·카카오 추론 연결과 전역 유일성·점유(`:313-381`, RFND-007~009), 연결 순서(번호 → 외화 → 추론, `:66-81`). ② 묶음 판정: `app/ledger.py` `_apply_refund_pairs`(`:367-465`)의 추론 연결 기록 보류, 초과 환불 보류(RFND-018), 한쪽 기기록 보완(RFND-026), 한쪽 보류 시 둘 다 보류, 부분환불 분류 충돌(RFND-020), 전액 상쇄의 환불 탭 이동(RFND-022); 파일 간 부분환불 확장(RFND-029 개정, PROC-072 완료 기간 제외가 먼저, `app/partial_refund.py:108-133`), 원결제 유효 귀속 필수(`app/ledger.py:438-444`), 묶음 미완 기록 거부(`:557-567`). 결과는 `RefundGroup`(같은 모듈 생성) 또는 보류 사유. **수락:** 최종 연결과 묶음 판정(쌍·상태·순잔액·구성·보류 여부)이 운영 범위 합성 골든 100%. 보호 불변식: 깨끗하지 않은 행은 원결제가 될 수 없음, 원결제 후보 2개 이상이면 연결 없음, 한 구매가 두 취소에 점유되지 않음(속성 테스트), 추론 링크는 `RefundGroup` 확장 입력이 될 수 없음(타입), 초과 환불·구성원 누락·완료 기간 구성원·깨끗하지 않은 구성원으로 `RefundGroup`을 만들 경로 없음, 수동 귀속을 덮지 않음, 원천 금액 변경 경로 없음. 실데이터 그림자 최종 연결 차이 0 또는 known-diffs 등재 |
-| U13 | OTA↔카드 후보 탐색·쌍 검사 | U17 | U2, U3, U4, U10 | Luna → **Claude opus** | `cost-core::links::ota`. `app/ota_payments.py:1002-1670` 이관: 방향·결제 여부·금액, 가맹점 표기·승인 규칙 범위, 금액 비교·승인 차액·날짜 지연, 카드 식별·같은 날 동액·공급자 호환·보강 근거, `pair_check`(`:1492`), `search_card_candidates`(`:1542`), 사전승인 후보(`:1640-1669`). **수락:** 쌍 검사 통과·불통과가 운영 범위 합성 골든 100%(`tests/card_pipeline/test_ota_payments.py`, `test_ota_matching_defaults.py`, `test_ota_matching_refactor.py`의 입력). 후보 목록 순서와 거절 사유 코드는 맞추지 않는다. 보호 불변식: 점유된 카드(기존 수동·고정·옛 연결)를 후보로 내는 경로 없음, 방향·끝4·통화가 다른 행은 후보가 될 수 없음(속성 테스트), 카드 원천 값 변경 경로 없음. 실데이터 비교는 U14의 최종 연결에서 한다 |
-| U14 | OTA M:N 배정·점유·고정 그룹 + 2차 전환 도구 | U18(+옛 U14의 연결 부분) | U11, U12, U13 | Luna → **Claude opus**(전환 지점) | `match_ota_payment_events`(`app/ota_payments.py:2408-2417`) 이관: 상태 준비·고정 그룹 검증, 반복 금액 묶음 명세·해소·배정, 정확 연결 우선 단건 배정과 모호 최적 단건, 고정 연결, 결과 조립. M:N 성분 보존(LINK-003), 부분·경합 그룹 보존(LINK-032). 기존 수동·고정·옛 포털 연결은 다시 계산하지 않고 **점유된 입력으로 읽기만** 하며, Rust는 점유되지 않은 카드·사건의 새 연결만 계산한다. 옛 포털 정확 연결 고정(`bind_legacy_portal_links` `:2420-2440`, LINK-040)과 결제일 없는 아고다 1:1 추론(`app/ota_inference.py:43`)은 헤드가 호출 경로를 확인해 어댑터 출력으로 남길 수 있으면 이 단위에서 뺀다. `publish_group`(§2.4)과 연결 생산자 설정 플래그, `docs/playbooks/core-cutover.md`의 2차 부분. **수락:** 최종 연결(쌍·상태·성분 구성)이 운영 범위 합성 골든 100%(`tests/card_pipeline/test_ota_mn_relations.py`와 U13의 입력). 보호 불변식: 한 카드 원행이 두 성분·두 사건에 점유되지 않음(LINK-028, 속성 테스트), 고정 그룹·수동 연결을 바꾸는 경로 없음, 입력에서 사라진 사건의 저장 연결도 점유 유지, 추론 연결은 정확 연결과 다른 타입(RFND-044), 묶음 일부만 게시하는 API 없음. 실데이터 그림자 최종 연결 차이 0 또는 known-diffs 등재. **운영 DB에 실행하지 않는다** |
+현재 구현 모듈과 검증 명령은 [Rust 코어 구성](../../core/README.md)과 [전환 절차](../playbooks/core-cutover.md)에 따른다. U1~U14의 과거 담당·PR·개별 체크리스트는 [설계 원본의 작업표](https://github.com/6Soo/cost/blob/c0c45c7fa9cdb291d198d5c3e9667801abb6721d/docs/design/m3-core.md#72-단위)에 보존한다. 완료된 작업표를 새 실행 지시로 사용하지 않는다.
+
+핵심 경계는 **도메인·불변식 → 저장소 → 규칙·날짜·여행 → 판정 계획 → 환불·OTA 연결 → 그림자 비교 → 쓰기 전환**이다. 각 단계의 실제 구현 여부는 [현재 상태](../session_handoff.md)와 테스트 결과를 기준으로 판단한다.
 
 ### 7.3 순서
 
-동시에 3~4개까지(계획 `:90`). **쌓아 올린 PR은 만들지 않는다**: 의존 단위가 main에 병합된 뒤 착수한다.
-
-| 단계 | 단위 | 비고 |
-| --- | --- | --- |
-| 기반 | U1(완료), U2, U3, U4, U7 | 진행 중(§7.5). U3·U7은 U2 병합 뒤 main 위로 다시 올려 병합 |
-| 판정 | U5, U10, U6, U8, U9 | U5 ← U2·U4, U10 ← U3·U4. U6·U8은 가장 늦게(Python 판정이 아직 바뀌는 영역). U13은 U10 뒤 이 단계와 나란히 시작할 수 있다 |
-| 1차 전환 | U11 → C1~C3 측정 → 승인 → 1차 전환 | 전환 뒤 매일 대조(§3.3) |
-| 연결 | U12, U13 → U14 → C1~C3 측정 → 승인 → 2차 전환 | U12 ← U9·U10, U14 ← U11·U12·U13 |
-
-임계 경로는 U2 → U3 → U9 → U11(1차 전환)과 U10 → U13 → U14(2차 전환)이다. U9는 U5 → U6, U7 → U8도 기다린다.
+1차 판정 작성자와 2차 환불·OTA 연결 생산자 전환은 각각 독립된 그림자 비교, 정확한 SHA 검수, 백업·복원, 전환 후 재검증으로 판정한다. 현재 전환 및 남은 보완 작업은 [운영 기록](../operations.md)과 [현재 상태](../session_handoff.md)를 확인한다. 예전 PR 의존·병렬 인원 배정은 적용하지 않는다.
 
 ### 7.4 검수 규칙(D-13)
 
@@ -470,20 +448,7 @@ tools/core_bridge/          Python 다리(읽기 전용)
 
 ### 7.5 진행 중 단위 매핑(2026-11-14)
 
-| 옛 단위 | 새 단위 | PR | 상태 | 이 PR이 맞출 변경 |
-| --- | --- | --- | --- | --- |
-| U1 | U1 | #871, #872 | 병합됨 | 없음. 빈 크레이트 정리는 U2가 한다 |
-| U2 | U2 | #873 | 변경 요청 2회 | 3회차 검수로 가지 않는다. `refund-issuer`·`scope-issuer` 기능, `tests/issuer_allowlist.rs`, 기능에 딸린 lib 수준 `compile_fail` 2개를 지운다. `compile_fail`은 `RefundGroup`·`OpenScope`·`TripId`·`Subject` 외부 생성 4개만 남긴다(`Default`·`From` 부재 시험 삭제). 작업공간을 `crates/core`(`cost-core`) + `crates/cli`(`costcore`)로 합친다: `crates/domain` → `crates/core/src/domain/`, 빈 크레이트(`store`·`rules`·`links`·`pipeline`·`bridge`·`jobs`·`p2`) 삭제, 발급 함수는 `pub(crate)`. 1회차 지적 2·4의 수정(금액 파손 행으로 `Decision` 생성 불가, 범위 토큰 없는 P2 판정 불가)은 유지. 재검수는 남은 차단 2건(R1 포함)이 장치 삭제로 사라졌는지 diff만, Claude sonnet 또는 Sol |
-| U3 | U3 | #876 | 승인(검토서 기준), U2 위에 쌓임 | U2 병합 뒤 main 위로 다시 올린다. `crates/store` → `crates/core/src/store/` 모듈로 옮기고, U2 파일(`crates/domain/**`) 변경분을 PR에서 빼며, 임시 `ActorKind` 중복을 지우고 `domain` 모듈 타입을 쓴다. `jobs`·`budgets`·`agent_runs`·`p2_proposals` 테이블은 그대로 두고 비워 둔다(§5). 이 PR의 설계 문서 §3.2 두 줄(`manual_hold`·`auto`)은 그대로 둔다. 재검수는 이동 diff만 |
-| U4 | U4 | #877 | 변경 요청 | 검수 지적 1~6만 고친다. "빠진 경계"는 U12~U14에서 추가한다고 PR 본문에 적는다. `links` 골든에서 Rust가 맞출 대상은 최종 연결(쌍·상태·묶음 구성·보류 여부)이라고 프로토콜 문서에 적는다(후보 목록·거절 사유는 출력에 남아도 비교 대상이 아님) |
-| U7 | U7 | #874 | 변경 요청 | U2 병합 뒤 main 위로 다시 올려 `crates/rules/src/{dates,closed_period,open_scope}.rs` → `crates/core/src/dates/` 모듈로 옮긴다. `parse_iso`는 `YYYY-MM-DD`만 받고 그 밖은 오류로 돌려 호출부가 날짜 파손 `Protected`로 보낸다. Python 3.14 바이트 동등 구현과 그에 딸린 골든 재생성을 멈춘다. 골든은 경계일 사례(수백 건)와 비정형 입력 거부 사례만 남기고, 차등 퍼즈는 게이트에서 뺀다(`tools/core_dates_golden.py`·`tests/test_core_dates_golden.py`도 그만큼 줄인다). `OpenScope` 생성 함수는 `dates` 모듈에 두고 크레이트 밖 생성 불가 `compile_fail` 1개는 U2의 것을 유지. 한 번 재확인 후 병합 |
-| U5~U9 | U5~U9 | 없음 | 미착수 | 번호와 내용 그대로, 검수만 Claude sonnet 또는 Sol |
-| U10, U11 | U10 | 없음 | 미착수 | 합침 |
-| U12, U13 | — | 없음 | M5로 이월 | 착수하지 않는다 |
-| U14 | U11 | 없음 | 미착수 | 1차 전환(판정) 도구로 범위 축소 |
-| U15, U16 | U12 | 없음 | 미착수 | 합침 |
-| U17 | U13 | 없음 | 미착수 | 중간 산출물 비교 삭제 |
-| U18 | U14 | 없음 | 미착수 | 2차 전환 도구 포함 |
+2026-11-14의 U1~U14 PR 상태와 구현자별 지시는 [설계 원본 §7.5](https://github.com/6Soo/cost/blob/c0c45c7fa9cdb291d198d5c3e9667801abb6721d/docs/design/m3-core.md#75-진행-중-단위-매핑2026-11-14)에 보존한다. 현재 구현 상태의 정본은 [현재 상태](../session_handoff.md)다.
 
 ## 8. 위험과 되돌림
 
