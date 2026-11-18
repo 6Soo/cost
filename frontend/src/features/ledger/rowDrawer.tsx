@@ -3,6 +3,7 @@ import type { ActionDescriptor, Bootstrap, FieldDescriptor, LedgerRow } from '..
 import { ActionButton, Amount, Drawer, FormField, InlineNotice, Input, Select, Loading } from '../../components';
 import { getJSON, postJSON, ApiError } from '../../api/client';
 import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
+import { PeriodValue } from './index';
 
 type RowDetail = {
   row: LedgerRow;
@@ -259,6 +260,16 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
         <div className="cost-ledger__drawer-content">
           <div className="cost-ledger__detail-amount"><Amount value={detail.row.amount} currency={detail.row.currency} /></div>
           <p className="cost-ledger__detail-description">{detail.row.description || detail.row.merchant}</p>
+          <p className="cost-ledger__detail-period">
+            <span className="cost-ledger__detail-period-key">이용 기간</span>
+            <PeriodValue
+              period={detail.row.period}
+              status={detail.row.period_status}
+              basis={detail.row.period_basis}
+              source={detail.row.period_source}
+              manualBlank={detail.row.period_manual_blank}
+            />
+          </p>
           {detail.row.read_only && <InlineNotice tone="info" title="읽기 전용">이 행 또는 마감 기간은 현재 수정할 수 없습니다.</InlineNotice>}
           {bootstrap.role === 'owner' && writeActions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
