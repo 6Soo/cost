@@ -144,12 +144,16 @@ def _with_income(rows, source):
     return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
 
 
-def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
+                  income_source: dict[str, Any] | None = None) -> dict[str, Any]:
     # The store's displayed amount/date projection is authoritative.  This
     # fallback is only for test doubles that expose plain rows.
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
-    summary = projection.trip_summary(trip, rows)
+    # GGL-003: the summary keeps COST and Google income apart. The verified flag
+    # the source block reports is the only thing that lets Google stand in.
+    verified_trip = dict(trip, google_verified=bool((income_source or {}).get("verified")))
+    summary = projection.trip_summary(verified_trip, rows)
     from . import ledger_board
 
     summary["title"] = ledger_board.trip_display_label(trip)
@@ -166,7 +170,7 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
         rows = list(board.list_tab_rows(trip["tab_id"]))
         income = _source_income(board, access, session, owner, trip['tab_id'])
         rows = _with_income(rows, income)
-        summary = _trip_summary(board, trip, rows)
+        summary = _trip_summary(board, trip, rows, income_source=income)
         summary['income_source'] = {key: value for key, value in income.items() if key != 'rows'}
         summaries.append(summary)
     capabilities = ["ledger.read", "row.read", "transactions.read"]
@@ -270,7 +274,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
             row, read_only=read_only or row.get('google_income', False),
             period=period, period_source=period_source))
     return {
-        "trip": _trip_summary(board, trip, all_rows),
+        "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
         "rows": dto_rows,
         "total_count": len(rows),

@@ -421,6 +421,12 @@
       "tests": ["tests/test_board_http_shapes.py", "tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py", "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_owner_metadata.py", "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"]
     },
     {
+      "name": "m4-income-source-separation",
+      "paths": ["webapp/plush_projection.py", "webapp/plush_api.py", "webapp/plush_income.py", "webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_plush_google_income.py"],
+      "tests": ["webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_ledger_design.py"],
+      "reason": "GGL-003·GGL-014: COST income and Google income are never summed in the trip summary; a verified block only substitutes"
+    },
+    {
       "name": "ledger-period-parity",
       "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "webapp/tests/test_m4_period_parity_contract.py"],
       "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py"],

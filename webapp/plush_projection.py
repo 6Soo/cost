@@ -31,9 +31,38 @@ def is_previous(trip: dict[str, Any]) -> bool:
 
 
 def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """The trip's three figures, with COST and Google income kept apart.
+
+    GGL-003 (보호): internal COST income and Google income are never summed.
+    The summary's ``income`` is the COST figure — the same number the legacy
+    KPI shows — and the Google block is separate evidence reported through
+    ``income_source``. GGL-014: an unverified Google amount never enters the
+    confirmed 수입 or 차액.
+
+    The legacy rule this mirrors (``ledger_design._trip_kpi_html``): COST income
+    wins whenever any recorded income row exists; a *verified* Google block
+    substitutes only when the tab has no COST income at all; otherwise the
+    figure is unknown, which is not the same as zero.
+    """
     rows = list(rows)
-    income = sum(_display_amount(row) for row in rows if row.get("row_kind") == "income")
+    cost_income = [row for row in rows
+                   if row.get("row_kind") == "income" and not row.get("google_income")]
+    google_rows = [row for row in rows
+                   if row.get("row_kind") == "income" and row.get("google_income")]
     expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")
+    if cost_income:
+        income = sum(_display_amount(row) for row in cost_income)
+    elif google_rows and trip.get("google_verified"):
+        # Only a verified block may stand in for a missing COST figure, and only
+        # when every row it relies on has a readable amount (GGL-014).
+        if any(row.get("amount_missing") for row in google_rows):
+            income = None
+        else:
+            income = sum(_display_amount(row) for row in google_rows)
+    else:
+        # No COST income and no verified Google block: unknown, never a
+        # confirmed zero (SPEC §11.2.1 계약 4).
+        income = None
     return {
         "id": str(trip.get("tab_id") or ""),
         "title": str(trip.get("display_title") or trip.get("display_key") or trip.get("destination") or ""),
@@ -42,9 +71,10 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
         "previous": is_previous(trip),
         "starts_on": str(trip.get("starts_on") or ""),
         "ends_on": str(trip.get("ends_on") or ""),
-        "income": money(income),
+        "income": money(income) if income is not None else "미확인",
         "expense": money(expense),
-        "profit": money(income - expense),
+        # The 차액 is only computable when the income figure is known.
+        "profit": money(income - expense) if income is not None else "미확인",
         "closed": bool(trip.get("visual_closed") or trip.get("archived")),
         "archived": bool(trip.get("archived")),
     }

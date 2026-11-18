@@ -16,7 +16,10 @@ def test_google_income_appears_without_creating_board_rows(bound_store, income_c
     assert google[0]['merchant'] == 'INCOME-NAME'
     assert google[0]['amount'] == '1000'
     assert google[0]['read_only'] is True
-    assert result['trip']['income'] == str(existing_income + 1000)
+    # GGL-003 (보호): 내부 COST 수입과 Google 수입을 합산하지 않는다. The trip
+    # summary's income is the COST figure the legacy KPI shows; the verified
+    # Google block is separate evidence, reported through income_source.
+    assert result['trip']['income'] == str(existing_income), result['trip']
     assert result['income_source']['available'] is True
     assert store.conn.total_changes == before
     status, detail = call('/api/plush/row?id='+google[0]['id'], 'syn-owner', store)
@@ -109,3 +112,60 @@ def test_real_sheet_parser_preserves_blank_income_total_in_private_index(bound_s
     missing = next(r for r in google if r['merchant'] == 'SYNTHETIC BLANK TOTAL')
     assert missing['amount'] == '미확인' and '200000원' in missing['description']
     assert result['income_source']['total'] == '1000' and result['income_source']['verified'] is False
+
+
+def test_cost_income_and_google_are_never_summed_in_the_trip_summary(bound_store):
+    """GGL-003: the summary income is COST alone; Google rides in income_source."""
+    from webapp import plush_projection
+
+    rows = [
+        {"row_id": "cost-1", "row_kind": "income", "display_amount_krw": 1000000},
+        {"row_id": "google-income|t|main|9", "row_kind": "income",
+         "google_income": True, "display_amount_krw": 1000},
+    ]
+    verified = plush_projection.trip_summary(dict(tab_id="t", google_verified=True), rows)
+    assert verified["income"] == "1000000", verified
+    # the Google figure is nowhere in the summary figures
+    assert verified["profit"] == "1000000", verified
+
+    unverified = plush_projection.trip_summary(dict(tab_id="t", google_verified=False), rows)
+    assert unverified["income"] == "1000000", unverified
+
+
+def test_a_verified_google_block_stands_in_only_when_there_is_no_cost_income():
+    """GGL-003·GGL-014: verified Google substitutes for an absent COST figure.
+
+    The legacy KPI does exactly this (``_trip_kpi_html``): a verified block is
+    used when the tab has no recorded income. It is used *instead of* COST, never
+    added to it.
+    """
+    from webapp import plush_projection
+
+    google_only = [{"row_id": "google-income|t|main|9", "row_kind": "income",
+                    "google_income": True, "display_amount_krw": 1000}]
+    summary = plush_projection.trip_summary(dict(tab_id="t", google_verified=True),
+                                            google_only)
+    assert summary["income"] == "1000", summary
+
+
+def test_an_unverified_google_block_never_becomes_a_confirmed_income():
+    """GGL-014: unverified Google is not a confirmed 수입 or 차액; it is unknown."""
+    from webapp import plush_projection
+
+    google_only = [{"row_id": "google-income|t|main|9", "row_kind": "income",
+                    "google_income": True, "display_amount_krw": 1000}]
+    summary = plush_projection.trip_summary(dict(tab_id="t", google_verified=False),
+                                            google_only)
+    assert summary["income"] == "미확인", summary
+    assert summary["profit"] == "미확인", summary
+
+
+def test_a_google_row_with_no_amount_keeps_the_verified_figure_unknown():
+    """GGL-014 / §11.2.1 계약 4: 미확인은 0원이 아니다."""
+    from webapp import plush_projection
+
+    google_only = [{"row_id": "google-income|t|main|9", "row_kind": "income",
+                    "google_income": True, "amount_missing": True, "amount_krw": None}]
+    summary = plush_projection.trip_summary(dict(tab_id="t", google_verified=True),
+                                            google_only)
+    assert summary["income"] == "미확인", summary
