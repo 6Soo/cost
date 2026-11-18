@@ -3890,6 +3890,9 @@ class LedgerStore:
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                # 이 경로는 payload를 바꾸지 않고 revision만 올린다. 통합 장부의
+                # revision도 함께 올려야 두 곳의 개정 번호가 어긋나지 않는다.
+                _sync_ledger(self.conn, dict(current, row_id=row_id, revision=new_revision))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id,"
@@ -4083,6 +4086,8 @@ class LedgerStore:
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                # revision만 올리는 경로. 통합 장부의 revision도 함께 올린다.
+                _sync_ledger(self.conn, dict(current, row_id=row_id, revision=new_revision))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id,"
@@ -5358,6 +5363,8 @@ class LedgerStore:
                 )
                 if cursor.rowcount != 1:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                _sync_ledger(self.conn, dict(updated_source, row_id=source_row_id,
+                                             revision=new_revision))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json, event_id,"
                     " change_mode, actor, created_at, client_request_id, kind, reverts_event_id)"
@@ -5598,6 +5605,8 @@ class LedgerStore:
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                _sync_ledger(self.conn, dict(updated_source, row_id=source_row_id,
+                                             revision=new_revision))
                 self.conn.execute(
                     "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
                     " event_id, change_mode, actor, created_at, client_request_id,"

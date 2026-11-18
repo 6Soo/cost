@@ -103,11 +103,16 @@ def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
         return
     # 재시도(멱등 replay)에서 이미 쓴 행이면 다시 쓰지 않는다. 기존 기장도
     # `_already_booked`/`BOARD_ROW_CONFLICT`로 같은 방식으로 걸러진다.
+    # 단, 이미 있는 행이 **다른 거래**의 `transaction_id`를 차지하고 있으면
+    # 조용히 지나가지 않는다: 이 트랜잭션은 옛 기장(`ledger_entries`)에는
+    # 들어가고 통합 장부에는 안 들어가 두 정본이 어긋난다. 호출자 트랜잭션을
+    # 실패시켜야 전체가 롤백된다.
     if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
         return
     if values['transaction_id'] and conn.execute(
             'SELECT 1 FROM ledger WHERE transaction_id=?', (values['transaction_id'],)).fetchone():
-        return
+        raise StoreError('LEDGER_ENTRY_CONFLICT',
+                         '통합 장부에 같은 거래의 다른 행이 있어 기록을 멈췄습니다')
     conn.execute(
         f'INSERT INTO ledger({",".join(columns)}) VALUES ({",".join("?" * len(columns))})',
         [values[c] for c in columns])

@@ -104,13 +104,18 @@ def _table_exists(conn: Any, name: str) -> bool:
 def booked_sql(conn: Any, transaction_alias: str = 't') -> str:
     """'이 거래가 장부에 기장됐나'를 판단하는 SQL 조각.
 
-    통합 장부(`ledger`)에 행이 있으면 정본이고, 그때도 `board_rows`를 함께 본다 —
-    과도기(일부만 이관된 DB)에서 누락을 막기 위해서다. 둘은 이중 쓰기로 같은
-    트랜잭션에서 쓰이므로 정상 상태에서는 결과가 같다.
+    세 저장소의 **합집합**을 본다: `ledger`(새 정본)·`ledger_entries`(기장 영수증)·
+    `board_rows`(화면 행). 어느 하나만 빠져도 기장된 거래가 '미기장'으로 뒤집힌다.
 
-    `ledger`가 비었거나 없으면 옛 `board_rows`를 본다. 둘 다 없으면 **항상 거짓**인
-    조각을 준다 — 테이블이 없으면 기장된 행도 없으므로 `EXISTS(...)`가 False가
-    되는 것이 정확한 뜻이고, 호출자가 None을 따로 처리하지 않아도 된다.
+    `ledger_entries`를 반드시 포함해야 한다. `ledger`에 행이 하나라도 있으면
+    (`ledger_is_authoritative`) 옛 영수증만 보던 행이 사라지는데, 이관은 행을
+    추가만 하므로 **일부만 이관된 DB**와 '이관 전 기장 → 새 코드의 첫 쓰기' 상태가
+    흔하다. 그 거래가 미기장으로 보이면 완료기간 보호가 풀리고 중복·환불 부호
+    보호가 풀린다.
+
+    테이블이 모두 없으면 **항상 거짓**인 조각을 준다 — 테이블이 없으면 기장된 행도
+    없으므로 `EXISTS(...)`가 False가 되는 것이 정확한 뜻이고, 호출자가 None을
+    따로 처리하지 않아도 된다.
 
     호출자는 이 조각을 `EXISTS(...)`/`NOT EXISTS(...)` 안에 넣어 쓴다.
     """
@@ -118,6 +123,9 @@ def booked_sql(conn: Any, transaction_alias: str = 't') -> str:
     if ledger_is_authoritative(conn):
         sources.append("SELECT 1 FROM ledger l"
                        f" WHERE l.transaction_id={transaction_alias}.transaction_id")
+    if _table_exists(conn, 'ledger_entries'):
+        sources.append("SELECT 1 FROM ledger_entries e"
+                       f" WHERE e.transaction_id={transaction_alias}.transaction_id")
     if _table_exists(conn, 'board_rows'):
         sources.append("SELECT 1 FROM board_rows b"
                        f" WHERE b.row_id='card-'||{transaction_alias}.transaction_id")
