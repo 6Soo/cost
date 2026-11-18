@@ -440,8 +440,8 @@
     },
     {
       "name": "ledger-period-parity",
-      "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "webapp/tests/test_m4_period_parity_contract.py"],
-      "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py"],
+      "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_m4_period_parity_contract.py"],
+      "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py"],
       "reason": "SPEC 11.2.1 계약 4 / DATE-017: the same stored/manual use-period on both the React and legacy read paths, incl. old-schema cores and a changed source"
     },
     {
