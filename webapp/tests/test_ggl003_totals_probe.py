@@ -104,26 +104,30 @@ def test_kind_and_search_totals_do_not_sum_cost_with_google(bound_store, income_
     print("GGL-003 probe numbers:", report)
 
     # --- the two figures that must be reported as evidence -------------------
-    # kind/search total (React + shared helper) vs the legacy board's own kind
-    # total.  The legacy summary counts COST rows only; the shared signed sum
-    # also adds the Google income rows that the unified row set merged in.
+    # kind/search total on both paths.  The legacy board now carries the same
+    # Google rows as React, so its own COST figure must exclude them exactly as
+    # the shared query does.
     legacy_in, _legacy_ex, _wi, _we = ledger_design._selected_rows(tab, "", "in")
-    legacy_kind_total = sum(ledger_design.board._shown_amount(row) for row in legacy_in)
+    legacy_cost_total = sum(ledger_design.board._shown_amount(row) for row in legacy_in
+                            if not row.get("google_income"))
+    legacy_google = [row for row in legacy_in if row.get("google_income")]
     print("GGL-003 kind totals:", {
         "legacy kind=in rows": len(legacy_in),
-        "legacy kind=in total": legacy_kind_total,
+        "legacy COST total": legacy_cost_total,
+        "legacy Google rows": len(legacy_google),
         "react kind=income filtered_total": body["filtered_total"],
-        "delta": int(body["filtered_total"]) - legacy_kind_total,
+        "delta": int(body["filtered_total"]) - legacy_cost_total,
     })
 
     assert kpi["수입"] == cost_income, f"레거시 KPI 수입이 COST와 다름: {kpi}"
     assert int(body["trip"]["income"]) == cost_income, (
         f"React 요약 수입이 COST와 다름: {body['trip']['income']}")
     assert known and confirmed == cost_income, f"확정 수입이 COST+Google 합산됨: {confirmed}"
-    # GGL-003: the kind/search 조회 합계 must match the legacy board's kind total,
-    # not a COST+Google sum.
-    assert int(body["filtered_total"]) == legacy_kind_total, (
-        f"kind 조회 합계가 COST+Google을 합산함: React {body['filtered_total']} != 레거시 {legacy_kind_total}")
+    # GGL-003: the kind/search 조회 합계 must match the legacy board's COST kind
+    # total, not a COST+Google sum.  Row sets and counts match too (계약 1).
+    assert int(body["filtered_total"]) == legacy_cost_total, (
+        f"kind 조회 합계가 COST+Google을 합산함: React {body['filtered_total']} != 레거시 {legacy_cost_total}")
+    assert len(legacy_in) == body["total_count"], (len(legacy_in), body["total_count"])
     # GGL-003: the Google block is reported as its own source, never merged.
     source = body["source_totals"]["filtered"]
     assert source["google_income"] == "1000", source

@@ -634,7 +634,9 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
-    income = sum(board._shown_amount(r) for r in incomes)
+    # GGL-003: with the Google rows now in the set, a non-trip summary's income
+    # figure stays the COST record and never adds the Google block.
+    income = sum(board._shown_amount(r) for r in incomes if not r.get("google_income"))
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
@@ -1403,14 +1405,27 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
             date_years.add(date.fromisoformat(str(board._shown_date(row) or '')[:10]).year)
         except (TypeError, ValueError):
             pass
-    income_total = sum(board._shown_amount(r) for r in incomes)
+    # GGL-003: the income group holds both sources now that the row set matches
+    # React, so the group names them apart instead of summing them. The COST
+    # header keeps its own figure and the Google block gets the second.
+    cost_incomes = [r for r in incomes if not r.get("google_income")]
+    google_incomes = [r for r in incomes if r.get("google_income")]
+    income_total = sum(board._shown_amount(r) for r in cost_incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
+    google_total = sum(board._shown_amount(r) for r in google_incomes
+                       if not r.get("amount_missing"))
     income_group = (
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
         f"<a href='#google-trip-income'>수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th>{extra_blank}</tr></tbody>"
-        + _table_html(incomes, kind="income", selected=selected, unclassified=False,
+        + _table_html(cost_incomes, kind="income", selected=selected, unclassified=False,
                       amount_groups=amount_groups, date_years=date_years)
+        + (f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (Google 원장 · 확정 아님)</th>"
+           f"<th class='num'>{'미확인' if any(r.get('amount_missing') for r in google_incomes) else _money(google_total)}"
+           f"</th>{extra_blank}</tr></tbody>"
+           + _table_html(google_incomes, kind="income", selected=selected, unclassified=False,
+                         amount_groups=amount_groups, date_years=date_years)
+           if google_incomes else '')
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
@@ -1478,11 +1493,16 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_money(board._shown_amount(row))}</span>"
             f"<span class='lr-secondary'>{board.esc(secondary)}{match_hint}</span></button>{move}</li>")
 
-    income_total = sum(board._shown_amount(r) for r in incomes)
+    cost_incomes = [r for r in incomes if not r.get("google_income")]
+    google_incomes = [r for r in incomes if r.get("google_income")]
+    income_total = sum(board._shown_amount(r) for r in cost_incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
         f"<li class='list-group lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></li>"
-        + ''.join(item(r) for r in incomes)
+        + ''.join(item(r) for r in cost_incomes)
+        + (f"<li class='list-group lg'><span>Google 원장 수입 · 확정 아님</span>"
+           f"<span class='tnum'>{'미확인' if any(r.get('amount_missing') for r in google_incomes) else _money(sum(board._shown_amount(r) for r in google_incomes))}</span></li>"
+           + ''.join(item(r) for r in google_incomes) if google_incomes else '')
     ) if incomes else ''
     rows = ''.join(item(r, True) for r in expenses)
     empty = '<li class="empty-state"><p class="es-title">지출 내역이 없습니다.</p></li>'
