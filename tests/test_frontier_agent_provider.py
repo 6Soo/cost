@@ -127,4 +127,3 @@ def test_bounded_subprocess_stdin_and_actual_output_cap(tmp_path):
         _run_bounded([sys.executable, '-c', 'import time; time.sleep(15)'],
                      cwd=tmp_path, env=dict(os.environ), timeout=.1)
     assert time.monotonic() - started < 5
-
