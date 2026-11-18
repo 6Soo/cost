@@ -167,7 +167,8 @@ def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(bound_stor
     assert {"TR-P", "TR-C"} <= refund_tab.member_ids(store), "환불 짝이 연결되지 않음"
 
     kept = {"card-Q-clean": 20000}
-    _in, selected, _whole_in, whole_ex = ledger_design._selected_rows(quarter)
+    income_rows, selected, _whole_in, whole_ex = ledger_design._selected_rows(quarter)
+    assert income_rows == []
     assert {r["row_id"]: ledger_board._shown_amount(r) for r in selected} == kept
     assert {r["row_id"]: ledger_board._shown_amount(r) for r in whole_ex} == kept
 
@@ -182,6 +183,15 @@ def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(bound_stor
     assert {r["id"]: int(r["amount"]) for r in body["rows"]} == kept
     assert int(body["filtered_total"]) == 20000
     assert body["trip"]["expense"] == "20000"
+    # A viewer is not the owner attribution: the same key is kept, so both paths
+    # must still agree once the pair stops being an exclusion.
+    ledger_board.current_role = lambda: "viewer"
+    viewer_selected = {r["row_id"]: ledger_board._shown_amount(r)
+                       for r in ledger_design._selected_rows(quarter)[1]}
+    assert viewer_selected == {"card-Q-shared": 61000, "card-Q-clean": 20000}
+    viewer_html = ledger_design._quarter_page(quarter, "2026년 3분기 기타비용")
+    assert "거래 2건 · 81,000원" in viewer_html
+    ledger_board.current_role = lambda: "owner"
 
 
 # ---------------------------------------------------------------------------
