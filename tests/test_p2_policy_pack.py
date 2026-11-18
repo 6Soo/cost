@@ -116,3 +116,37 @@ def test_changed_existing_policy_body_forces_full_fallback(tmp_path, monkeypatch
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
     monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
     assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
+
+
+@pytest.mark.parametrize('status,refund_expected', [
+    ('confirmed', False),
+    ('cancelled', True),
+])
+def test_ota_refund_assemble_preserves_source_and_case_setup(
+        setup, status, refund_expected):
+    """Same synthetic case/evidence, with only policy packet reduced."""
+    request, trips = _prepared(setup)
+
+    class Portal:
+        def select(self, case, row):
+            return [dict(transaction_id=case['transaction_id'],
+                         ref='portal:synthetic', kind='portal',
+                         content={'reservation_status': status,
+                                  'text': 'SYNTHETIC OTA booking'})]
+
+    repo = Portal()
+    before = '\n'.join(setup.conn.iterdump())
+    full = p2_case.assemble(setup.conn, trips, request, repository=repo)
+    compact = p2_case.assemble(
+        setup.conn, trips, request, repository=repo, compact_policy=True)
+    assert before == '\n'.join(setup.conn.iterdump())
+    assert compact['cases'] == full['cases']
+    assert compact['evidence'] == full['evidence']
+    assert compact['omitted_evidence'] == full['omitted_evidence']
+    assert compact['truncated'] == full['truncated']
+    assert ('refund' in compact['policy']) is refund_expected
+    assert 'link' in compact['policy']
+    assert set(compact['policy']) == set(full['policy'])
+    assert 'LINK-003' in compact['policy']['link']
+    assert compact['policy_digest'] == p2_case.digest(compact['policy'])
+    assert len(p2_case.prompt(compact).encode()) < len(p2_case.prompt(full).encode())
