@@ -44,18 +44,7 @@ def _store_and_trip(board, trip_id, include_archived=False):
     trips_fn = getattr(board, 'list_trips', None) or getattr(store, 'list_trips', None)
     if not callable(trips_fn):
         return None, None
-    # Share the render's one trip read when there is a scope.  The list is the
-    # same for the request and this helper only filters it; without this the
-    # ledger list ran the same three queries again for the preview.
-    from . import read_scope
-    if read_scope.active() and hasattr(store, 'list_trips'):
-        trips = read_scope.remember(
-            ("trips_archived", id(store)),
-            lambda: store.list_trips(include_archived=True))
-        if not include_archived:
-            trips = [trip for trip in trips if not trip.get('archived')]
-    else:
-        trips = trips_fn(include_archived=True) if include_archived else trips_fn()
+    trips = trips_fn(include_archived=True) if include_archived else trips_fn()
     matches = [trip for trip in trips if str(trip.get('tab_id') or trip.get('trip_id') or '') == str(trip_id)]
     if len(matches) != 1 or matches[0].get('deleted'):
         return store, None
