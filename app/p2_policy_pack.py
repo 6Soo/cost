@@ -17,7 +17,7 @@ from pathlib import Path
 PINNED = {
     'process': '001 004 006 008 010 011 014 015 016 021 023 024 025 072',
     'trip': '001 003 021 024 029 030 036 038 039 040 041 042 044 045 047 048 049 051 053 062 063 071 081 089 097 099',
-    'item': '001 002 004 005 007 010 017 018 022 023 024 026 027 029 031 033 034 035 040 042 044 046 050 080 082',
+    'item': '001 002 004 005 007 010 017 018 022 023 024 026 027 029 031 033 034 035 040 042 046 050 080 082',
     'date': '001 011 014 017 021 023 029 033 038 041 048 049 054 060 079 100 108 109',
     'link': '001 002 003 004 005 006 007 010 011 012 013 015 017 018 019 021 024 025 028 030 035 038 043 044 058 061 068 090 092 108 109 110 111',
     'refund': '001 003 004 007 011 012 013 014 015 017 018 021 022 023 025 027 029 050 054 055 061 062',
@@ -25,13 +25,13 @@ PINNED = {
 PREFIX = {'process': 'PROC', 'trip': 'TRIP', 'item': 'ITEM',
           'date': 'DATE', 'link': 'LINK', 'refund': 'RFND'}
 # Fingerprints are derived from the ordered "ID:category" headers, *not*
-# financial records or prose. Support main 767 and pending docs #1011 689.
+# financial records or prose. Support reviewed 767, 689 and integrated 686 catalogs.
 # A new/deleted/retagged rule automatically falls back to the full packet
 # until a reviewer checks whether it belongs in PINNED.
 CATALOG_FINGERPRINTS = {
     'process': frozenset({'90ce7738', '6b6ae0a3'}),
     'trip': frozenset({'6b5ef2bc', '07731f3f'}),
-    'item': frozenset({'5017ea98', 'e9f9e593'}),
+    'item': frozenset({'5017ea98', 'e9f9e593', 'd7c12140'}),
     'date': frozenset({'485a9484', '02994727'}),
     'link': frozenset({'8b20f0b9', '9be56e17'}),
     'refund': frozenset({'ebb80d90', '8b7ff394'}),
@@ -58,6 +58,16 @@ APPROVED_POLICY_REVISIONS = {
         'link': '88071cd9022e84cd1ab8c08d4e6e70fc82c5cb1d',
         'refund': '1b66c222180f1bd4dcb49ed04df5b34874065af4',
     },
+    'integrated-686-20261119': {
+        'CORE': 'f399975d868840fca4a4aa52a21a5944725752a3',
+        'process': '1bfc8cc0b8d6e0ca96b04e19bcb1fc7970d93247',
+        'trip': '7c7ef870a3f35836dcd0b59691dd1238a71fd842',
+        'item': 'ba527ad386e0083107a171717c560f5d76deb75e',
+        'date': 'ca95a4cd057ea87748473d9aa8a14c2b1d97269c',
+        'link': 'bcf49439f980596107c5c88b767bd31e8f15c041',
+        'refund': '266c17a31a4b75d537431ab2986f4454db360c33',
+    },
+
 }
 
 
