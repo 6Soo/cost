@@ -230,3 +230,74 @@ def test_manifest_records_the_content_fingerprint_used_for_lineage(tmp_path):
     manifest = json.loads((Path(response["result"]["manifest_path"])).read_text(encoding="utf-8"))
     assert manifest["sources"] == {"capture_mode": "sqlite-backup", "external_source_files": False}
     assert manifest["input"]["sqlite_logical_fingerprint"]
+
+
+# ---------------------------------------- per-database fingerprints (the fixed "0" key)
+
+def _captured_mapping(read, monkeypatch):
+    """The exact mapping the product code hands to the event builder, without changing it."""
+    from app import ota_payments
+    captured = {}
+    real = ota_payments.build_ota_payment_events
+
+    def recorder(sources):
+        captured["portal_content_fingerprints"] = dict(sources.get("portal_content_fingerprints") or {})
+        return real(sources)
+
+    monkeypatch.setattr(ota_payments, "build_ota_payment_events", recorder)
+    response = read()
+    return response, captured.get("portal_content_fingerprints")
+
+
+def test_single_database_fingerprint_stays_the_historical_literal(tmp_path, monkeypatch):
+    """The 1-DB path must stay exactly ``{"0": <logical fingerprint>}``."""
+    store = portal_store(tmp_path, "literal")
+    expected = sqlite_logical_fingerprint(store)
+    response, mapping = _captured_mapping(lambda: capture(store, tmp_path, "literal"), monkeypatch)
+    assert response["ok"], response
+    assert mapping == {"0": expected}
+    assert json.dumps(mapping, ensure_ascii=False, sort_keys=True) == json.dumps(
+        {"0": expected}, ensure_ascii=False, sort_keys=True)
+
+
+def test_one_fingerprint_per_registered_database(tmp_path, monkeypatch):
+    """The index-aligned helper is a function of the database count, not of one fixed key."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    fingerprint = "f" * 64
+    assert _portal_content_fingerprints(snapshot, fingerprint, [snapshot], BridgeError) == {
+        "0": fingerprint}
+    # Same content registered under three indexes (the M3 multi-DB shape).
+    assert _portal_content_fingerprints(
+        snapshot, fingerprint, [snapshot, snapshot, snapshot], BridgeError) == {
+        "0": fingerprint, "1": fingerprint, "2": fingerprint}
+
+
+def test_lookups_by_a_second_index_resolve_to_a_content_lineage(tmp_path):
+    """A database at index 1 must not fall back to the path-based lineage."""
+    from app.ota_sources import source_lineage_id
+
+    fingerprint = sqlite_logical_fingerprint(portal_store(tmp_path, "index-one"))
+    expected = _content_lineage(fingerprint)
+    other = tmp_path / "elsewhere" / "ota-evidence.sqlite"
+    assert source_lineage_id({}, other, content_fingerprint=fingerprint) == expected
+    assert source_lineage_id({}, other, content_fingerprint=fingerprint) != source_lineage_id({}, other)
+
+
+def test_a_database_the_capture_did_not_copy_fails_explicitly(tmp_path):
+    """A registered database outside the single snapshot is refused, not silently degraded."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    foreign = tmp_path / "other.sqlite"
+    foreign.write_bytes(b"synthetic")
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, foreign], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
+    # Only an identical path (one real source) is accepted.
+    assert _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, snapshot], BridgeError)
