@@ -332,6 +332,7 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     return {
         "row": projection.ledger_row(display_row, read_only=read_only),
         "source": projection.safe_source(row) if owner else None,
+        "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,
         "history": list(board.list_history(row_id)) if owner and not row.get('google_income') and hasattr(board, "list_history") else [],
         "lineage": [projection.safe_source(row)] if owner else [],

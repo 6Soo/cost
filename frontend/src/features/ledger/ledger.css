@@ -65,6 +65,9 @@
 .cost-ledger__detail-list dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .cost-ledger__detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cost-ledger__detail-actions h3 { flex-basis: 100%; }
+.cost-ledger__origin { display: flex; align-items: center; gap: 8px; margin: 0; }
+.cost-ledger__origin-key { color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__origin-chip { display: inline-flex; align-items: center; padding: 2px 10px; border: 1px solid var(--cost-border); border-radius: 999px; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__action { display: grid; gap: 4px; }
 .cost-ledger__action > span { max-width: 260px; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__action-link { display: inline-flex; min-height: 44px; align-items: center; color: var(--cost-text); }

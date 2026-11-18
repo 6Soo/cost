@@ -7,6 +7,7 @@ import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKi
 type RowDetail = {
   row: LedgerRow;
   source: Record<string, unknown> | null;
+  classification_origin?: string | null;
   decision: Record<string, unknown> | null;
   history: unknown[];
   expected_revision: string | number | null;
@@ -206,6 +207,16 @@ function RowActionForm({
   );
 }
 
+function OriginLabel({ origin }: { origin: string }) {
+  if (!origin) return null;
+  return (
+    <p className="cost-ledger__origin">
+      <span className="cost-ledger__origin-key">분류 출처</span>
+      <span className="cost-ledger__origin-chip">{origin}</span>
+    </p>
+  );
+}
+
 export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSaved }: RowDrawerProps) {
   const [detail, setDetail] = useState<RowDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -283,7 +294,7 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
             </section>
           )}
           {selectedAction === null && <DataFields title="원문" values={detail.source} />}
-          {selectedAction === null && <DataFields title="판정" values={detail.decision} />}
+          {selectedAction === null && <OriginLabel origin={detail.classification_origin ?? ''} />}
           {selectedAction === null && <section className="cost-ledger__detail-section"><h3>수정 이력</h3><HistoryList history={detail.history ?? []} /></section>}
         </div>
       )}

@@ -45,7 +45,7 @@
     {
       "name": "plush-authenticated-ui",
       "paths": ["frontend/**", "webapp/plush*.py", "webapp/tests/test_plush*.py"],
-      "tests": ["webapp/tests/test_plush_ui.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_integration.py"]
+      "tests": ["webapp/tests/test_plush_ui.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_integration.py", "webapp/tests/test_plush_classification_origin.py", "webapp/tests/test_plush_origin_browser.py"]
     },
     {
       "name": "trip-schedule-revision",
