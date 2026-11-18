@@ -113,9 +113,19 @@ def income_case(tmp_path, monkeypatch):
         monkeypatch.setattr(page, "load_grants",
                             lambda *a: {"grants": {u: [key] for u in grants}})
 
+    def mark_amount_missing():
+        """Make the Google income row's own amount unreadable, as a failed read would."""
+        rows = json.loads(json.dumps(rows_doc()["sources"]))
+        for source in rows.values():
+            for trip_rows in (source.get("trips") or {}).values():
+                for row in (trip_rows.get("income") or []):
+                    row["amount"] = None
+        monkeypatch.setattr(page.google_authority, "load_consistent",
+                            lambda *a: (snapshot, rows))
+
     try:
         yield {"store": store, "tab": tab, "key": key, "grant": grant,
-               "set_verified": set_verified}
+               "set_verified": set_verified, "mark_amount_missing": mark_amount_missing}
     finally:
         ledger_board.bind_access(previous_access)
         ledger_board.bind_store(previous_store)
@@ -193,3 +203,41 @@ def test_the_bootstrap_loop_reports_the_same_figures_as_the_ledger(income_case):
     assert trip["income"] == str(COST_INCOME), trip
     assert trip["profit"] == str(COST_INCOME), trip
     assert trip["income_source"]["verified"] is True, trip["income_source"]
+
+
+def test_the_list_total_never_adds_a_google_amount(income_case):
+    """GGL-003 on the list total, not just the summary.
+
+    The trip summary and the list's `total`/`filtered_total` are two different
+    figures, so a fix that only guarded the summary left the list adding the
+    Google block to the COST rows on the same page.
+    """
+    env = income_case
+    env["set_verified"](True, [])
+    body = _ledger(env, OWNER)
+    assert body["income_source"]["verified"] is True, body["income_source"]
+    google_rows = [r for r in body["rows"] if str(r["id"]).startswith("google-income|")]
+    assert google_rows, body["rows"]
+    # COST income only: the Google 1,000 must not appear in either total.
+    assert body["total"] == str(COST_INCOME), body
+    assert body["filtered_total"] == str(COST_INCOME), body
+    assert body["total"] != str(COST_INCOME + GOOGLE_INCOME), body
+
+
+def test_an_unreadable_amount_is_left_out_of_the_total_not_counted_as_zero(income_case, monkeypatch):
+    """SPEC §11.2.1 계약 4 / GGL-014: an unknown amount is not a zero.
+
+    `plush_income` marks a Google row `amount_missing` when the source could not
+    read that row's amount. Counting it as zero would silently shrink a total
+    that still presents itself as confirmed, so the row is excluded instead.
+    """
+    env = income_case
+    env["set_verified"](True, [])
+    env["mark_amount_missing"]()
+    body = _ledger(env, OWNER)
+    missing = [r for r in body["rows"] if str(r["id"]).startswith("google-income|")]
+    assert missing, body["rows"]
+    for row in missing:
+        assert row["amount"] == "미확인", row
+    # The unreadable Google row contributes nothing; the COST figure stands.
+    assert body["total"] == str(COST_INCOME), body

@@ -139,6 +139,19 @@ def _source_income(board, access, session, owner, tab_id):
                              visible_tabs=set() if owner else set(access.visible_tabs(session.user_id)))
 
 
+def _confirmed_total(rows: list[dict[str, Any]]) -> str:
+    """The confirmed KRW total of a row set, with Google and unreadable amounts out.
+
+    GGL-003: internal COST income and Google income are never summed, so a Google
+    row never contributes to a total. GGL-014 / SPEC §11.2.1 계약 4: an amount the
+    source could not read is not a zero, so it is left out of the total instead of
+    silently making the figure smaller than it claims to be.
+    """
+    return projection.money(sum(
+        projection._display_amount(row) for row in rows
+        if not row.get("google_income") and not row.get("amount_missing")))
+
+
 def _with_income(rows, source):
     ids = {row.get('row_id') for row in rows}
     return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
@@ -280,8 +293,12 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
-        "filtered_total": projection.money(sum(projection._display_amount(row) for row in rows)),
-        "total": projection.money(sum(projection._display_amount(row) for row in kind_rows)),
+        # GGL-003/GGL-014: a Google amount is never summed into a COST total. The
+        # legacy screen keeps the Google block out of its own 합계, so a total
+        # that added it would make the two entry paths disagree. An unreadable
+        # amount is excluded rather than counted as zero (SPEC §11.2.1 계약 4).
+        "filtered_total": _confirmed_total(rows),
+        "total": _confirmed_total(kind_rows),
         "closed": closed,
     }
 
