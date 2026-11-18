@@ -280,3 +280,21 @@ def test_a_cost_income_with_an_unreadable_amount_is_unknown(income_case, monkeyp
     assert cost_rows, body["rows"]
     assert body["trip"]["income"] == "미확인", body["trip"]
     assert body["trip"]["profit"] == "미확인", body["trip"]
+
+
+def test_an_unknown_amount_sorts_after_a_real_balance_in_both_directions(income_case):
+    """An unknown amount must not sort as if it were 0원 (SPEC §11.2.1 계약 4).
+
+    Sorting by amount used to map "미확인" to 0, so it interleaved with a real
+    zero. It must also stay at the end when the order is reversed, because
+    `reverse` would otherwise float it to the top of a descending list.
+    """
+    env = income_case
+    env["mark_amount_missing"]()
+    for sort in ("amount_asc", "amount_desc"):
+        status, body = _call(f"/api/plush/ledger?tab={env['tab']}&sort={sort}", OWNER, env["store"])
+        assert status == 200, body
+        amounts = [r["amount"] for r in body["rows"]]
+        unknown_at = [i for i, a in enumerate(amounts) if a == "미확인"]
+        assert unknown_at, amounts
+        assert max(unknown_at) == len(amounts) - 1, (sort, amounts)
