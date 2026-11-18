@@ -95,6 +95,8 @@ def _display_date(row: dict[str, Any]) -> str:
 def ledger_row(row: dict[str, Any], *, read_only: bool = False,
                period: str | None = None,
                period_source: str | None = None,
+               period_label: str | None = None,
+               period_label_full: str | None = None,
                google_match: dict[str, Any] | None = None) -> dict[str, Any]:
     """Project a board row into the stable Plush table shape.
 
@@ -124,6 +126,13 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
         "payment": str(payment or ""),
         "period": str(period if period is not None else row.get("service_period") or ""),
         "period_source": str(period_source or ""),
+        # The compact and full labels the legacy cell already prints, so both
+        # entry paths show the same wording (SPEC §11.2.1 계약 4). Empty when the
+        # formatter could not describe this row; the raw `period` still travels.
+        "period_label": str(period_label if period_label is not None
+                            else row.get("_plush_period_label") or ""),
+        "period_label_full": str(period_label_full if period_label_full is not None
+                                 else row.get("_plush_period_label_full") or ""),
         "google_match": google_match,
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
