@@ -1,6 +1,6 @@
 # Plush UI 릴리스 절차
 
-운영 UI는 `/`, `/trips`, `/board`, `/cards/all`, `/receipts` 등 기존 주소와 같은 출처의 인증 API를 사용한다. `/ui/`는 기존 북마크·정적 자산 호환 경로다. `frontend/dist/`는 빌드 산출물이며 Git에 없으므로 일반 소스 패키징만으로는 화면을 배포할 수 없다. 기존 Python/Google/영수증 작성 경로와 운영 데이터는 그대로 사용한다.
+운영 UI는 `/`, `/trips`, `/board`, `/cards/all`, `/receipts` 등 기존 주소와 같은 출처의 인증 API를 사용한다. `/ui/`는 기존 북마크·정적 자산 호환 경로다. `frontend/dist/`는 빌드 산출물이며 Git에 없으므로(`frontend/.gitignore`의 `dist/`) 일반 소스 패키징만으로는 화면을 배포할 수 없다. CI도 같은 이유로 브라우저 검사 전에 `npm ci && npm run build`를 실행한다(`.github/workflows/quality.yml`의 "Build the frontend the browser tests render" 단계). 기존 Python/Google/영수증 작성 경로와 운영 데이터는 그대로 사용한다.
 
 공식 `tools/launch_web_ledger.py`가 `WEBLEDGER_PRIMARY_UI=1`을 설정하므로 사용자에게 설정을 요구하지 않는다. 독립적으로 임베드한 legacy 서버는 원래 HTML 계약을 유지한다. 인증이 활성인 실제 브라우저 HTML 요청에만 기본 UI를 적용하며 API·비페이지 클라이언트·POST·로그인 경로는 기존 처리다. `legacy=1` 상세 교정 링크와 기존 `/participants?trip=...` 이름·별칭·여행 교정 폼을 유지한다. 새 참가자 연결 탭은 `view=links`를 URL에 보존한다.
 
