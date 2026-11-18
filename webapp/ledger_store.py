@@ -433,6 +433,23 @@ class LedgerStore:
 
     def list_tab_rows(self, tab_id: str | None):
         from . import read_scope
+        # One request reads a tab's rows several times (the ledger list itself,
+        # the refund-group attribution, and the expense projection).  Each call
+        # re-deserialised every payload -- 2,000 json.loads for a 1,000-row tab.
+        # Inside a read scope the answer for a tab is the same for the whole
+        # request, so it is computed once.  The store is read-only in a render;
+        # the caller gets a shallow copy so it cannot mutate the shared list, and
+        # the row dicts are never mutated in place (callers build new dicts with
+        # `{**row, ...}`), so sharing them adds no aliasing that did not exist.
+        if read_scope.active():
+            return list(read_scope.remember(
+                ('list_tab_rows', id(self), tab_id),
+                lambda: self._list_tab_rows_uncached(tab_id),
+            ))
+        return self._list_tab_rows_uncached(tab_id)
+
+    def _list_tab_rows_uncached(self, tab_id: str | None):
+        from . import read_scope
         split = read_scope.remember(('split_source_ids', id(self)), self.split_source_ids)
         if read_scope.active():
             # A render reads every tab; one scan replaces a full scan per tab.
