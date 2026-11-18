@@ -1173,6 +1173,173 @@ def local_path(value) -> str:
 
 esc = board_render_helpers.esc
 
+_BOARD_RETURN_KEYS = ("tab", "kind", "q", "sort", "page", "page_size", "arch")
+_BOARD_RETURN_SORTS = ("date_desc", "date_asc", "amount_desc", "amount_asc",
+                       "merchant_asc")
+_BOARD_RETURN_PAGE_SIZE_MAX = 200
+_BOARD_RETURN_DIGIT_LIMIT = 6
+_LEGACY_KIND_ALIASES = {"in": "income", "ex": "expense", "income": "income",
+                        "expense": "expense", "": ""}
+
+
+def _bounded_positive_int(raw, *, maximum=None):
+    """A positive integer from a short digit string, or None when unusable.
+
+    The format check runs before conversion: ASCII digits only, no sign, no
+    whitespace and no more than a fixed number of them. `int()` therefore only
+    ever sees a short numeral, so a hostile or corrupted value falls back
+    through the caller's normal path instead of raising.
+    """
+    if not isinstance(raw, str) or not raw:
+        return None
+    if not raw.isascii() or not raw.isdigit():
+        return None
+    if len(raw) > _BOARD_RETURN_DIGIT_LIMIT:
+        return None
+    value = int(raw)
+    if value < 1:
+        return None
+    if maximum is not None and value > maximum:
+        return None
+    return value
+
+
+def board_return_path(value) -> str:
+    """The view state a legacy board return may carry, or "" when unusable.
+
+    Only ``/board`` on this origin, only the keys this screen understands, each
+    value parsed to the same form the screen itself accepts. Anything else —
+    another host, a protocol-relative address, a backslash or control character,
+    a different path (a row, a trip list, an export) or a key or value the board
+    would not honour — is refused outright so the caller falls back to its own
+    current view. A refused value never becomes a redirect target.
+    """
+    path = local_path(value)
+    if not path:
+        return ""
+    parts = urlsplit(path)
+    if parts.path != "/board":
+        return ""
+    try:
+        parsed = parse_qs(parts.query, keep_blank_values=True, strict_parsing=False)
+    except ValueError:
+        return ""
+    if any(len(items) != 1 for items in parsed.values()):
+        return ""
+    if any(key not in _BOARD_RETURN_KEYS for key in parsed):
+        return ""
+    accepted = {}
+    tab = parsed.get("tab", [""])[0]
+    if not tab:
+        return ""
+    accepted["tab"] = tab
+    kind = parsed.get("kind", [""])[0]
+    if kind not in _LEGACY_KIND_ALIASES:
+        return ""
+    if kind:
+        accepted["kind"] = kind
+    if parsed.get("q", [""])[0]:
+        accepted["q"] = parsed["q"][0]
+    sort = parsed.get("sort", [""])[0]
+    if sort:
+        if sort not in _BOARD_RETURN_SORTS:
+            return ""
+        accepted["sort"] = sort
+    for key, maximum in (("page", None),
+                         ("page_size", _BOARD_RETURN_PAGE_SIZE_MAX)):
+        raw = parsed.get(key, [""])[0]
+        if not raw:
+            continue
+        value = _bounded_positive_int(raw, maximum=maximum)
+        if value is None:
+            return ""
+        accepted[key] = str(value)
+    if parsed.get("arch", [""])[0]:
+        accepted["arch"] = parsed["arch"][0]
+    return "/board?" + urlencode(accepted)
+
+
+def board_back_path(tab: str, query: str = "", kind: str = "",
+                    archived: str = "", return_to = "") -> str:
+    """The back target for this board request.
+
+    A verified ``return_to`` wins when it names the same tab the caller is on;
+    a return that names a different trip is dropped rather than used, so a
+    correction can never carry an operator to a trip they did not open.
+    """
+    own_state = {key: value for key, value in
+                 (("tab", tab), ("q", query), ("kind", kind), ("arch", archived)) if value}
+    own = "/board" + (f"?{urlencode(own_state)}" if own_state else "")
+    back = board_return_path(return_to)
+    if back and parse_qs(urlsplit(back).query).get("tab", [""])[0] == tab:
+        return back
+    return own
+
+
+
+
+def correction_return_target(requested_tab: str, return_to) -> str:
+    """The verified list destination to send a client to after a correction.
+
+    The value came from a URL, so it is re-validated here before it is ever
+    handed back to the browser: only this app's `/board`, only the keys the
+    screen honours, and only the tab the caller is already on. Anything else
+    yields "" so the caller keeps whatever it was doing.
+    """
+    back = board_return_path(return_to)
+    if not back:
+        return ""
+    if parse_qs(urlsplit(back).query).get("tab", [""])[0] != str(requested_tab or ""):
+        return ""
+    return back
+
+
+_CORRECTION_ENTRY_MARKER = "1"
+
+
+def correction_entry_target(tab, row_id, marker, return_to) -> str:
+    """A navigable destination, only for a real correction of this tab's own row.
+
+    Both conditions must hold: the request came from the legacy correction
+    entry (its narrow marker), and `row_id` is a row this tab actually holds —
+    the same row the panel will render. An ordinary panel request, a viewer's
+    request, or an entry naming a row that is not on this tab gets "", so
+    nothing about it can move the reader off the screen.
+    """
+    if str(marker or "").strip() != _CORRECTION_ENTRY_MARKER:
+        return ""
+    if not row_id:
+        return ""
+    kind, found = find_row(row_id)
+    if found is None:
+        return ""
+    if str(found.get("display_tab_id") or "") != str(tab or ""):
+        return ""
+    return correction_return_target(tab, return_to)
+
+
+def _is_correction_payload(payload) -> bool:
+    """The save came from the correction panel, not an ordinary one."""
+    return str((payload or {}).get("correction") or "").strip() == \
+        _CORRECTION_ENTRY_MARKER
+
+
+def _verified_save_return(payload, row) -> str:
+    """The destination a correction save may leave for, or "" when it may not.
+
+    The tab is the one the row had *before* the write — `row` is the snapshot
+    the endpoint already read to authorise and apply the change. It is
+    deliberately not re-read here: a correction may move the row to another
+    trip, and the operator must still return to the list they opened it from.
+    A post-write read could also fail and turn a successful save into an error.
+
+    A refused value yields "" so the caller never selects a rejected input.
+    """
+    if not _is_correction_payload(payload):
+        return ""
+    tab = str((row or {}).get("display_tab_id") or "")
+    return correction_return_target(tab, (payload or {}).get("return_to"))
+
 
 def trip_income_total(tab_id: str) -> int:
     return board_read_projection.trip_income_total(tab_id, rows=INCOMES)
@@ -3740,17 +3907,17 @@ class Handler(BaseHTTPRequestHandler):
             q = query.get("q", [""])[0]
             kind = query.get("kind", [""])[0]
             row_id = query.get("row", [""])[0]
-            base = f"/board?tab={tab}"
-            if q:
-                base += f"&q={q}"
-            if kind:
-                base += f"&kind={kind}"
-            if query.get("arch", [""])[0]:
-                base += f"&arch={query['arch'][0]}"
+            requested_return = query.get("return_to", [""])[0]
+            back = board_back_path(tab, q, kind, query.get("arch", [""])[0],
+                                   requested_return)
+            correction_return = correction_entry_target(
+                tab, row_id, query.get("legacy", [""])[0], requested_return)
+            base = back if back.startswith("/board?") and len(back) > len("/board?") else f"/board?tab={tab}"
             part = (self.headers.get("X-Part")
                     or query.get("part", [""])[0])
             if part == "panel":
-                self._send(ledger_design.panel_part(row_id, back=base))
+                self._send(ledger_design.panel_part(row_id, back=base,
+                                             verified_return=correction_return))
                 return
             if part == "summary":
                 self._send(ledger_design.summary_part(tab, kind, q))
@@ -3767,6 +3934,7 @@ class Handler(BaseHTTPRequestHandler):
                 tab, q, kind, row_id,
                 message=query.get("msg", [""])[0],
                 archived=query.get("arch", [""])[0],
+                back=base, verified_return=correction_return,
                 participant_query=query)
             rendered = ledger_design.render(
                 fragment, live_config=live_sync.client_config(
@@ -4326,7 +4494,8 @@ class Handler(BaseHTTPRequestHandler):
         if current_row.get("is_allocation"):
             allowed, _ = editable_fields(
                 kind, current_row.get("source_kind", ""), True)
-            meta = ("csrf", "expected_revision", "client_request_id", "return_to")
+            meta = ("csrf", "expected_revision", "client_request_id", "return_to",
+                    "legacy", "correction")
             blocked = [key for key in payload if key not in allowed and key not in meta]
             if blocked:
                 if is_form:
@@ -4341,6 +4510,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             changes = {key: payload[key] for key in allowed if key in payload}
+            verified = _verified_save_return(payload, current_row)
             try:
                 result = _active_store().update_allocation(
                     allocation_id=parts[2],
@@ -4364,18 +4534,23 @@ class Handler(BaseHTTPRequestHandler):
                                 code=STATUS_FOR_CODE.get(exc.code, 422))
                 return
             if is_form:
-                back = str(payload.get("return_to") or "") or f"/row?id={parts[2]}"
+                back = (verified or f"/row?id={parts[2]}"
+                        if _is_correction_payload(payload)
+                        else str(payload.get("return_to") or "") or f"/row?id={parts[2]}")
                 self.send_response(303)
                 self.send_header("Location", back)
                 self.end_headers()
             else:
-                self._send_json(result, code=200)
+                response = dict(result)
+                if verified:
+                    response["return_to"] = verified
+                self._send_json(response, code=200)
             return
         source = current_row.get("source_kind", "")
         allowed, fixed = editable_fields(
             kind, source, bool(current_row.get("is_allocation")))
         meta = ("csrf", "expected_revision", "client_request_id", "change_mode",
-                "return_to")
+                "return_to", "legacy", "correction")
         blocked = [k for k in payload if k in fixed]
         if blocked:
             if is_form:
@@ -4412,6 +4587,7 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._refuse_amount(is_form, payload, parts[2])
                 return
+        verified = _verified_save_return(payload, current_row)
         try:
             result = _active_store().save(
                 row_id=parts[2],
@@ -4445,12 +4621,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_transient(exc)
             return
         if is_form:
-            back = str(payload.get("return_to") or "") or f"/row?id={parts[2]}"
+            back = (verified or f"/row?id={parts[2]}"
+                    if _is_correction_payload(payload)
+                    else str(payload.get("return_to") or "") or f"/row?id={parts[2]}")
             self.send_response(303)
             self.send_header("Location", back)
             self.end_headers()
         else:
-            self._send_json(result, code=200)
+            response = dict(result)
+            if verified:
+                response["return_to"] = verified
+            self._send_json(response, code=200)
 
     # A transient store failure is reported, not raised at the client.
     #

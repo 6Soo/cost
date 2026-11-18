@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { ActionDescriptor, Bootstrap, FieldDescriptor, LedgerRow } from '../../api/types';
 import { ActionButton, Amount, Drawer, FormField, InlineNotice, Input, Select, Loading } from '../../components';
 import { getJSON, postJSON, ApiError } from '../../api/client';
-import { humanDate, internalHref, requestId } from './urlState';
+import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
 
 type RowDetail = {
   row: LedgerRow;
@@ -16,6 +16,9 @@ type RowDetail = {
 type RowDrawerProps = {
   rowId: string | null;
   bootstrap: Bootstrap;
+  tab?: string;
+  kind?: LedgerKind;
+  search?: URLSearchParams;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -203,7 +206,7 @@ function RowActionForm({
   );
 }
 
-export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps) {
+export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSaved }: RowDrawerProps) {
   const [detail, setDetail] = useState<RowDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -272,6 +275,11 @@ export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps
                   </div>
                 );
               })}
+            </section>
+          )}
+          {bootstrap.role === 'owner' && !detail.row.read_only && tab && search && (
+            <section className="cost-ledger__detail-actions" aria-label="기존 교정 화면">
+              <a className="cost-ledger__action-link" href={legacyCorrectionHref(detail.row.id, tab, kind ?? 'expense', search)}>기존 화면에서 교정</a>
             </section>
           )}
           {selectedAction === null && <DataFields title="원문" values={detail.source} />}

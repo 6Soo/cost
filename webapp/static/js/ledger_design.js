@@ -138,7 +138,7 @@
     var tripOpen=target.closest&&target.closest('#trip-switch-open');
     if(tripOpen){event.preventDefault();var d=document.getElementById('trip-switch-dialog');if(d)d.showModal();return;}
     if(target.closest&&target.closest('[data-trip-switch-close]')){var d=document.getElementById('trip-switch-dialog');if(d)d.close();return;}
-    if(target.closest&&target.closest('[data-drawer-close],#drawer-close,#p-close,#p-cancel')){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
+    if(target.closest&&target.closest('[data-drawer-close],#drawer-close,#p-close')){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
     var row=target.closest&&target.closest(rowSelector());
     if(row&&!target.closest('form,select,input,textarea,a:not(.lr-hit)')){event.preventDefault();event.stopImmediatePropagation();showDrawer(row,event.shiftKey);return;}
   },true);
@@ -434,6 +434,9 @@ function goBack(){location.href=main.dataset.base;}
   // ------------------------------------------- the panel's own state, read only
   function panel(){return document.getElementById('panel');}
   function panelForm(){var p=panel();return p?p.querySelector('form[data-js-save]'):null;}
+  function correctionReturn(){var f=panelForm();if(!f)return '';
+   var el=f.querySelector("input[data-verified-return]");
+   return el?String(el.getAttribute('data-verified-return')||''):'';}
   function panelRow(){var p=panel();return p?(p.getAttribute('data-row')||''):'';}
   var editorExitAnimation=null;
   function editorMotionAllowed(){
@@ -676,6 +679,8 @@ function goBack(){location.href=main.dataset.base;}
   function closePanel(){
    if(!canLeavePanel()) return;
    releasePanel();
+   var ret=correctionReturn();
+   if(ret){location.assign(ret);return;}
    setRowParam('');
    removeEditor(true,function(){
     markSelection();window.dispatchEvent(new Event('ledger:saved'));
@@ -733,7 +738,8 @@ document.addEventListener('click',function(e){
    if(e.target.closest('#bulk-start')){e.preventDefault();startBulk();return;}
    if(e.target.closest('[data-bulk-save]')){e.preventDefault();saveBulk();return;}
    if(e.target.closest('[data-bulk-end]')){endBulk();return;}
-   if(e.target.closest('#p-cancel')){e.preventDefault();closePanel();return;}
+   if(e.target.closest('#p-cancel')){
+    e.preventDefault();closePanel();return;}
    if(e.target.closest('#p-cancel')&&document.querySelector('form[data-saving="1"]')){
     e.preventDefault();canLeavePanel();return;
    }
@@ -777,6 +783,7 @@ document.addEventListener('click',function(e){
   var slot=isSave?form.closest('.panel').querySelector('.f-msg')
                 :document.getElementById('status');
   var payload={csrf:csrf(form)};
+  if(isSave&&correctionReturn()) payload.correction='1';
   Array.prototype.forEach.call(form.elements,function(el){
    if(!el.name||el.name==='csrf'||el.disabled||el.readOnly) return;
    if(el.type==='checkbox'||el.type==='radio'){ if(el.checked) payload[el.name]=el.value; return; }
@@ -818,6 +825,7 @@ document.addEventListener('click',function(e){
      }
       say(slot,'저장했습니다',false);
       clearDirty(form);
+      if(body.return_to){location.assign(body.return_to);return;}
       // The row's own identity did not change, so the position beside the walking
       // buttons and the one selected row are read again from the live DOM.
       markSelection();
