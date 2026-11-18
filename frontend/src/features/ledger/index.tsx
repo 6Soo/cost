@@ -7,7 +7,7 @@ import { RowDrawer } from './rowDrawer';
 import { humanDate, readPage, requestId, useUrlSearch } from './urlState';
 import './ledger.css';
 
-type LedgerKind = 'expense' | 'income';
+import type { LedgerKind } from './urlState';
 type LedgerSort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'merchant_asc';
 type LedgerPayload = {
   trip: TripSummary;
@@ -377,6 +377,9 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
       <RowDrawer
         rowId={selectedRowId}
         bootstrap={bootstrap}
+        tab={tab}
+        kind={kind}
+        search={search}
         onClose={closeRow}
         onSaved={() => setRefreshVersion((version) => version + 1)}
       />

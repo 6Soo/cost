@@ -1456,7 +1456,9 @@ def _google_match_detail(row):
             + ''.join(f"<p class='p-sub'>{line}</p>" for line in lines) + '</details>')
 
 
-def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, google_match_detail='') -> str:
+def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft,
+                google_match_detail='', verified_return=None) -> str:
+    verified_return = verified_return or ''
     allowed, fixed = board.editable_fields(kind, row.get("source_kind", ""),
                                            bool(row.get("is_allocation")))
     rev = row.get("revision", 1)
@@ -1571,6 +1573,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
         f"<input type='hidden' name='expected_revision' value='{rev}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"<input type='hidden' name='return_to' value='{board.esc(back)}'>"
+        f"<input type='hidden' data-verified-return='{board.esc(verified_return)}' value=''>"
         "<div class='p-bd'>"
         # The source identifier, the revision, the source kind and every field the
         # endpoint fixes are what a support answer needs and what a working day
@@ -1994,7 +1997,8 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
 @read_scope.scoped
 def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          error: str = "", message: str = "", archived: str = "",
-         draft: dict = None, back: str = "", participant_query: dict = None) -> str:
+         draft: dict = None, back: str = "", participant_query: dict = None,
+         verified_return: str = "") -> str:
     """The main ledger screen in the new design."""
     if _STORE_missing():
         return board.layout("여행 장부", "<div class='body'><p>저장소가 연결되지 않았습니다.</p></div>")
@@ -2026,7 +2030,8 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     participant_html = _participant_trip_panel(tab_id, participant_controls)
     reservations_html = trip_management_ui.reservations(board, trip)
     selected_panel = (panel_part(selected, back=back, error=error, message=message,
-                                 draft=draft or {}) if selected else '')
+                                 draft=draft or {}, verified_return=verified_return)
+                      if selected else '')
     drawer_html = (
         "<dialog class='drawer' id='ledger-drawer' aria-labelledby='ledger-drawer-title'>"
         "<div class='drawer-header'><h2 id='ledger-drawer-title'>거래 상세</h2>"
@@ -2106,7 +2111,8 @@ def _participant_trip_state(tab_id: str):
 
 
 def panel_part(row_id: str, *, back: str = "/board", error: str = "",
-               message: str = "", draft: dict = None) -> str:
+               message: str = "", draft: dict = None,
+               verified_return: str = "") -> str:
     """Just the edit panel, for a row click without a full page load."""
     if _STORE_missing() or not row_id:
         return ""
@@ -2129,7 +2135,8 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
     return _panel_html(row, kind, csrf=board.CSRF_TOKEN,
                        rule_case=board.learning_case_id(row_id),
                        error=error, message=message, back=back, draft=draft or {},
-                       google_match_detail=_google_match_detail(row))
+                       google_match_detail=_google_match_detail(row),
+                       verified_return=verified_return)
 
 
 def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
