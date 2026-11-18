@@ -11,7 +11,7 @@
 - **수정:** ① `plush_api._ledger`의 제외를 **지출 행에만** 적용(레거시와 같은 범위). ② `ledger_design`에 `_quarter_tab_rows`/`_quarter_booked_rows`/`_is_quarter_tab`를 추가하고 `_selected_rows`·`_quarter_body`·`_quarter_page`가 분기 탭의 자기 행을 `list_tab_rows`로 읽게 함(지출·수입 모두). 표시·합계 집합만 맞췄고 금액·부호·환불 관계·권한 경계는 바꾸지 않았다.
 - **회귀 고정:** `webapp/tests/test_m4_parity_refund_total_scope.py`(5건, owner 수입 키 충돌·부분환불·분기 지출 행·분기 부호·분기 수입 행). 수정 전 3건이 실패하고 수정 후 통과함을 확인했다. `config/test-impact-map.json`의 `m4-query-contract-parity`에 등록.
 - **검사:** 새 파일 5 passed, 패리티 5파일 34 passed, 인접 설계·plush·분기 105 passed + 15 subtests. 공식 `python tools/run_quality_checks.py --base origin/main --run` 결과는 이 절 아래 값으로 채운다.
-- **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
+- **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `webapp/tests/test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
 
 # 2026-11-18 — M5 작업 큐·임대·P2 어댑터 최소 후보 분리 (미병합)
 
