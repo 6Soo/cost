@@ -607,7 +607,7 @@ def viewer_fragments(session, access, ledger_store, tab: str = "") -> str:
     way the page itself is. No other trip name and no internal memo is in this
     fragment, so putting it on the wire cannot widen what a viewer may read.
     """
-    from . import ledger_design
+    from . import ledger_board, ledger_design
 
     allowed = access.visible_tabs(session.user_id)
     trips = []
@@ -615,14 +615,15 @@ def viewer_fragments(session, access, ledger_store, tab: str = "") -> str:
                  if ledger_store is not None else []):
         if trip["tab_id"] not in allowed:
             continue
-        rows = (ledger_store.list_tab_rows(trip["tab_id"])
-                if ledger_store is not None else [])
-        income = sum(r["amount_krw"] for r in rows if r["row_kind"] == "income")
-        expense = sum(r["amount_krw"] for r in rows if r["row_kind"] != "income")
+        # SPEC §11.2.1 계약 1: the totals come from the same helper the initial
+        # viewer board uses, so a refreshed board shows the same rows, counts and
+        # figures as a freshly loaded one. The Google block's per-user grant
+        # check stays inside that helper, so a refresh cannot widen the scope.
+        totals = ledger_board.viewer_row_totals(session, ledger_store, trip["tab_id"])
         trips.append({"tab_id": trip["tab_id"],
                       "display_key": trip["display_key"],
                       "starts_on": trip["starts_on"],
                       "ends_on": trip["ends_on"],
-                      "income_krw": income, "expense_krw": expense,
-                      "balance_krw": income - expense, "row_count": len(rows)})
+                      "archived": trip["archived"],
+                      **totals})
     return _block("live-viewer", ledger_design.viewer_trips_html(trips))

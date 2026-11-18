@@ -430,6 +430,54 @@ def access_control_render_viewer_status(session, store) -> dict:
     }
 
 
+def access_control_viewer_row_set(session, store, tab_id: str | None):
+    """The row set a viewer sees for one tab, from the common query.
+
+    SPEC §11.2.1 계약 1: the initial board, `/access/rows` and the live refresh
+    all read the same display row set as the Plush API — recorded rows from the
+    store plus the Google income block — so the same permission, tab and filter
+    yield identical row IDs, amounts and counts. The role is never widened here:
+    the session and the access store decide the Google read, and
+    ``plush_income.load`` keeps its canonical-copy and per-user grant checks, so
+    a viewer without a Google grant still sees no Google rows and no Google sum.
+
+    Returns ``(recorded_rows, google_block, display_rows)``. ``display_rows`` is
+    the un-projected merged set; callers project it through the same
+    ``access_control`` allowlist they already use.
+    """
+    from . import ledger_query
+
+    if store is None or not tab_id:
+        return [], {"available": False, "verified": False, "rows": [], "reason": "NOT_CONNECTED"}, []
+    owner = is_owner_session(session)
+    recorded = ledger_query.recorded_rows(store, tab_id)
+    income = ledger_query.google_income(store, _ACCESS, session, owner, tab_id)
+    return recorded, income, ledger_query.merge_income(recorded, income)
+
+
+def viewer_row_totals(session, store, tab_id: str) -> dict:
+    """A viewer's per-trip totals for the board rail, from the common query.
+
+    The figures are the ones the shared projection reports: signed KRW over the
+    display row set with the sources kept apart (GGL-003). A viewer without a
+    Google grant gets no Google rows, so its totals stay the recorded COST
+    figure, exactly as before.
+    """
+    from . import ledger_query
+
+    _recorded, _income, display_rows = access_control_viewer_row_set(session, store, tab_id)
+    totals = ledger_query.display_totals(display_rows)
+    income_krw = int(totals["income"])
+    expense_krw = int(totals["expense"])
+    return {"income_krw": income_krw, "expense_krw": expense_krw,
+            # The viewer rail keeps its existing contract: 차액 is income minus
+            # expense. (``display_totals['total']`` is the signed 조회 합계, a
+            # different figure — income plus expenses.)
+            "balance_krw": income_krw - expense_krw,
+            # The count is the display row set's own size, matching the list.
+            "row_count": len(display_rows)}
+
+
 def access_control_render_viewer_board(session, store, tab_id: str) -> str:
     """A viewer board with only its own trips, rows and totals.
 
@@ -448,17 +496,13 @@ def access_control_render_viewer_board(session, store, tab_id: str) -> str:
     for trip in all_trips:
         if trip["tab_id"] not in allowed:
             continue
-        rows = _active_store().list_tab_rows(trip["tab_id"]) if _active_store() is not None else []
-        income = sum(r["amount_krw"] for r in rows if r["row_kind"] == "income")
-        expense = sum(r["amount_krw"] for r in rows if r["row_kind"] != "income")
+        totals = viewer_row_totals(session, _active_store(), trip["tab_id"])
         trips.append({"tab_id": trip["tab_id"],
                       "display_key": trip["display_key"],
                       "starts_on": trip["starts_on"],
                       "ends_on": trip["ends_on"],
                       "archived": trip["archived"],
-                      "income_krw": income, "expense_krw": expense,
-                      "balance_krw": income - expense,
-                      "row_count": len(rows)})
+                      **totals})
     # The live refresh replaces this one block, and it is built by the same
     # renderer from the same allowlist, so a refreshed viewer board is
     # indistinguishable from a freshly loaded one and cannot widen the scope.
@@ -2839,19 +2883,28 @@ class Handler(BaseHTTPRequestHandler):
             rows = (_active_store().list_tab_rows(tab) if _active_store() is not None else [])
             allowed = (viewer_visible_tabs(session) if not is_owner_session(session)
                        else {r["display_tab_id"] for r in rows})
-            projected = access_control.project_rows_for_viewer(
-                rows, allowed, tab)
-            if not is_owner_session(session):
+            from . import ledger_query
+            if is_owner_session(session):
+                projected = access_control.project_rows_for_viewer(rows, allowed, tab)
+                totals = ledger_query.display_totals(projected)
+            else:
+                # SPEC §11.2.1 계약 1: a viewer's list is the same display row
+                # set as the initial board and the Plush API, so its IDs and
+                # counts match. The access store still answers which rows are
+                # visible and the Google block keeps its per-user grant check.
+                _recorded, _income, display_rows = access_control_viewer_row_set(
+                    session, _active_store(), tab)
+                projected = access_control.project_rows_for_viewer(display_rows, allowed, tab)
                 for item in projected:
                     access_control.assert_no_denied_fields(item)
-            income = sum(r["amount_krw"] for r in projected
-                         if r["row_kind"] == "income")
-            expense = sum(r["amount_krw"] for r in projected
-                          if r["row_kind"] != "income")
+                totals = ledger_query.display_totals(display_rows)
             self._send_json({"tab": tab, "rows": projected,
-                             "totals": {"income_krw": income,
-                                        "expense_krw": expense,
-                                        "balance_krw": income - expense},
+                             "totals": {"income_krw": int(totals["income"]),
+                                        "expense_krw": int(totals["expense"]),
+                                        # 차액 keeps its existing meaning:
+                                        # income minus expense.
+                                        "balance_krw": (int(totals["income"])
+                                                        - int(totals["expense"]))},
                              "row_count": len(projected)})
             return True
         if path.startswith("/evidence/preview/"):
