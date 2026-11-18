@@ -70,6 +70,13 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         working-directory: core
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - uses: actions/setup-python@v5
+        if: steps.changed.outputs.run == 'true'
+        with:
+          python-version: '3.14'
+      - name: Install Python dependencies for Rust/Python integration tests
+        if: steps.changed.outputs.run == 'true'
+        run: python -m pip install -r requirements.txt
       - name: cargo test
         if: steps.changed.outputs.run == 'true'
         working-directory: core
@@ -189,7 +196,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - name: Install Windows boundary test dependency
-        run: python -m pip install "pytest>=8,<10"
+      - name: Install Python app and Windows boundary test dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest>=8,<10"
       - name: Verify real Windows child termination on timeout
         run: python -m pytest platform_tests/windows/test_frontier_agent_child_boundary.py -q
