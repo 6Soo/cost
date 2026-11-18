@@ -316,9 +316,8 @@ def _sort_amount_text(row: dict[str, Any]) -> str:
     return projection.money(projection._display_amount(row))
 
 
-def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
-            query: dict[str, list[str]]) -> dict[str, Any]:
-    owner = _owner(ledger_board, access, session)
+def _ledger(access: Any, session: Any, board: Any,
+            query: dict[str, list[str]], *, owner: bool) -> dict[str, Any]:
     trip, rows = _trip_for_query(board, access, session, owner, query)
     income = _source_income(board, access, session, owner, str(trip.get('tab_id') or ''))
     rows = _with_income(rows, income)
@@ -1644,7 +1643,11 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
             projection_fn = _bootstrap if path == "/api/plush/bootstrap" else _home
             result = read_scope.scoped(projection_fn)(ledger_board, access, session, board)
         elif path == "/api/plush/ledger":
-            result = read_scope.scoped(_ledger)(ledger_board, access, session, board, query)
+            owner = _owner(ledger_board, access, session)
+            # Only the owner's refund exclusion needs rows across tabs.
+            bulk_rows = owner and _first(query, "tab") != "refunds"
+            result = read_scope.scoped(_ledger, bulk_board_rows=bulk_rows)(
+                access, session, board, query, owner=owner)
         elif path == "/api/plush/row":
             result = _row_detail(ledger_board, access, session, board, query)
         elif path == "/api/plush/transactions":

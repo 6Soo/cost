@@ -451,7 +451,7 @@ class LedgerStore:
     def _list_tab_rows_uncached(self, tab_id: str | None):
         from . import read_scope
         split = read_scope.remember(('split_source_ids', id(self)), self.split_source_ids)
-        if read_scope.active():
+        if read_scope.bulk_board_rows_enabled():
             # A render reads every tab; one scan replaces a full scan per tab.
             grouped = read_scope.remember(('board_rows_by_tab', id(self)),
                                           lambda: fetch_board_rows_by_tab(self.conn))
