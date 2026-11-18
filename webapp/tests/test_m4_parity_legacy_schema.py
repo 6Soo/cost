@@ -4,7 +4,7 @@
 케이스를 이 후보로 옮긴 것이다. 기대값은 그대로다: 예외 없이, 두 경로가 같은 행 ID
 집합·부호 있는 금액·탭 합계를 보여줘야 한다. 이 후보가 통과해야 하는 이유는
 `ledger_stay_evidence.manual_period_rows`가 `field` 열이 없는 파일을 빈 집합으로
-읽기 때문이다(`tests/test_manual_period_rows_schema.py`가 그 세 경우를 고정한다).
+읽기 때문이다(`webapp/tests/test_manual_period_rows_schema.py`가 그 세 경우를 고정한다).
 
 여기서 흉내 내는 환경(SPEC §11.2.1 적용 순서 2, RFND·수동 교정 보호):
   * `board_manual_overrides`가 `row_id`만 있는 구 기록이고 `board_revisions`가 없다.
