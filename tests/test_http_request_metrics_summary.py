@@ -1,13 +1,15 @@
 """Read-only summing of per-port request counters, including honesty markers."""
 import json
+from datetime import datetime, timedelta, timezone
 
 from app.http_request_counts import RequestCounts
 from tools.http_request_metrics_summary import main, summarize
 
+STAMP = datetime(2026, 11, 17, 3, 15, tzinfo=timezone.utc)
+
 
 def _clock():
-    from datetime import datetime, timezone
-    return datetime(2026, 11, 17, 3, 15, tzinfo=timezone.utc)
+    return STAMP
 
 
 def _clean_snapshot(tmp_path, name):
@@ -18,32 +20,76 @@ def _clean_snapshot(tmp_path, name):
     return tmp_path / name
 
 
-def test_two_ports_sum_and_preserve_markers(tmp_path):
-    first = RequestCounts(tmp_path / "http-8751.json", start_flusher=False,
-                          wall_clock=_clock)
+def test_two_ports_sum_totals_and_mark_the_live_one_as_not_final(tmp_path):
+    live = RequestCounts(tmp_path / "http-8751.json", start_flusher=False, wall_clock=_clock)
     for _ in range(3):
-        first.observe_finish(first.observe_begin("/api/customer-314", "GET"), 200)
-    # An abrupt stop: flushed, never closed. The next start is what records
-    # the window, so it is reopened and left alone before the snapshot is read.
-    assert first.flush()
-    resumed = RequestCounts(tmp_path / "http-8751.json", start_flusher=False,
-                            wall_clock=_clock)
-    assert resumed.flush()
-    assert resumed.close()
+        live.observe_finish(live.observe_begin("/api/customer-314", "GET"), 200)
+    assert live.flush()  # still running: this is a live reading, not a final one
 
-    second = RequestCounts(tmp_path / "http-8752.json", start_flusher=False,
-                           wall_clock=_clock)
-    second.observe_finish(second.observe_begin("/receipts", "POST"), 201)
-    assert second.close()
+    stopped = RequestCounts(tmp_path / "http-8752.json", start_flusher=False, wall_clock=_clock)
+    stopped.observe_finish(stopped.observe_begin("/receipts", "POST"), 201)
+    assert stopped.close()
 
     report = summarize([tmp_path / "http-8751.json", tmp_path / "http-8752.json"])
     assert report["process_count"] == 2
-    assert report["source_count"] == 2
     assert report["total_started"] == 4
     assert report["routes"]["api"]["GET"]["started"] == 3
     assert report["routes"]["receipts"]["POST"]["started"] == 1
-    assert report["possible_loss_window_count"] == 1
-    assert report["complete"] is False  # a loss window means "not final yet"
+    assert report["last_saved_utc"] == "2026-11-17T03:15:00Z"
+    # The 8751 process never stopped, so its snapshot is not a final figure.
+    assert report["live_process_snapshot_count"] == 1
+    assert report["complete"] is False
+
+
+def test_empty_input_is_not_a_zero_total(tmp_path):
+    assert summarize([])["complete"] is False
+
+
+def test_counts_saved_after_a_flush_are_reported_as_unrecorded(tmp_path):
+    counter = RequestCounts(tmp_path / "http-8751.json", start_flusher=False, wall_clock=_clock)
+    counter.observe_finish(counter.observe_begin("/api/customer-314", "GET"), 200)
+    assert counter.flush()
+    # This request finishes in memory only: it is not in the file.
+    counter.observe_finish(counter.observe_begin("/api/customer-315", "GET"), 200)
+    report = summarize([tmp_path / "http-8751.json"])
+    assert report["total_started"] == 1
+    assert report["in_flight_count"] == 0
+    assert report["complete"] is False  # the process is still live
+    counter.close()
+
+
+def test_close_with_a_request_in_flight_is_not_a_clean_stop(tmp_path):
+    path = tmp_path / "http-8751.json"
+    counter = RequestCounts(path, start_flusher=False, wall_clock=_clock)
+    observation = counter.observe_begin("/api/customer-314", "GET")
+    assert counter.close()
+    state = json.loads(path.read_text(encoding="utf-8"))
+    assert state["clean_shutdown"] is False
+    assert state["shutdown_utc"] is None
+    assert state["stopped_utc"] == "2026-11-17T03:15:00Z"
+    assert state["in_flight_count"] == 1
+    report = summarize([path])
+    assert report["complete"] is False
+    assert report["in_flight_count"] == 1
+    # The response finishing after close is still persisted, not lost.
+    assert counter.observe_finish(observation, 200)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["in_flight_count"] == 0
+    assert saved["clean_shutdown"] is True
+
+
+def test_restart_after_stop_with_in_flight_records_a_window(tmp_path):
+    path = tmp_path / "http-8751.json"
+    counter = RequestCounts(path, start_flusher=False, wall_clock=_clock)
+    counter.observe_begin("/api/customer-314", "GET")
+    assert counter.close()
+    restarted = RequestCounts(path, start_flusher=False,
+                             wall_clock=lambda: STAMP + timedelta(hours=1))
+    assert restarted.flush()
+    state = json.loads(path.read_text(encoding="utf-8"))
+    assert state["possible_loss"]["window_count"] == 1
+    assert state["possible_loss"]["latest_window"]["reason"] == (
+        "shutdown_with_requests_in_flight")
 
 
 def test_unreadable_and_corrupt_snapshots_are_named_and_block_completeness(tmp_path):
@@ -59,6 +105,40 @@ def test_unreadable_and_corrupt_snapshots_are_named_and_block_completeness(tmp_p
     assert report["total_started"] == 1
 
 
+def test_hostile_snapshot_is_rejected_without_echoing_any_of_its_values(tmp_path):
+    hostile = tmp_path / "hostile.json"
+    hostile.write_text(json.dumps({
+        "schema_version": "http-request-counts-v1",
+        "possible_loss": {"window_count": "PROMPT_INJECT_SECRET"},
+        "counts_reset": {"count": -9, "reason": "/home/private/path"},
+        "persistence_failure_count": True,
+        "buckets": {"2026-11-17T03:00:00Z": {
+            "CUSTOMER_ID_12345": {"GET": {"started": -5}},
+        }},
+    }), encoding="utf-8")
+    report = summarize([hostile])
+    rendered = json.dumps(report, ensure_ascii=False)
+    for value in ("PROMPT_INJECT_SECRET", "/home/private/path",
+                  "CUSTOMER_ID_12345", "-9", "-5"):
+        assert value not in rendered
+    assert report["complete"] is False
+    assert report["rejected_snapshots"] == [{"file": "hostile.json", "rule": "saved_at"}]
+    assert report["total_started"] == 0
+
+
+def test_unknown_route_or_negative_counter_rejects_the_whole_snapshot(tmp_path):
+    real = _clean_snapshot(tmp_path, "http-8751.json")
+    state = json.loads(real.read_text(encoding="utf-8"))
+    route = next(iter(state["buckets"]["2026-11-17T03:00:00Z"]))
+    row = state["buckets"]["2026-11-17T03:00:00Z"][route]["GET"]
+    row["started"] = -1
+    real.write_text(json.dumps(state), encoding="utf-8")
+    report = summarize([real])
+    assert report["total_started"] == 0
+    assert report["rejected_snapshots"] == [{"file": "http-8751.json", "rule": "started"}]
+    assert report["complete"] is False
+
+
 def test_directory_argument_expands_counter_files_only(tmp_path):
     _clean_snapshot(tmp_path, "http-8751.json")
     (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
@@ -67,14 +147,14 @@ def test_directory_argument_expands_counter_files_only(tmp_path):
 
 
 def test_cli_exits_nonzero_when_the_total_is_not_final(tmp_path, capsys):
-    path = tmp_path / "http-8751.json"
-    path.write_text(json.dumps({"schema_version": "http-request-counts-v1",
-                                "possible_loss": {"window_count": 2},
-                                "buckets": {}}), encoding="utf-8")
-    assert main([str(path)]) == 1
+    live = RequestCounts(tmp_path / "http-8751.json", start_flusher=False, wall_clock=_clock)
+    live.observe_finish(live.observe_begin("/api/customer-314", "GET"), 200)
+    assert live.flush()
+    assert main([str(tmp_path / "http-8751.json")]) == 1
     printed = json.loads(capsys.readouterr().out)
-    assert printed["possible_loss_window_count"] == 2
     assert printed["complete"] is False
+    assert printed["live_process_snapshot_count"] == 1
+    live.close()
 
 
 def test_cli_exits_zero_for_a_clean_total_and_echoes_no_request_contents(tmp_path, capsys):

@@ -196,6 +196,8 @@ class RequestCounts:
         self._counts_reset_at = None
         self._counts_reset_reason = None
         self._clean_shutdown_at = None
+        self._unfinished_at_shutdown = 0
+        self._unrecorded_after_save = False
         self._closing = False
         self._process_started_at = _as_utc(self._wall_clock())
         self._process_started_monotonic = self._monotonic_clock()
@@ -270,6 +272,11 @@ class RequestCounts:
             counts["response_body_bytes"] += response_bytes
             self._touch_locked(observation.bucket)
             self._trim_locked(_as_utc(self._wall_clock()))
+        # A request that finishes after the counter was closed would otherwise
+        # stay in memory and never reach disk. Re-check the point of the stop:
+        # this only happens during shutdown, so the extra flush costs nothing.
+        if self._closing:
+            self.flush()
         return True
 
     def _owns(self, observation: object) -> bool:
@@ -350,11 +357,26 @@ class RequestCounts:
                 "corrupt", "unreadable", "symlink") else None
         self._last_saved_at = saved_at
         self._buckets = _validated_buckets(data.get("buckets"))
-        if data.get("shutdown_utc") is not None:
+        stored_in_flight = _nonnegative_int(data.get("in_flight_count"))
+        stopped = data.get("stopped_utc")
+        if data.get("shutdown_utc") is not None and stored_in_flight == 0:
             # The earlier process stopped itself after a successful final
-            # snapshot: the idle window that follows is not evidence of loss.
+            # snapshot taken with nothing in flight: the idle window that
+            # follows is not evidence of loss.
             self._clean_shutdown_at = _parse_stamp(data.get("shutdown_utc"))
             self._latest_possible_loss_window = previous_window
+            self._unfinished_at_shutdown = 0
+        elif stopped is not None:
+            # It stopped on purpose, but a final snapshot was taken while
+            # requests were still open. Their outcomes were never written, so
+            # this is a loss window like any other -- just with a known cause.
+            self._possible_loss_window_count += 1
+            self._latest_possible_loss_window = {
+                "from_utc": _stamp(saved_at), "to_utc": _stamp(self._process_started_at),
+                "seconds": max(0, int((self._process_started_at - saved_at).total_seconds())),
+                "reason": "shutdown_with_requests_in_flight",
+            }
+            self._unfinished_at_shutdown = stored_in_flight
         else:
             # An abrupt stop can drop up to one whole flush interval of counts.
             self._possible_loss_window_count += 1
@@ -378,10 +400,20 @@ class RequestCounts:
                     self._trim_locked(saved_at)
                     header = self._header_locked(saved_at)
                     segments = self._encode_dirty_buckets_locked(known=self._known_buckets_locked())
+                    # Read under the same lock as the snapshot it describes, so
+                    # the clean marker and the in-flight count cannot disagree.
+                    clean = header.get("shutdown_utc") is not None if self._closing else None
                 self._atomic_replace(header, segments)
             with self._lock:
                 self._last_saved_at = saved_at
-                self._clean_shutdown_at = saved_at
+                # Only a flush taken while nothing was in flight may claim a
+                # clean stop; a snapshot that skipped live requests cannot.
+                self._clean_shutdown_at = saved_at if clean else None
+                # `clean` is None unless this flush is taking the final
+                # snapshot of a deliberate stop. Anything else that leaves a
+                # request open means its outcome is not on disk.
+                self._unrecorded_after_save = (clean is not None
+                                               and self._in_flight_locked() > 0)
             return True
         except Exception:
             with self._lock:
@@ -392,8 +424,17 @@ class RequestCounts:
         """The retained buckets this flush must write, after trimming."""
         return set(self._buckets)
 
+    def _in_flight_locked(self) -> int:
+        started = sum(values["started"] for routes in self._buckets.values()
+                      for methods in routes.values() for values in methods.values())
+        closed = sum(sum(values["completed"].values()) + values["aborted"]
+                     for routes in self._buckets.values()
+                     for methods in routes.values() for values in methods.values())
+        return max(0, started - closed)
+
     def _header_locked(self, saved_at: datetime) -> dict:
         elapsed = max(0.0, self._monotonic_clock() - self._process_started_monotonic)
+        in_flight = self._in_flight_locked()
         return {
             "schema_version": SCHEMA_VERSION,
             "saved_at_utc": _stamp(saved_at),
@@ -401,10 +442,23 @@ class RequestCounts:
             "uptime_seconds": int(self._base_uptime_seconds + elapsed),
             "restart_count": self._restart_count,
             "persistence_failure_count": self._persistence_failure_count,
-            # Written only by a deliberate stop, so a later restart can tell a
-            # clean stop from an abrupt one without guessing from timestamps.
+            # Requests that began and never closed. A later process reads this
+            # to know that the snapshot does not include their outcome.
+            "in_flight_count": in_flight,
+            # A deliberate stop is recorded whenever it happens; whether it was
+            # clean is a separate fact, because a stop can happen while a
+            # request is still open and its outcome is then not saved.
+            "stopped_utc": _stamp(self._clean_shutdown_at or saved_at)
+                            if self._closing else None,
+            "clean_shutdown": bool(self._closing and in_flight == 0),
+            # Kept as the single "this file may be treated as final" marker.
             "shutdown_utc": (_stamp(self._clean_shutdown_at or saved_at)
-                             if self._closing else None),
+                             if self._closing and in_flight == 0 else None),
+            # True when a request was still open after the last save: its
+            # outcome is not in the totals above.
+            "unrecorded_open_requests": bool(self._unrecorded_after_save
+                                             or (in_flight > 0)),
+            "is_open_process": not self._closing,
             "possible_loss": {
                 "window_count": self._possible_loss_window_count,
                 "latest_window": self._latest_possible_loss_window,
@@ -478,11 +532,28 @@ class RequestCounts:
             raise
 
     def close(self) -> bool:
-        """Stop the periodic writer and make one final snapshot marked clean."""
+        """Stop the periodic writer and persist whatever is still unsaved.
+
+        The snapshot is marked clean only when no request was in flight when it
+        was written. The launcher closes this before the socket stops serving,
+        so an in-flight request can still finish afterwards; in that case the
+        snapshot honestly says a stop happened with requests open, and the next
+        start counts it as a loss window instead of a clean stop.
+        """
         self._closing = True
         self._stop_event.set()
+        joiner_alive = False
         if self._flusher is not None and self._flusher is not threading.current_thread():
             self._flusher.join(timeout=max(1.0, self._interval * 2))
+            # A daemon writer that ignored the stop signal can still be running
+            # and may write after this returns. That snapshot must not be
+            # labelled a clean stop.
+            joiner_alive = self._flusher.is_alive()
+        if joiner_alive:
+            self._closing = False
+            with self._lock:
+                self._persistence_failure_count += 1
+            return False
         return self.flush()
 
     @property

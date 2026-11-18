@@ -252,6 +252,12 @@ def build_parser():
                         help="bind the local header seam instead of a real "
                              "login. Refused when the Google environment is "
                              "also set, and never an operational path")
+    parser.add_argument("--request-metrics", action="store_true",
+                        help="record bounded, content-free HTTP request counts "
+                             "under <data-root>/metrics/. Off by default: no "
+                             "file is created unless this is passed, because "
+                             "recording traffic is a separate operational "
+                             "decision from running the board")
     parser.add_argument("--require-ready", action="store_true",
                         help="run the production smoke report before serving "
                              "and refuse to start on a blocker. Implied by "
@@ -349,8 +355,9 @@ def main(argv=None) -> int:
         print('refused [SERVER_START]: 서버 초기화에 실패했습니다.', file=sys.stderr)
         return 2
     try:
-        from webapp import http_counting
-        http_counting.attach(server, config.data_root, port)
+        if getattr(args, 'request_metrics', False):
+            from webapp import http_counting
+            http_counting.attach(server, config.data_root, port)
         bind_runtime_access(server)
         oidc = connect_runtime_oidc(server, args)
     except ops.OpsError as exc:

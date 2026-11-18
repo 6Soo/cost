@@ -378,3 +378,73 @@ def test_repeated_flush_only_rewrites_the_hours_that_changed(tmp_path, monkeypat
     assert json.loads(path.read_text(encoding="utf-8"))["buckets"][
         "2026-11-17T03:00:00Z"]["api"]["GET"]["started"] == 251
     counts.close()
+
+
+def test_stop_with_a_request_in_flight_is_not_a_clean_shutdown(tmp_path):
+    path = tmp_path / "counts.json"
+    clock = Clock()
+    counts = RequestCounts(path, start_flusher=False, wall_clock=clock.now,
+                           monotonic_clock=clock.monotonic_now)
+    observation = counts.observe_begin("/api/synthetic", "GET")
+    assert counts.close()
+    state = load(path)
+    assert state["clean_shutdown"] is False
+    assert state["shutdown_utc"] is None
+    assert state["stopped_utc"] == "2026-11-17T03:15:00Z"
+    assert state["in_flight_count"] == 1
+    assert state["unrecorded_open_requests"] is True
+
+    # The outcome that arrives after the stop is still persisted.
+    assert counts.observe_finish(observation, 200)
+    saved = load(path)
+    assert saved["in_flight_count"] == 0
+    assert saved["clean_shutdown"] is True
+
+
+def test_stop_with_in_flight_records_a_named_window_on_restart(tmp_path):
+    path = tmp_path / "counts.json"
+    clock = Clock()
+    counts = RequestCounts(path, start_flusher=False, wall_clock=clock.now,
+                           monotonic_clock=clock.monotonic_now)
+    counts.observe_begin("/api/synthetic", "GET")
+    assert counts.close()
+    clock.tick(60)
+    restarted = RequestCounts(path, start_flusher=False, wall_clock=clock.now,
+                              monotonic_clock=clock.monotonic_now)
+    assert restarted.flush()
+    state = load(path)
+    assert state["possible_loss"]["window_count"] == 1
+    assert state["possible_loss"]["latest_window"]["reason"] == (
+        "shutdown_with_requests_in_flight")
+
+
+def test_a_flusher_that_ignores_the_stop_never_reports_a_clean_close(tmp_path, monkeypatch):
+    """A daemon writer that outlives the join timeout must not fake a clean stop."""
+    import threading
+    path = tmp_path / "counts.json"
+    clock = Clock()
+    counts = RequestCounts(path, flush_interval_seconds=0.02, start_flusher=False,
+                           wall_clock=clock.now, monotonic_clock=clock.monotonic_now)
+    counts.observe_finish(counts.observe_begin("/api/synthetic", "GET"), 200)
+    blocker = threading.Event()
+    entered = threading.Event()
+    real_flush = counts.flush
+
+    def stuck_flush():
+        entered.set()
+        blocker.wait(10)
+        return real_flush()
+
+    def stuck_loop():
+        while not counts._stop_event.wait(counts._interval):
+            stuck_flush()
+
+    flusher = threading.Thread(target=stuck_loop, daemon=True)
+    monkeypatch.setattr(counts, "_flusher", flusher)
+    flusher.start()
+    assert entered.wait(2)  # the flusher really is inside a write that will not finish
+    assert not counts.close()
+    assert flusher.is_alive()
+    assert counts.persistence_failure_count >= 1
+    blocker.set()
+    flusher.join(timeout=5)
