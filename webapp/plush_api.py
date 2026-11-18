@@ -208,8 +208,12 @@ def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
         rows = [board.projected(row) for row in rows]
     # GGL-003: the summary keeps COST and Google income apart. The verified flag
     # the source block reports is the only thing that lets Google stand in.
+    # R06: a linked bank evidence row is not a second income, so the same
+    # exclusion the baseline (store.tab_totals) applies is applied here; without
+    # it the summary would disagree with the legacy KPI on the same tab.
     verified_trip = dict(trip, google_verified=bool((income_source or {}).get("verified")))
-    summary = projection.trip_summary(verified_trip, rows)
+    summary = projection.trip_summary(
+        verified_trip, rows, linked=ledger_query.linked_bank_ids(_board_instance(board)))
     from . import ledger_board
 
     summary["title"] = ledger_board.trip_display_label(trip)
@@ -398,8 +402,11 @@ def _ledger(access: Any, session: Any, board: Any,
             period_label=compact, period_label_full=full,
             google_match=match_status.get(str(row.get('row_id') or ''))))
     google_verified = bool(income.get("verified"))
-    filtered_totals = ledger_query.display_totals(rows, google_verified=google_verified)
-    overall_totals = ledger_query.display_totals(kind_rows, google_verified=google_verified)
+    linked = ledger_query.linked_bank_ids(_board_instance(board))
+    filtered_totals = ledger_query.display_totals(
+        rows, google_verified=google_verified, linked=linked)
+    overall_totals = ledger_query.display_totals(
+        kind_rows, google_verified=google_verified, linked=linked)
     return {
         "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},

@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from app.google_authority import SnapshotError
 from . import ledger_board as board
+from . import ledger_query
 from . import read_scope, ui_icons
 from . import ui_components
 
@@ -244,7 +245,6 @@ def _trip_kpi_html(tab_id: str) -> str:
     """The three ledger figures, using the existing COST/Google read paths."""
     if not tab_id or _STORE_missing():
         return ""
-    from . import ledger_query
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(tab_id, '', '')
     expense = sum(board._shown_amount(row) for row in expenses)
     from .google_ledger_page import get_trip_income_summary
@@ -635,8 +635,12 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
     # GGL-003: with the Google rows now in the set, a non-trip summary's income
-    # figure stays the COST record and never adds the Google block.
-    income = sum(board._shown_amount(r) for r in incomes if not r.get("google_income"))
+    # figure stays the COST record and never adds the Google block. R06: a linked
+    # bank evidence row is the same money as its direct income, so it is not a
+    # second income here either — the KPI and store.tab_totals already exclude it.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income = sum(board._shown_amount(r) for r in incomes
+                 if not r.get("google_income") and r.get("row_id") not in linked)
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
@@ -696,9 +700,34 @@ def _income_kind_label(row) -> str:
 
 def _row_amount_class(row) -> str:
     amount = board._shown_amount(row)
+    if amount is None:
+        # An unreadable amount (SPEC §11.2.1 계약 4 / GGL-014) is a state, not a
+        # number, so it gets no sign class and never sorts or styles as a value.
+        return "a-unknown"
     if amount < 0:
         return "a-neg"
     return "a-in" if row.get("row_kind") == "income" else "a-ex"
+
+
+def _shown_amount_text(row) -> str:
+    """The row's display amount as a label: a figure, or the word 미확인.
+
+    SPEC §11.2.1 계약 4 / GGL-014: an amount the source could not read is never
+    rendered as 0원 and never raises. ``_money`` maps a missing value to 0, so
+    the unknown state has to be decided before it gets there.
+    """
+    amount = board._shown_amount(row)
+    return '미확인' if amount is None else _money(amount)
+
+
+def _data_amount_attr(row) -> str:
+    """The row's ``data-amount`` value: the figure, or empty when unknown.
+
+    An empty attribute keeps the element's existing shape (string) while
+    stating that no amount is known, so a client never compares it as 0.
+    """
+    amount = board._shown_amount(row)
+    return '' if amount is None else str(int(amount))
 
 
 def _row_party_main(row) -> str:
@@ -1274,7 +1303,6 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
     match_annotations = match_annotations or {}
     for row in rows:
         rid = row["row_id"]
-        amount = board._shown_amount(row)
         item = row.get('item') or ''
         service_dates, service_title = _service_date_labels(row)
         service_class = 'c-stay c-flight-dates' if item in ('항공료', '항공권') else 'c-stay'
@@ -1311,7 +1339,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                                       f"{board.esc(candidate_label)}</span>")
         category = str(row.get('item') or _row_item(row) or '-')
         body.append(
-            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-category='{board.esc(category)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
+            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-category='{board.esc(category)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{_data_amount_attr(row)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<td class='c-date tnum' title='{board.esc(board._shown_date(row))}'>{board.esc(_ledger_date_label(row, date_years))}</td>"
@@ -1319,7 +1347,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             +
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='{service_class}' title='{board.esc(service_title)}'>{board.esc(service_dates)}</td>"
-            + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
+            + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_shown_amount_text(row)}</td>"
             + (_amount_group_cell(amount_groups, rid) if amount_groups is not None and kind == 'expense'
                else "<td class='gemn-desktop gemn-status-cell'></td>" if amount_groups is not None else '')
             +
@@ -1485,12 +1513,12 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         return (
             f"<li class='list-row li{' pend' if unclassified else ''}' data-id='{board.esc(rid)}' "
             f"data-kind='{'expense' if is_expense else 'income'}' data-category='{board.esc(category)}' "
-            f"data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' "
+            f"data-revision='{int(row.get('revision') or 1)}' data-amount='{_data_amount_attr(row)}' "
             f"tabindex='0' aria-expanded='false'{selected_attr}>"
-            f"<button class='lr-hit' type='button' aria-label='{board.esc(headline)} {board.esc(_money(board._shown_amount(row)))}'>"
+            f"<button class='lr-hit' type='button' aria-label='{board.esc(headline)} {board.esc(_shown_amount_text(row))}'>"
             f"<span class='lr-primary'><span class='party-line mobile-party'>{_merchant_icon(row)}"
             f"<span class='t'>{board.esc(headline)}</span></span></span>"
-            f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_money(board._shown_amount(row))}</span>"
+            f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_shown_amount_text(row)}</span>"
             f"<span class='lr-secondary'>{board.esc(secondary)}{match_hint}</span></button>{move}</li>")
 
     cost_incomes = [r for r in incomes if not r.get("google_income")]

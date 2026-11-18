@@ -219,8 +219,9 @@ def totals(rows: list[dict[str, Any]], *, linked: set | None = None) -> dict[str
             "google_income_count": google_income_count, "expense_count": expense_count}
 
 
-def display_totals(rows: list[dict[str, Any]], *, google_verified: bool = False) -> dict[str, Any]:
-    """Signed 조회 합계 over one row set, split by source (GGL-003·GGL-014).
+def display_totals(rows: list[dict[str, Any]], *, google_verified: bool = False,
+                   linked: set | None = None) -> dict[str, Any]:
+    """Signed 조회 합계 over one row set, split by source (GGL-003·GGL-014·R06).
 
     Every row in the set is reported once and the set is the same on both entry
     paths (SPEC §11.2.1 계약 1·2).  Numeric figures are strings — the existing
@@ -239,7 +240,14 @@ def display_totals(rows: list[dict[str, Any]], *, google_verified: bool = False)
     so a caller can state the incompleteness instead of showing a number.
     ``google_verified`` from the caller marks the source block; it is reported
     back as ``google_verified`` and never turns a missing amount into zero.
+
+    R06: ``linked`` names the bank rows attached as evidence to a direct income.
+    They are the same money recorded twice, so they contribute nothing here —
+    otherwise the figure would disagree with ``store.tab_totals``, which is the
+    baseline the legacy KPI, React and the viewer rail must all match
+    (SPEC §11.2.1 계약 1·2). Their count is kept out of ``income_count`` too.
     """
+    linked = linked or set()
     income = google_income = expense = 0
     income_count = google_income_count = google_unknown_count = 0
     for row in rows:
@@ -250,6 +258,9 @@ def display_totals(rows: list[dict[str, Any]], *, google_verified: bool = False)
                     google_unknown_count += 1
                 else:
                     google_income += display_amount(row)
+            elif row.get("row_id") in linked:
+                # R06: the linked bank evidence row is not a second income.
+                continue
             else:
                 income += display_amount(row)
                 income_count += 1

@@ -35,7 +35,8 @@ def is_previous(trip: dict[str, Any]) -> bool:
         return False
 
 
-def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]],
+                 *, linked: set | None = None) -> dict[str, Any]:
     """The trip's three figures, with COST and Google income kept apart.
 
     GGL-003 (보호): internal COST income and Google income are never summed.
@@ -44,14 +45,21 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
     ``income_source``. GGL-014: an unverified Google amount never enters the
     confirmed 수입 or 차액.
 
+    R06: ``linked`` names the bank rows that are evidence for a direct income.
+    They are the same money, so they never become a second COST income here —
+    otherwise this figure would disagree with ``store.tab_totals`` and with the
+    legacy KPI that already excludes them.
+
     The legacy rule this mirrors (``ledger_design._trip_kpi_html``): COST income
     wins whenever any recorded income row exists; a *verified* Google block
     substitutes only when the tab has no COST income at all; otherwise the
     figure is unknown, which is not the same as zero.
     """
+    linked = linked or set()
     rows = list(rows)
     cost_income = [row for row in rows
-                   if row.get("row_kind") == "income" and not row.get("google_income")]
+                   if row.get("row_kind") == "income" and not row.get("google_income")
+                   and row.get("row_id") not in linked]
     google_rows = [row for row in rows
                    if row.get("row_kind") == "income" and row.get("google_income")]
     expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")

@@ -479,8 +479,8 @@ def viewer_row_totals(session, store, tab_id: str) -> dict | None:
         return None
     _recorded, income_block, display_rows = access_control_viewer_row_set(
         session, store, tab_id)
-    totals = ledger_query.display_totals(display_rows)
     linked = ledger_query.linked_bank_ids(store)
+    totals = ledger_query.display_totals(display_rows, linked=linked)
     income, known = ledger_query.confirmed_income(
         display_rows, linked=linked,
         google_verified=bool((income_block or {}).get("verified")))
@@ -2915,16 +2915,18 @@ class Handler(BaseHTTPRequestHandler):
             # neither is silently substituted for the other.
             confirmed = None
             google_block = None
+            store = _active_store()
+            linked = ledger_query.linked_bank_ids(store)
             if is_owner_session(session):
                 projected = access_control.project_rows_for_viewer(rows, allowed, tab)
-                totals = ledger_query.display_totals(projected)
+                totals = ledger_query.display_totals(projected, linked=linked)
             else:
                 # SPEC §11.2.1 계약 1: a viewer's list is the same display row
                 # set as the initial board and the Plush API, so its IDs and
                 # counts match. The access store still answers which rows are
                 # visible and the Google block keeps its per-user grant check.
                 _recorded, google_block, display_rows = access_control_viewer_row_set(
-                    session, _active_store(), tab)
+                    session, store, tab)
                 projected = access_control.project_rows_for_viewer(display_rows, allowed, tab)
                 # SPEC §11.2.1 계약 1: the list's per-row figure is the same one
                 # React shows, which is the store's display projection (a bank
@@ -2939,9 +2941,9 @@ class Handler(BaseHTTPRequestHandler):
                     if str(item.get("row_id")) in shown:
                         item["amount_krw"] = shown[str(item["row_id"])]
                     access_control.assert_no_denied_fields(item)
-                totals = ledger_query.display_totals(display_rows)
+                totals = ledger_query.display_totals(display_rows, linked=linked)
                 confirmed_income, confirmed_known = ledger_query.confirmed_income(
-                    display_rows, linked=ledger_query.linked_bank_ids(_active_store()),
+                    display_rows, linked=linked,
                     google_verified=bool((google_block or {}).get("verified")))
                 expense = int(totals["expense"])
                 confirmed = {"income_krw": confirmed_income if confirmed_known else None,
