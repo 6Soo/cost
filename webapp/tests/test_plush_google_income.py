@@ -16,17 +16,11 @@ def test_google_income_appears_without_creating_board_rows(bound_store, income_c
     assert google[0]['merchant'] == 'INCOME-NAME'
     assert google[0]['amount'] == '1000'
     assert google[0]['read_only'] is True
-<<<<<<< HEAD
     # GGL-003 (보호): 내부 COST 수입과 Google 수입을 합산하지 않는다. The trip
     # summary's income is the COST figure the legacy KPI shows; the verified
     # Google block is separate evidence, reported through income_source.
     assert result['trip']['income'] == str(existing_income), result['trip']
-=======
-    # GGL-003: the Google block is evidence, not revenue to add.  The trip
-    # summary keeps the COST figure and the Google amount is reported separately.
-    assert result['trip']['income'] == str(existing_income)
     assert result['source_totals']['overall']['google_income'] == '1000'
->>>>>>> de495d17 (fix(ledger): verify Google before confirming and keep totals as string money)
     assert result['income_source']['available'] is True
     assert store.conn.total_changes == before
     status, detail = call('/api/plush/row?id='+google[0]['id'], 'syn-owner', store)

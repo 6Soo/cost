@@ -418,19 +418,35 @@ def test_viewer_bank_correction_matches_the_display_amount(viewer_board, monkeyp
     status, listing = env.request(f"/access/rows?tab={env.tab}")
     assert status == 200
     by_id = {row["row_id"]: row for row in listing["rows"]}
-    # The viewer allowlist carries the row's own amount_krw, unchanged.
-    assert by_id["viewer-cost-income"]["amount_krw"] == 1000000
-    assert by_id["viewer-cost-expense"]["amount_krw"] == 250000
-    # But the totals and the rail use the corrected display amount.
-    assert listing["totals"]["income_krw"] <= 900000 + 1000
+    # §11.2.1 계약 1: the per-row figure is the display amount React sends,
+    # not the stored raw amount (1,000,000 / 250,000 here).
+    assert by_id["viewer-cost-income"]["amount_krw"] == 900000
+    assert by_id["viewer-cost-expense"]["amount_krw"] == 200000
+    # The allowlist shape is unchanged: no field was added or removed.
+    assert set(by_id["viewer-cost-income"]) <= set(access_control.VIEWER_ROW_FIELDS)
+
+    status, react = _react(env)
+    assert status == 200
+    react_amounts = {row["id"]: int(row["amount"]) for row in react["rows"]}
+    listing_amounts = {row["row_id"]: int(row["amount_krw"]) for row in listing["rows"]}
+    # Direct equality on the same IDs, as integers — no tolerance.
+    assert listing_amounts == react_amounts
+    assert react_amounts["viewer-cost-income"] == 900000
+    assert react_amounts["viewer-cost-expense"] == 200000
+    # Regression guard: the stored raw amounts (1,000,000 / 250,000) must not
+    # reappear in the viewer list.
+    assert 1000000 not in listing_amounts.values()
+    assert 250000 not in listing_amounts.values()
+
+    # The 조회 totals and the confirmed contract use the same display figure.
+    assert listing["totals"] == {"income_krw": 900000, "expense_krw": 200000,
+                                 "balance_krw": 900000 - 200000}
     assert listing["confirmed"]["income_krw"] == 900000
     assert listing["confirmed"]["balance_krw"] == 900000 - 200000
 
     rail = _rail_totals(env.request(f"/board?tab={env.tab}", as_json=False)[1])
     assert rail == {"income": 900000, "expense": 200000, "balance": 700000}
 
-    status, react = _react(env)
-    assert status == 200
     assert react["trip"]["income"] == "900000"
     assert react["trip"]["profit"] == "700000"
 

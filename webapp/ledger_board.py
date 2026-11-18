@@ -2926,7 +2926,18 @@ class Handler(BaseHTTPRequestHandler):
                 _recorded, google_block, display_rows = access_control_viewer_row_set(
                     session, _active_store(), tab)
                 projected = access_control.project_rows_for_viewer(display_rows, allowed, tab)
+                # SPEC §11.2.1 계약 1: the list's per-row figure is the same one
+                # React shows, which is the store's display projection (a bank
+                # correction included), not the stored raw amount. ``amount_krw``
+                # is the existing allowlisted key, so this only fills that key
+                # with the shared figure — no new field, no raw source and no
+                # other field is added or changed.
+                shown = {str(r.get("row_id") or ""): int(
+                    r.get("display_amount_krw", r.get("amount_krw", 0) or 0))
+                    for r in display_rows}
                 for item in projected:
+                    if str(item.get("row_id")) in shown:
+                        item["amount_krw"] = shown[str(item["row_id"])]
                     access_control.assert_no_denied_fields(item)
                 totals = ledger_query.display_totals(display_rows)
                 confirmed_income, confirmed_known = ledger_query.confirmed_income(
