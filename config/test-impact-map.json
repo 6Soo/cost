@@ -624,6 +624,12 @@
       "name": "ota-evidence-compaction",
       "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
       "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
+    },
+    {
+      "name": "m6-ledger-revision-alignment",
+      "paths": ["tools/align_ledger_revision.py", "tests/test_align_ledger_revision.py"],
+      "tests": ["tests/test_align_ledger_revision.py"],
+      "reason": "Copies the board_rows revision column into the ledger rows that lag it, on a copy only; board_rows is never written"
     }
   ]
 }
