@@ -149,6 +149,40 @@ def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store):
     assert trip["expense"] == "30000"
 
 
+def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(bound_store, legacy_owner):
+    """분기 탭 행이 여행 탭 순액 0 짝의 source_event_id를 공유해도 화면 전체가 같은 행 집합을 센다.
+
+    ``_selected_rows``(실시간 요약)는 소유자에게 짝의 키를 가진 지출 행을 숨긴다.
+    분기 헤더·본문이 그 배제를 적용하지 않으면 같은 화면에서 단계 표기는 2건·81,000원,
+    바로 옆 실시간 요약은 1건·20,000원을 그린다(이 화면 안의 모순). React 공통 조회는
+    배제를 적용해 1건·20,000원을 준다. 세 곳이 같은 행 집합·합계를 세야 한다.
+    """
+    store, _access = bound_store
+    trip = make_trip(store)
+    _seed_refund_pair(store, trip, 50000, -50000, prefix="TR-", approval="SYNSHARED")
+    quarter = "quarter:2026:3"
+    # 분기 탭 지출 행 하나가 짝 구성원의 원천 키를 그대로 쓴다(합성; 실제로는 키 충돌).
+    _insert_card_row(store, "card-Q-shared", quarter, 61000, source_event_id="TR-P")
+    _insert_card_row(store, "card-Q-clean", quarter, 20000, source_event_id="QONLY")
+    assert {"TR-P", "TR-C"} <= refund_tab.member_ids(store), "환불 짝이 연결되지 않음"
+
+    kept = {"card-Q-clean": 20000}
+    _in, selected, _whole_in, whole_ex = ledger_design._selected_rows(quarter)
+    assert {r["row_id"]: ledger_board._shown_amount(r) for r in selected} == kept
+    assert {r["row_id"]: ledger_board._shown_amount(r) for r in whole_ex} == kept
+
+    html = ledger_design._quarter_page(quarter, "2026년 3분기 기타비용")
+    assert "거래 1건 · 20,000원" in html, "분기 헤더가 실시간 요약과 다른 행 집합을 셈"
+    assert "81,000원" not in html
+    summary = ledger_design.summary_part(quarter)
+    assert "지출 1건" in summary and "20,000원" in summary
+
+    status, body = react_ledger(store, quarter, kind="expense", page_size=200)
+    assert status == 200, body
+    assert {r["id"]: int(r["amount"]) for r in body["rows"]} == kept
+    assert int(body["filtered_total"]) == 20000
+    assert body["trip"]["expense"] == "20000"
+
 
 # ---------------------------------------------------------------------------
 # 2) 분기 기타비용 탭: 레거시 화면과 공통 조회가 같은 탭 행·건수·합계를 본다

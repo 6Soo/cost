@@ -1821,9 +1821,34 @@ def _quarter_tab_rows(tab_id: str, store, kind: str):
     return board._with_display_amount(rows)
 
 
+def _quarter_excluded_ids(store) -> set:
+    """The refund-tab attribution keys the general expense list leaves out.
+
+    The same rule and the same role boundary as ``_selected_rows``: only the
+    owner attribution hides a completed net-zero refund group (RFND-022 /
+    ITEM-011), and a viewer keeps the pair. Keeping this in one place stops the
+    quarter header and its live summary from counting different rows.
+    """
+    if store is None or board.current_role() != 'owner':
+        return set()
+    from .refund_tab import member_ids
+    return set(member_ids(store))
+
+
 def _quarter_booked_rows(tab_id: str, store):
-    """A quarter tab's own saved expense rows (the rows this screen books)."""
-    return _quarter_tab_rows(tab_id, store, "expense")
+    """A quarter tab's own saved expense rows (the rows this screen books).
+
+    ``_selected_rows`` hides the owner's completed net-zero refund groups from
+    the expenses it shows, and the live summary reads them through it. A quarter
+    tab row can carry the same ``source_event_id`` as a trip tab's pair, so this
+    screen has to apply that same exclusion to the header and the body; without
+    it the header counted a row the summary beside it dropped.
+    """
+    rows = _quarter_tab_rows(tab_id, store, "expense")
+    excluded = _quarter_excluded_ids(store)
+    if not excluded:
+        return rows
+    return [row for row in rows if row.get('source_event_id') not in excluded]
 
 
 def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
