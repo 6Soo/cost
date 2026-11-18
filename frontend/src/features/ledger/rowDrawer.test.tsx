@@ -27,6 +27,37 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+function detail(overrides: Record<string, unknown> = {}) {
+  return {
+    row: { id: 'synthetic-row', date: '2026-11-16', merchant: '합성 행', description: '', category: '숙박비', amount: '100', currency: 'KRW', read_only: false },
+    source: null, classification_origin: null, decision: null, history: [], expected_revision: 7, actions: [],
+    ...overrides,
+  };
+}
+
+const fullDecision = { state: 'classified', basis: 'AUTO_TRIP_INFERRED 합성 기간', category: '숙박비' };
+
+test.each(['코드 추론', 'AI 추론'])(
+  'shows "%s" as one line and drops the judgement card even when a decision payload exists',
+  async (origin) => {
+    vi.mocked(getJSON).mockResolvedValue(detail({ classification_origin: origin, decision: fullDecision }));
+    render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(await screen.findByText(origin)).toBeTruthy();
+    expect(screen.getByText('분류 출처')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '판정' })).toBeNull();
+    expect(screen.queryByText('판정 상태')).toBeNull();
+    expect(screen.queryByText('판정 근거')).toBeNull();
+    expect(screen.queryByText('AUTO_TRIP_INFERRED 합성 기간')).toBeNull();
+  },
+);
+
+test('omits the origin line when the row has no known classification source', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({ classification_origin: '' }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  await screen.findByText('수정 이력');
+  expect(screen.queryByText('분류 출처')).toBeNull();
+});
+
 test('submits only server-advertised allocation fields plus concurrency identifiers', async () => {
   render(<RowDrawer rowId='synthetic-allocation' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: '수정' }));

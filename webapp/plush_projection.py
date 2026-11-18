@@ -118,6 +118,19 @@ def safe_decision(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def origin_label(row: dict[str, Any]) -> str:
+    """The stored classification origin as the standard short label, or "".
+
+    Uses ``app.classification_provenance`` unchanged so the badge means the
+    same thing wherever it appears: a revision bump or ``confirmed_by`` never
+    decides it.  An unknown origin yields no label; the row simply shows none.
+    """
+    from app.classification_provenance import LABELS, origin
+
+    value = origin(row)
+    return "" if value == "unknown" else LABELS[value]
+
+
 def safe_detail(row: dict[str, Any]) -> dict[str, Any]:
     """Owner-visible structured fields, excluding raw notes and payloads."""
     allowed = (

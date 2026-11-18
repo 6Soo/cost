@@ -109,6 +109,7 @@ export interface ActionDescriptor {
 export interface RowDetailResponse {
   row: LedgerRow;
   source: Record<string, unknown> | null;
+  classification_origin?: string | null;
   decision: Record<string, unknown> | null;
   history: Array<Record<string, unknown>>;
   lineage: Array<Record<string, unknown>>;
