@@ -92,7 +92,7 @@ def test_synthetic_scenario_rule_coverage(scenario, requirements):
     """Coverage of explicitly identified policy clauses, not model answer parity."""
     policy = p2_case.policy_context(('link', 'refund'), compact=True)
     for area, ids in requirements.items():
-        present = set(re.findall(r'(?m)^### ([A-Z]{3,6}-\\d{3}) · ', policy[area]))
+        present = set(re.findall(r'(?m)^### ([A-Z]{3,6}-\d{3}) · ', policy[area]))
         assert set(ids) <= present, f'{scenario}: missing required {area} rule'
 
 
@@ -109,7 +109,7 @@ def test_changed_existing_policy_body_forces_full_fallback(tmp_path, monkeypatch
     original = trip.read_text(encoding='utf-8')
     assert '### TRIP-042 ·' in original
     trip.write_text(original.replace('### TRIP-042 ·', '### TRIP-042 ·', 1)
-                    + '\\n<!-- New unreviewed policy note -->\\n', encoding='utf-8')
+                    + '\n<!-- New unreviewed policy note -->\n', encoding='utf-8')
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
     monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
     assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
