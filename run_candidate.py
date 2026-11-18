@@ -252,6 +252,12 @@ def build_parser():
                         help="bind the local header seam instead of a real "
                              "login. Refused when the Google environment is "
                              "also set, and never an operational path")
+    parser.add_argument("--request-metrics", action="store_true",
+                        help="record bounded, content-free HTTP request counts "
+                             "under <data-root>/metrics/. Off by default: no "
+                             "file is created unless this is passed, because "
+                             "recording traffic is a separate operational "
+                             "decision from running the board")
     parser.add_argument("--require-ready", action="store_true",
                         help="run the production smoke report before serving "
                              "and refuse to start on a blocker. Implied by "
@@ -275,8 +281,50 @@ def close_runtime(server):
             server.runtime_closing = True
             server.card_store.close()
 
+    def drain_request_counts():
+        """Stop the server first, then close the counter.
+
+        `server.shutdown()` stops the accept loop and `server.server_close()`
+        closes the listening socket, so no connection can deliver another
+        request afterwards. Only then is the stop declared and the final
+        snapshot taken, which is what lets that snapshot say "clean". A bare
+        ordering swap would not prove it: a connection kept alive by a client
+        can still hand over one more request in the gap.
+        """
+        counter = getattr(server, 'http_request_counts', None)
+        if counter is None:
+            return
+        if not getattr(server, 'runtime_served', False):
+            # A startup failure: the loop never served a request, so there is
+            # nothing to drain and nothing that proves a clean run either. The
+            # stop is not declared, so this snapshot stays unclean.
+            counter.close()
+            return
+        declare = getattr(counter, 'begin_shutdown', None)
+        if declare is None:
+            print('cleanup [RUNTIME_RESOURCE]: 계측기 종료 선언을 지원하지 않아 '
+                  '불완전 종료로 기록합니다.', file=sys.stderr)
+        else:
+            declare()
+        counter.close()
+
+    def stop_http():
+        """Stop the accept loop only if it is still running.
+
+        `shutdown()` waits for `serve_forever` to return, so calling it when the
+        loop is not running -- a startup failure, or the normal exit path where
+        the loop has already ended -- would block forever. The loop sets this
+        flag while it serves, and closing the socket is then the only step
+        left; the snapshot stays unclean because nothing proves a drain.
+        """
+        if getattr(server, 'runtime_serving', False):
+            server.shutdown()
+
     actions.extend((lambda: ota_payment_review.shutdown_snapshot_service(server.card_store),
-                    server.server_close, close_store,
+                    stop_http,
+                    server.server_close,
+                    drain_request_counts,
+                    close_store,
                     lambda: ledger_board.bind_oidc(None),
                     lambda: ledger_board.bind_access(None),
                     lambda: ledger_board.bind_importer(None),
@@ -346,6 +394,9 @@ def main(argv=None) -> int:
         print('refused [SERVER_START]: 서버 초기화에 실패했습니다.', file=sys.stderr)
         return 2
     try:
+        if getattr(args, 'request_metrics', False):
+            from webapp import http_counting
+            http_counting.attach(server, config.data_root, port)
         bind_runtime_access(server)
         oidc = connect_runtime_oidc(server, args)
     except ops.OpsError as exc:
@@ -387,11 +438,15 @@ def main(argv=None) -> int:
     print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'actions'])}")
     print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'drill', '--target', '/var/tmp/web-ledger-drill'])}")
     try:
+        server.runtime_serving = True
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.shutdown()
+        # The loop returned normally, so no other thread is accepting requests.
+        # Both flags describe exactly what happened: it served, and it stopped.
+        server.runtime_serving = False
+        server.runtime_served = True
         close_runtime(server)
     return 0
 
