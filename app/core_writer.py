@@ -255,10 +255,12 @@ def _refund_links(conn, transaction_ids) -> dict:
 
 
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None,
-          backfill=False):
+          backfill=False, decisions_only=False):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
 
     `periods` is `periods_for(conn)`; without it the Rust period evidence is empty and stored periods are unknown.
+    `decisions_only` is the storage-repair surface: it needs an explicit `backfill` and period facts, and it
+    refuses before any core process or write when either is missing.
     """
     binary, core = os.environ.get(BIN_ENV, ''), os.environ.get(CORE_DB_ENV, '')
     if not binary or not core:
@@ -266,6 +268,10 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     if conn.in_transaction:
         raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
     request = {'trips': trips, 'nets': nets or {}, 'evidence': evidence or {}, 'reconsider': bool(reconsider)}
+    if decisions_only:
+        if not backfill or periods is None:
+            raise ValueError('CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS')
+        request['decisions_only'] = True
     links = _refund_links(conn, transaction_ids)
     if links is not None:
         request['links'] = links

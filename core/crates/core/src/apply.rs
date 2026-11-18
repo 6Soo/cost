@@ -24,6 +24,8 @@ use crate::store::decisions::{projection, save_decision, stored_digests_in};
 use crate::store::write_columns::Write;
 use crate::store::{StoreError, latest_version, read_plan_input_in};
 
+pub mod completeness;
+
 #[derive(Debug, Error)]
 pub enum ApplyError {
     #[error("CLASSIFICATION_PREVIEW_STALE")]
@@ -34,6 +36,8 @@ pub enum ApplyError {
     PayloadInvalid,
     #[error("CORE_SCHEMA_MISMATCH")]
     CoreSchemaMismatch,
+    #[error("CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS")]
+    RepairInvalid,
     #[error("저장 계층 오류: {0}")]
     Store(#[from] StoreError),
     #[error("sqlite 오류: {0}")]
@@ -123,6 +127,11 @@ pub fn apply(
     request: &ApplyRequest<'_>,
     links: &dyn Links,
 ) -> Result<ApplyOutcome, ApplyError> {
+    let storage_repair_only = request.context["decisions_only"].as_bool() == Some(true);
+    // 저장 복구는 화면 열·금융·분류를 바꾸지 않는 경로다. 명시적 backfill과 이용기간 근거 없이는 열지 않는다.
+    if storage_repair_only && (!request.backfill || !request.context["periods"].is_object()) {
+        return Err(ApplyError::RepairInvalid);
+    }
     attach_core(conn, core)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut input = read_plan_input_in(&tx)?;
@@ -147,7 +156,12 @@ pub fn apply(
     let stored = stored_digests_in(&tx, "core")?;
     let periods = PeriodEvidence {
         facts,
-        changed: changed_since(&stored, &current).into_iter().collect(),
+        // 저장 복구는 저장된 지문이 같더라도 판정을 다시 저장해야 한다(빠진 판정을 채우는 경로).
+        changed: if storage_repair_only {
+            current.keys().cloned().collect()
+        } else {
+            changed_since(&stored, &current).into_iter().collect()
+        },
     };
     let result = plan_with_periods(&input, links, &periods).map_err(|_| ApplyError::PlanFailed)?;
     if result.digest != request.expected_digest {
@@ -155,7 +169,8 @@ pub fn apply(
     }
     let request_id = format!("apply-{}", &result.digest[..24]);
     let (mut written, mut skipped_unjudged, mut skipped_mismatch) = (0, 0, 0);
-    for target in &result.targets {
+    // 저장 복구는 분류·화면 열을 바꾸지 않는다: 계획의 목표를 쓰지 않고 판정 저장 경로만 지나간다.
+    for target in result.targets.iter().filter(|_| !storage_repair_only) {
         let decision = result
             .outcomes
             .iter()
@@ -252,7 +267,7 @@ fn decision_only(
     };
     let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let current: Vec<&str> = crate::plan::FIELDS.iter().map(|k| text(k)).collect();
-    save_decision(
+    let changed = save_decision(
         tx,
         "core",
         decision,
@@ -263,7 +278,11 @@ fn decision_only(
         request_id,
     )?;
     let derived = projection(tx, "core", tid)?;
-    Ok(derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())))
+    // 실제로 새 레코드를 썼을 때만 "복구됨"으로 센다. 같은 레코드의 재실행은 성공을 부풀리지 않는다.
+    Ok(
+        changed
+            && derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())),
+    )
 }
 
 fn insert_log(
