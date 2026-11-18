@@ -1,11 +1,12 @@
 """Opt-in P2 context packet tests; no live AI, payments or Google writes."""
+import copy
 import json
 import re
 
 import pytest
 
 from app import p2_case, p2_policy_pack
-from webapp.tests.test_autonomous_cleanup import setup, receive, make_weak_rows, create_trip
+from webapp.tests.test_autonomous_cleanup import setup, receive, make_weak_rows, create_trip, response_for
 from app import ai_classification
 
 
@@ -150,3 +151,48 @@ def test_ota_refund_assemble_preserves_source_and_case_setup(
     assert 'LINK-003' in compact['policy']['link']
     assert compact['policy_digest'] == p2_case.digest(compact['policy'])
     assert len(p2_case.prompt(compact).encode()) < len(p2_case.prompt(full).encode())
+
+
+
+def _synthetic_p2_response(request):
+    answer = response_for(request)
+    answer['more_evidence'] = []
+    for row in answer['results']:
+        row.update(service_start='', service_end='', evidence_refs=[],
+                   rule_ids=['PROC-001'])
+    return answer
+
+
+def test_verified_compact_preview_matches_full_decision_without_any_write(setup):
+    """Full and compact validated P2 yield identical classification decisions.
+
+    Evidence/policy digests are intentionally different and may not be reused.
+    This compares a deterministic synthetic answer, not independent LLM output.
+    """
+    request, trips = _prepared(setup)
+    full = p2_case.assemble(setup.conn, trips, request)
+    compact = p2_case.assemble(setup.conn, trips, request, compact_policy=True)
+    response = _synthetic_p2_response(request)
+    before = '\n'.join(setup.conn.iterdump())
+    old = ai_classification.preview(setup.conn, trips, request, response, bundle=full)
+    new = ai_classification.preview(setup.conn, trips, request, response, bundle=compact)
+    assert before == '\n'.join(setup.conn.iterdump())
+    assert len(old['corrections']) == len(new['corrections']) == len(request['cases'])
+    fields = ('transaction_id', 'source_hash', 'revision', 'trip_id', 'item',
+              'basis', 'classification_source', 'execution')
+    assert ([{k: row[k] for k in fields} for row in old['corrections']] ==
+            [{k: row[k] for k in fields} for row in new['corrections']])
+
+
+def test_forged_compact_policy_is_rejected_even_with_recomputed_bundle_digest(setup):
+    request, trips = _prepared(setup)
+    compact = p2_case.assemble(setup.conn, trips, request, compact_policy=True)
+    response = _synthetic_p2_response(request)
+    tampered = copy.deepcopy(compact)
+    tampered['policy']['trip'] += '\n### TRIP-999 · Unreviewed exception\n'
+    tampered['policy_digest'] = p2_case.digest(tampered['policy'])
+    tampered['digest'] = p2_case.digest({k: v for k, v in tampered.items() if k != 'digest'})
+    before = '\n'.join(setup.conn.iterdump())
+    with pytest.raises(ValueError, match='AI_POLICY_STALE'):
+        ai_classification.preview(setup.conn, trips, request, response, bundle=tampered)
+    assert before == '\n'.join(setup.conn.iterdump())
