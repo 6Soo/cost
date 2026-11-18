@@ -11,7 +11,10 @@
 - **수정:** ① `plush_api._ledger`의 제외를 **지출 행에만** 적용(레거시와 같은 범위). ② `ledger_design`에 `_quarter_tab_rows`/`_quarter_booked_rows`/`_is_quarter_tab`를 추가하고 `_selected_rows`·`_quarter_body`·`_quarter_page`가 분기 탭의 자기 행을 `list_tab_rows`로 읽게 함(지출·수입 모두). 표시·합계 집합만 맞췄고 금액·부호·환불 관계·권한 경계는 바꾸지 않았다.
 - **회귀 고정:** `webapp/tests/test_m4_parity_refund_total_scope.py`(5건, owner 수입 키 충돌·부분환불·분기 지출 행·분기 부호·분기 수입 행). 수정 전 3건이 실패하고 수정 후 통과함을 확인했다. `config/test-impact-map.json`의 `m4-query-contract-parity`에 등록.
 - **검사:** 새 파일 5 passed, 패리티 5파일 34 passed, 인접 설계·plush·분기 105 passed + 15 subtests. 공식 `python tools/run_quality_checks.py --base origin/main --run` 결과는 이 절 아래 값으로 채운다.
+- **2026-11-19 후속(이번 턴):** 표적 패리티 4파일 32 passed → 수정 후 33 passed, `m4-query-contract-parity` 영향 그룹 7파일 **71 passed**. **새 결함 1건 발견·수정:** 분기 탭 행이 여행 탭 순액 0 짝과 `source_event_id`를 공유하면 분기 헤더·본문은 2건·81,000원, 바로 옆 실시간 요약과 React는 1건·20,000원을 그려 **같은 화면 안에서 모순**이었다. `_quarter_booked_rows`에 `_selected_rows`와 같은 배제·같은 역할 경계를 적용(`0cc7222d`), 회귀 테스트 `test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip`은 수정 전 코드에서 실패하고 수정 후 통과함을 확인했다. 이어 `0cc7222d`에서는 배제 규칙을 `_quarter_excluded_ids` 한 곳으로 모았다(`1bb1bb96`, 동작 불변). 행 집합 대조 8개 시나리오 전부 차이 0(`.local-archive/m4-refund-tab-20261119/rowset-compare.md`).
 - **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `webapp/tests/test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
+- **검수 상태(중요):** AGY(`claude-opus-4-6-thinking`) 검수는 세 번째 실행이 **구독 한도(429, 약 4시간 28분 후 초기화)로 마지막 단계에서 중단**됐다. 판정문은 없다. 중단 전까지 초점 A(배제 경계=레거시와 동일)·B(분기 탭 행 원천·이중 계산 없음·탭 오인 없음)·C(동등성)·D(테스트 약화 없음)를 확인하고 결함을 찾지 못했다. **최종 SHA `1bb1bb96`은 검수되지 않았다** — 한도 초기화 뒤 재검수 또는 AGENTS.md 2026-11-13 소유자 결정(구현자와 다른 opus 세션 검수)으로 대체해야 병합 조건을 채운다.
+
 
 # 2026-11-18 — M5 작업 큐·임대·P2 어댑터 최소 후보 분리 (미병합)
 
