@@ -210,7 +210,7 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
         --host-root $host --python $py --repo-root $repo
 ```
 
-성공 기준: `ok`는 false여도 되고(아직 decisions가 비어 있으므로), **`coverage.missing` = 저장 대상 누락**이 눈에 보여야 한다. 실제 출력(예행):
+성공 기준: `ok`는 false가 **정상**이고(아직 `decisions`가 비어 있다), `classification_changes_required`가 남는다. **처음 만든 보드는 전부 `needs_review`라 여기서 `missing`은 0이다** — `missing`(저장 대상 누락)은 "화면 열이 이미 계획과 같은데 `decisions`가 없는" 행만 세기 때문이다(`completeness.rs:140-144`). `stored` 0과 `scanned`가 보드 행 수와 같으면 자료가 제대로 읽힌 것이다. 실제 출력(예행):
 
 ```json
 {"coverage":{"classification_changes_required":2682,"eligible":0,"kept":0,"missing":0,"orphaned":0,
@@ -272,10 +272,33 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 운영 M3 종료 조건의 2번("같은 입력 재실행 시 추가 보완 0")은 실제로는 **이미 `classified`인데 `decisions`가 비어 있는 보드**를 채우는 경로다. 이 경우는 일반 `apply`가 아니라 **decisions-only 보완**을 쓴다.
 
-1. Python 작성자로 먼저 판정해 둔 상태를 만든다(예행에서는 `--pre-classified 0`으로 만든 뒤 Python `apply`를 돌려 만들었다 — 실제 운영은 이미 그 상태다).
-2. 감사로 누락을 센다. `missing`이 크고 `classification_changes_required`가 **0**인 것이 보완 대상의 표지다.
+1. **이미 판정된 보드를 만든다.** Python 작성자(`automatic_classification.plan` → `apply`)로 한 번 판정한다. 실제 운영 보드가 이 상태다. 아래 `$a/py_classify.py`를 `$a`에 저장해 돌리면 Python이 판정한 보드가 새 사본에 생긴다(예행에서는 이 방법으로 만들었고, `b2.sqlite`가 그 보드였다).
 
-   예행 실제 출력: `"eligible":2541,"missing":2541,"classification_changes_required":0`.
+   ```python
+import sys, sqlite3, json
+from pathlib import Path
+src, dst = sys.argv[1], sys.argv[2]
+Path(dst).write_bytes(Path(src).read_bytes())
+sys.path.insert(0, sys.argv[3])
+from app import automatic_classification as policy
+conn = sqlite3.connect(dst, isolation_level=None)
+trips = [dict(zip(['tab_id', 'display_key', 'destination', 'starts_on', 'ends_on'], r), trip_id=r[0])
+         for r in conn.execute('SELECT tab_id,display_key,destination,starts_on,ends_on FROM trip_tabs WHERE deleted=0')]
+preview = policy.plan(conn, trips)
+summary = policy.apply(conn, preview, trips)
+conn.close()
+print(json.dumps({'digest': preview['digest'], 'targets': len(preview['targets']), 'summary': summary}, ensure_ascii=False))
+   ```
+
+   ```powershell
+   python -I "$a/py_classify.py" "$a/work/r5.sqlite" "$a/work/b2.sqlite" $repo
+   # 기대 출력(예행 실제): {"digest": "8d37d9f7...", "targets": 1978,
+   #                       "summary": {"to_classify": 1978, "protected": 37, "scanned": 3002, ...}}
+   & $bin migrate --core "$a/work/coreb.sqlite"    # 빈 core(기대: created true, to_version 3)
+   ```
+2. 감사로 누락을 센다. **`missing` > 0**이 보완 대상의 표지다.
+
+   예행 실제 출력: `"eligible":1695,"missing":1695,"stored":0` — 그리고 `classification_changes_required`는 **0이 아니다**(987이 남는다: 다시 계산한 판정이 화면 열과 다른 행). 보완 대상의 표지는 **`missing` > 0**이고, 보완은 `eligible`행만 채우며 나머지는 일반 판정·교정 경로의 몫으로 남긴다.
 
 3. **보완 모드 적용.** `context`에 `decisions_only: true`를 넣고 `--backfill-decisions`를 함께 준다. 둘 중 하나라도 빠지면 코어는 **core를 열기 전에** `CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS`로 거부한다(`core/crates/cli/src/main.rs:455-459`, `core/crates/core/src/apply.rs:131-134`).
 
@@ -287,10 +310,10 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
            --backfill-decisions --host-root $host --python $py --repo-root $repo
    ```
 
-   예행 실제 출력: `{"backfilled":2541,"ok":true,...,"written":0,...}` — 화면 열은 건드리지 않고 `decisions`만 채운다.
+   예행 실제 출력: `{"backfilled":1695,"ok":true,...,"written":0,...}` — 화면 열은 건드리지 않고 `decisions`만 채운다.
 
 4. **재실행 0 확인.** 같은 `$ctxR`로 digest를 다시 만들어 한 번 더 돌린다. 예행 실제 출력: `"backfilled":0`.
-5. **감사 통과.** `periods`만 넣은 `$ctx`로 감사하면 `ok:true`, `missing:0`, `stored:2541`.
+5. **감사 재확인.** `periods`만 넣은 `$ctx`로 감사하면 `missing:0`, `stored`가 보완한 수와 같다. `classification_changes_required`는 남는다(정상 — 그 행들은 화면 열 자체가 달라 일반 판정 경로의 몫이다).
 
 ## digest 규칙 — 이 예행에서 가장 많이 틀리는 곳
 
@@ -341,7 +364,7 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 - 운영 DB·`D:/WebLedgerHost`의 **읽기·쓰기 모두** 예행에서 하지 않는다. `--allow-live`를 주지 않는다.
 - `apply`는 `--allow-live` 없이는 `--host-root/data/board.sqlite` 경로를 거부한다(`core/crates/core/src/pipeline.rs:69-76`). 예행은 `--host-root`를 임시 루트로 두어 이 검사를 통과시킨다 — **운영 경로로 우회하지 않는다**.
-- `--private-out` 같은 비공개 파일 경로는 예행에서 쓰지 않는다. 쓰면 `<host-root>/data/backups` 아래여야 한다(`guard.rs:34`).
+- `--private-out` 같은 비공개 파일 경로는 예행에서 쓰지 않는다. audit·apply에는 그런 인자가 없다(그림자 명령 `shadow`·`shadow-links`만 쓴다). 그림자를 돌릴 때 쓰면 `<host-root>/data/backups`가 **이미 존재하는 폴더여야** 하고 그 아래여야 한다(`guard.rs:28-34` — `protected_root`가 `canonicalize`에 실패하면 `PRIVATE_PATH_REJECTED`).
 - 예행 자료는 `.local-archive/`(Git 무시)에만 두고 커밋하지 않는다. 합성 자료에는 고객 원문이 없다.
 - 운영 포트 8751·8752·8790을 쓰지 않는다. 운영 프로세스를 건드리지 않는다.
 
@@ -350,12 +373,12 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 | 예행(합성) | 운영 |
 | --- | --- |
 | `.local-archive/...` 사본 | 신선 백업·복원 확인 사본(`D:/WebLedgerHost/data/backups/`, [core-cutover.md](core-cutover.md) 2단계) |
-| `--host-root`=임시 루트 | `--host-root D:/WebLedgerHost`, `--db`=사본, `--allow-live`는 사본에서는 불필요(사본 경로가 운영 경로와 다르므로) |
+| `--host-root`=임시 루트 | `--host-root D:/WebLedgerHost`, `--db`=`data/backups/` 아래 사본. 사본 경로는 운영 `data/board.sqlite`와 다르므로 `--allow-live` 없이도 통과한다. **`--allow-live`를 쓰지 않는 것이 예행과 운영의 공통 규칙이다**(운영 파일에 직접 쓰지 않는다) |
 | `"periods":{}` | `app.core_writer.periods_for(...)`가 만든 실제 이용기간 근거(없으면 `PERIOD_FACTS_REQUIRED`) |
 | `written` 수천 건이 정상 | 운영 첫 실행은 `backfill` 건수가 매우 클 수 있다(정상) |
 | 운영 반영 없음 | decisions-only 보완은 **승인된 창에서만**. [core-cutover.md](core-cutover.md) "실패와 복구"·"판정 함수 버전 변경 배포 뒤 전체 재판정"을 따른다 |
 
 ## 이 절차서가 확인한 것과 확인하지 않은 것
 
-- 확인(2026-11-19, `3d8e8791`, debug 빌드): 이 문서에 든 생성기 두 개를 문서에서 그대로 꺼내 실행해 3,002행 합성 보드를 만들고(감사 digest `77a0c063…` 재현), 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 세 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`, `USAGE_INVALID`)와 `PYTHON_NOT_STARTED`·`IO_ERROR` 진단. `transaction_ids`가 audit digest에 영향을 주지 않으나 apply에는 주는 것도 실제 실행으로 확인했다.
+- 확인(2026-11-19, `3d8e8791`, debug 빌드): 이 문서에 든 생성기 두 개를 문서에서 그대로 꺼내 실행해 3,002행 합성 보드를 만들고(감사 digest `77a0c063…` 재현), 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`missing:1695` → `backfilled:1695` → 감사 `missing:0`·`stored:1695`). 실패 출력 세 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`, `USAGE_INVALID`)와 `PYTHON_NOT_STARTED`·`IO_ERROR` 진단. `transaction_ids`가 audit digest에 영향을 주지 않으나 apply에는 주는 것도 실제 실행으로 확인했다.
 - 하지 않음: 운영 DB 접근, `release` 빌드 실행, 실제 OTA 이용기간 근거 생성(운영 자료 필요), 대규모(1만 행 이상) 성능 측정.
