@@ -1,12 +1,7 @@
 # 판정 규칙 — 환불·취소
 
-> **현행 규칙 본문:** [판정 우선순위·공통 원칙](../DECISION_POLICY.md) · [기준별 규칙 안내](README.md)
-> **이력·출처:** [2026-11-18 정리 전 REFUND 규칙 전문](https://github.com/6Soo/cost/blob/c0c45c7fa9cdb291d198d5c3e9667801abb6721d/docs/policy/refund.md)에서 규칙 ID로 검색한다. 과거 규칙·원문 출처·당시 코드 차이는 현재 지시가 아니다.
-> 규칙 ID·본문·조건·예외는 그대로 유지한다. 코드와 현행 규칙 차이의 추적은 [CODE_GAPS](CODE_GAPS.md)를 참조한다.
+> [판정 우선순위](../DECISION_POLICY.md) · [규칙 색인·이력](README.md) · [폐지 ID 대응](RETIRED_IDS.md). 규칙의 현행 조건·예외는 아래 조항을 따른다.
 
-> [판정 규칙집](../DECISION_POLICY.md)의 영역별 상세 규칙이다. 핵심 원칙과 읽는 법은 규칙집 본문에 있다.
-> 규칙 ID는 바꾸지 않는다. 규칙을 고칠 때는 같은 ID의 내용을 고치고 옛 내용을 "대체된 옛 규칙"에 남긴다.
-> "출처"의 파일과 줄 번호는 커밋 `b0340d0d`(2026-11-10) 기준이다. 그 뒤 줄어든 `AGENTS.md`·`docs/COST_V3_START_HERE.md`의 줄은 `git show b0340d0d:<경로>`로 본다. 그때의 `docs/specs/<파일>`은 지금 `docs/history/specs-20261110/<파일>`에 있다(절차서 두 개는 `docs/playbooks/`).
 ## 1. 원결제·환불 연결 조건
 
 ### RFND-001 · 사실과 완료 단계 분리
