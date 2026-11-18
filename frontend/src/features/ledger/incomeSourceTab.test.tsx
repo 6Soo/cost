@@ -156,6 +156,43 @@ test('COST-only and COST+Google differ by the Google evidence line, not the summ
   expect(costOnly.googleEvidence).toBe(false);
 });
 
+/* The server's trip.income is "미확인" when it cannot confirm an income figure
+   (no COST income and no verified Google block). The summary must show that
+   word as a state, never as an amount: no currency unit, no NaN and no
+   "미확인원". This is the display risk the new server contract exposes. */
+test('an unknown income and 차액 show the word with no currency unit', async () => {
+  const summary: TripSummary = { ...trip, income: '미확인', expense: '250000', profit: '미확인' };
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, {
+    income_source: { available: true, verified: false, reason: 'INCOME_UNVERIFIED' },
+  }));
+  renderTab(summary);
+  await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
+  // Both summary words render as exactly "미확인", with no currency unit.
+  const unknown = screen.getAllByText('미확인');
+  expect(unknown.length).toBeGreaterThanOrEqual(2);
+  for (const node of unknown) expect(node.textContent).toBe('미확인');
+  // A currency-formatted expense is still money.
+  expect(screen.getAllByText(/250,000/).length).toBeGreaterThan(0);
+  // No broken currency rendering of the unknown state.
+  expect(screen.queryByText(/미확인\s*원/)).toBeNull();
+  expect(screen.queryByText(/미확인\s*KRW/)).toBeNull();
+  expect(screen.queryByText(/NaN/)).toBeNull();
+  expect(screen.queryByText(/₩미확인/)).toBeNull();
+  // The unverified state is labelled provisional without changing the word.
+  expect(screen.getAllByText('잠정')).toHaveLength(2);
+});
+
+test('an unknown income with no Google block still shows the word, not money', async () => {
+  const summary: TripSummary = { ...trip, income: '미확인', expense: '0', profit: '미확인' };
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, { income_source: noSource }));
+  renderTab(summary);
+  await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
+  const unknown = screen.getAllByText('미확인');
+  for (const node of unknown) expect(node.textContent).toBe('미확인');
+  expect(screen.queryByText(/NaN/)).toBeNull();
+  expect(screen.queryByText(/미확인\s*(원|KRW)/)).toBeNull();
+});
+
 test('a payload left over from the previous tab does not paint its income source on the new tab', async () => {
   /* The operator switches from trip-a to trip-b. Until trip-b answers, the
      previous payload is still in component state (the list keeps the old rows
