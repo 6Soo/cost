@@ -756,8 +756,25 @@ _MAX_STAY_DAYS = 366
 
 
 def _stored_periods():
+    """Saved periods with the source identity, so DATE-017 can be applied.
+
+    DATE-017 (보호) binds a period's evidence to the source's digest and
+    revision and voids an old preview when the source changes.  The plain
+    ``load_stored_periods`` read carries no identity, so the legacy screen could
+    not apply it; this read does, and an old core file without the identity
+    columns falls back to the plain read exactly as before.
+    """
     from app import core_writer
-    return read_scope.remember("stored_periods", core_writer.load_stored_periods)
+
+    def read():
+        if not core_writer.stored_periods_enabled():
+            return None
+        records = core_writer.load_stored_period_records()
+        if records:
+            return records
+        return core_writer.load_stored_periods()
+
+    return read_scope.remember("stored_period_records", read)
 
 
 def _manual_period_rows():
@@ -767,8 +784,14 @@ def _manual_period_rows():
 
 
 def _read_period(row, *, verified: bool):
-    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback."""
-    from . import ledger_stay_evidence
+    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback.
+
+    The stored value is shown only while it still describes the row's current
+    source (DATE-017). The freshness rule is the one the React ledger uses
+    (:meth:`plush_periods._record_is_stale`), so the two entry paths cannot
+    disagree about a saved period.
+    """
+    from . import ledger_stay_evidence, plush_periods
 
     def compute():
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
@@ -776,6 +799,15 @@ def _read_period(row, *, verified: bool):
         return pick(row, index)
     stored = _stored_periods()
     manual = _manual_period_rows() if stored is not None else set()
+    if stored is not None:
+        record = (plush_periods._stored_for(row, stored) if not verified
+                  else None)
+        if record is not None:
+            identities = plush_periods._current_source_identities(
+                board._active_store(), {plush_periods._transaction_id(row)})
+            if plush_periods._record_is_stale(
+                    record, identities, plush_periods._transaction_id(row)):
+                stored = {}
     return ledger_stay_evidence.read_period(row, stored, manual, compute, export=verified)
 
 

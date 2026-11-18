@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
+from . import ledger_periods as period_rows
 from . import plush_projection as projection
 
 
@@ -259,10 +260,19 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     selected = rows[start:start + page_size]
     closed = bool(trip.get("visual_closed") or trip.get("archived"))
     read_only = (not owner) or closed
+    # SPEC §11.2.1 계약 4: the period shown here is the same stored/manual read
+    # the legacy screen performs, annotated once for the rows on this page.
+    annotated = period_rows.annotate(selected, board)
+    dto_rows = []
+    for row in annotated:
+        period, period_source = period_rows.period_for_row(row, board)
+        dto_rows.append(projection.ledger_row(
+            row, read_only=read_only or row.get('google_income', False),
+            period=period, period_source=period_source))
     return {
         "trip": _trip_summary(board, trip, all_rows),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
-        "rows": [projection.ledger_row(row, read_only=read_only or row.get('google_income', False)) for row in selected],
+        "rows": dto_rows,
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
@@ -329,8 +339,12 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         })
     # Keep source detail unprojected for provenance, but make the row shown to
     # the user follow the exact same correction projection as the ledger list.
+    # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
+    display_row = period_rows.annotate([display_row], board)[0]
+    period, period_source = period_rows.period_for_row(display_row, board)
     return {
-        "row": projection.ledger_row(display_row, read_only=read_only),
+        "row": projection.ledger_row(display_row, read_only=read_only,
+                                     period=period, period_source=period_source),
         "source": projection.safe_source(row) if owner else None,
         "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,

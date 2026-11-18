@@ -62,8 +62,15 @@ def _display_date(row: dict[str, Any]) -> str:
     return str(row.get("display_occurred_on") or row.get("occurred_on") or "")
 
 
-def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any]:
-    """Project a board row into the stable Plush table shape."""
+def ledger_row(row: dict[str, Any], *, read_only: bool = False,
+               period: str | None = None,
+               period_source: str | None = None) -> dict[str, Any]:
+    """Project a board row into the stable Plush table shape.
+
+    ``period``/``period_source`` come from the shared stored/manual read
+    (``ledger_periods``). A caller that does not resolve them keeps the stored
+    ``service_period`` exactly as before.
+    """
     kind = str(row.get("row_kind") or "expense")
     merchant = (row.get("source_merchant") if kind != "income" else row.get("customer_name"))
     merchant = merchant or row.get("item") or row.get("income_kind") or ""
@@ -84,11 +91,19 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any
         # currency must never relabel the KRW amount (e.g. 135000 USD).
         "currency": "KRW",
         "payment": str(payment or ""),
-        "period": str(row.get("service_period") or ""),
+        "period": str(period if period is not None else row.get("service_period") or ""),
+        "period_source": str(period_source or ""),
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
         "read_only": bool(read_only),
     }
+    status = row.get("_plush_period_status")
+    if status in {"verified", "inferred", "unknown", "stale", "computed"}:
+        result["period_status"] = status
+    if row.get("_plush_period_basis"):
+        result["period_basis"] = str(row["_plush_period_basis"])
+    if row.get("_plush_period_manual_blank") is True:
+        result["period_manual_blank"] = True
     source_amount = row.get("foreign_amount", row.get("amount"))
     if row.get('google_income') and row.get('amount_missing'):
         result['amount'] = '미확인'
