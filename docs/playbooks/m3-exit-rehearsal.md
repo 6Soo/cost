@@ -358,7 +358,7 @@ print(json.dumps({'digest': preview['digest'], 'targets': len(preview['targets']
 | `written:0`인데 `skipped_unjudged`가 거의 전부 | 가맹점 규칙 표가 없어 항목이 추론되지 않았다 → 판정이 `Unattributable` | 2단계 `add_synthetic_rules.py`를 먼저 돌린다. 규칙 6개로 `written`이 0 → 1,695로 바뀐다 |
 | `written:0`이고 `to_classify:0` | `context`에 `"trips":[]`를 넣어 여행 목록이 비었다 | `trips` 키를 넣지 않거나 DB에서 읽은 값을 넣는다 |
 | 감사 digest가 `quarter:2026:9` 같은 값으로 나옴 | 합성 자료의 분기 표기가 틀렸다(열린 분기는 `3`만) | 이 문서의 `make_synthetic_board.py`는 2026 Q3만 쓴다. 손으로 만든 자료면 `fresh.rs:48`의 허용 목록을 본다 |
-| `DB_IS_LIVE` | `--db`가 `--host-root`의 `data/board.sqlite`와 같은 파일이다 | 예행은 `--host-root`에 **보호 경로가 아닌 임시 루트**를 준다. 운영에서는 사본을 SQLite backup API로 만든다(`robocopy /COPY:DAT` 사본은 거부된다) |
+| `DB_IS_LIVE` | `--db`가 `--host-root`의 `data/board.sqlite`와 같은 파일이다(`pipeline.rs:69-77`, Windows는 길이·생성 시각·수정 시각이 모두 같으면 같은 파일로 본다 `:81-95`) | 예행은 `--host-root`에 **보호 경로가 아닌 임시 루트**를 준다. 운영 사본은 SQLite backup API로 만든다 — 시각을 보존하는 복사 사본이 거부된다는 것은 [core-cutover.md](core-cutover.md)의 기존 기록이며 이 예행에서 다시 재지는 않았다 |
 
 ## 보호 (이 절차가 지키는 것)
 
