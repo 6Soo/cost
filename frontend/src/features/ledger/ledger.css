@@ -8,8 +8,15 @@
 .cost-ledger__trip-select { width: min(320px, 100%); }
 .cost-ledger__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
 .cost-ledger__summary > div { display: grid; gap: 8px; min-width: 0; padding: 16px 20px; border: 1px solid var(--cost-border); border-radius: 18px; background: var(--cost-panel); }
-.cost-ledger__summary dt { color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__summary dt { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__summary dd { margin: 0; text-align: right; font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* GGL-014: an unverified Google block does not enter the confirmed figure, so
+   the summary figure is still shown but labelled provisional. The number is
+   the server's; only the label is added. */
+.cost-ledger__provisional { padding: 1px 6px; border: 1px solid var(--cost-border); border-radius: 999px; color: var(--cost-text-secondary); font-size: .6875rem; font-weight: 600; }
+.cost-ledger__google-income { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border: 1px solid var(--cost-border); border-radius: 14px; background: var(--cost-panel); color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__google-income > span:first-child { color: var(--cost-text); }
+.cost-ledger__google-income small { flex-basis: 100%; color: var(--cost-text-secondary); }
 .cost-ledger__toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; gap: 12px; min-width: 0; }
 .cost-ledger__search { display: flex; align-items: end; gap: 8px; min-width: 0; }
 .cost-ledger__search > :first-child { flex: 1; min-width: 140px; }
@@ -35,6 +42,15 @@
 .cost-ledger__row-open:focus-visible,
 .cost-ledger__mobile-row:focus-visible,
 .cost-ledger a:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
+/* A stored period reads as one value with its state as a word; colour is never the only cue. */
+.cost-ledger__period-inferred { display: grid; gap: 2px; min-width: 0; }
+.cost-ledger__period-inferred span { overflow-wrap: anywhere; }
+.cost-ledger__period-inferred small,
+.cost-ledger__period-stale,
+.cost-ledger__period-unknown { color: var(--cost-text-secondary); font-size: .8125rem; }
+.cost-ledger__period-stale,
+.cost-ledger__period-unknown { overflow-wrap: anywhere; }
+.cost-ledger__mobile-period { min-width: 0; }
 .cost-ledger__mobile-list { display: none; margin: 0; padding: 0; list-style: none; border: 1px solid var(--cost-border); border-radius: 18px; overflow: hidden; background: var(--cost-surface); }
 .cost-ledger__mobile-list li + li { border-top: 1px solid var(--cost-border); }
 .cost-ledger__mobile-row { display: grid; gap: 8px; width: 100%; min-height: 88px; padding: 14px 16px; border: 0; background: transparent; color: var(--cost-text); text-align: left; font: inherit; cursor: pointer; }
@@ -55,6 +71,8 @@
 .cost-ledger__drawer-content { display: grid; gap: 20px; min-width: 0; }
 .cost-ledger__detail-amount { text-align: right; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .cost-ledger__detail-description { margin: 0; overflow-wrap: anywhere; }
+.cost-ledger__detail-period { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; align-items: baseline; }
+.cost-ledger__detail-period-key { color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__detail-section { display: grid; gap: 10px; min-width: 0; padding-top: 16px; border-top: 1px solid var(--cost-border); }
 .cost-ledger__detail-section h3,
 .cost-ledger__detail-actions h3,
@@ -65,6 +83,9 @@
 .cost-ledger__detail-list dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .cost-ledger__detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cost-ledger__detail-actions h3 { flex-basis: 100%; }
+.cost-ledger__origin { display: flex; align-items: center; gap: 8px; margin: 0; }
+.cost-ledger__origin-key { color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__origin-chip { display: inline-flex; align-items: center; padding: 2px 10px; border: 1px solid var(--cost-border); border-radius: 999px; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__action { display: grid; gap: 4px; }
 .cost-ledger__action > span { max-width: 260px; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__action-link { display: inline-flex; min-height: 44px; align-items: center; color: var(--cost-text); }

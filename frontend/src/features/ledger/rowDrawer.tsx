@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { ActionDescriptor, Bootstrap, FieldDescriptor, LedgerRow } from '../../api/types';
 import { ActionButton, Amount, Drawer, FormField, InlineNotice, Input, Select, Loading } from '../../components';
 import { getJSON, postJSON, ApiError } from '../../api/client';
-import { humanDate, internalHref, requestId } from './urlState';
+import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
+import { PeriodValue } from './index';
 
 type RowDetail = {
   row: LedgerRow;
   source: Record<string, unknown> | null;
+  classification_origin?: string | null;
   decision: Record<string, unknown> | null;
   history: unknown[];
   expected_revision: string | number | null;
@@ -16,6 +18,9 @@ type RowDetail = {
 type RowDrawerProps = {
   rowId: string | null;
   bootstrap: Bootstrap;
+  tab?: string;
+  kind?: LedgerKind;
+  search?: URLSearchParams;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -203,7 +208,17 @@ function RowActionForm({
   );
 }
 
-export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps) {
+function OriginLabel({ origin }: { origin: string }) {
+  if (!origin) return null;
+  return (
+    <p className="cost-ledger__origin">
+      <span className="cost-ledger__origin-key">분류 출처</span>
+      <span className="cost-ledger__origin-chip">{origin}</span>
+    </p>
+  );
+}
+
+export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSaved }: RowDrawerProps) {
   const [detail, setDetail] = useState<RowDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -245,6 +260,17 @@ export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps
         <div className="cost-ledger__drawer-content">
           <div className="cost-ledger__detail-amount"><Amount value={detail.row.amount} currency={detail.row.currency} /></div>
           <p className="cost-ledger__detail-description">{detail.row.description || detail.row.merchant}</p>
+          <p className="cost-ledger__detail-period">
+            <span className="cost-ledger__detail-period-key">이용 기간</span>
+            <PeriodValue
+              period={detail.row.period}
+              label={detail.row.period_label}
+              status={detail.row.period_status}
+              basis={detail.row.period_basis}
+              source={detail.row.period_source}
+              manualBlank={detail.row.period_manual_blank}
+            />
+          </p>
           {detail.row.read_only && <InlineNotice tone="info" title="읽기 전용">이 행 또는 마감 기간은 현재 수정할 수 없습니다.</InlineNotice>}
           {bootstrap.role === 'owner' && writeActions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
@@ -274,8 +300,13 @@ export function RowDrawer({ rowId, bootstrap, onClose, onSaved }: RowDrawerProps
               })}
             </section>
           )}
+          {bootstrap.role === 'owner' && !detail.row.read_only && tab && search && (
+            <section className="cost-ledger__detail-actions" aria-label="기존 교정 화면">
+              <a className="cost-ledger__action-link" href={legacyCorrectionHref(detail.row.id, tab, kind ?? 'expense', search)}>기존 화면에서 교정</a>
+            </section>
+          )}
           {selectedAction === null && <DataFields title="원문" values={detail.source} />}
-          {selectedAction === null && <DataFields title="판정" values={detail.decision} />}
+          {selectedAction === null && <OriginLabel origin={detail.classification_origin ?? ''} />}
           {selectedAction === null && <section className="cost-ledger__detail-section"><h3>수정 이력</h3><HistoryList history={detail.history ?? []} /></section>}
         </div>
       )}

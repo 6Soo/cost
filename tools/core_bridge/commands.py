@@ -270,9 +270,16 @@ def extract_baseline(request):
     return capture.capture(request, BridgeError)
 
 
+def extract_baseline_compare(request):
+    """추출 기준 비교(SPEC §11.1 M3-3): 추출 내용 차이와 출처 식별 차이를 구분해 보호 경로 보고서로 남긴다."""
+    from . import extract_baseline as capture
+    return capture.compare(request, BridgeError)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'candidates': candidates, 'plan': plan,
             'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods,
-            'ota-input': ota_input, 'extract-baseline': extract_baseline}
+            'ota-input': ota_input, 'extract-baseline': extract_baseline,
+            'extract-baseline-compare': extract_baseline_compare}
 
 
 def canonical(value):

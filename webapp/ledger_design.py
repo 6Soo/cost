@@ -185,9 +185,7 @@ def _head_html(trip, query: str = "", kind: str = "", archived: str = "") -> str
         title, meta = "이전 귀속 목록", "여행을 정하지 않은 내역입니다"
         actions = ""
     else:
-        title = str(trip.get('display_title') or trip["display_key"])
-        if trip.get('owner_id') == 'andre':
-            title += ' · 김동언(안드레)'
+        title = board.trip_display_label(trip)
         from .trip_insurance_policy import is_domestic
         status = '마감' if trip.get('visual_closed') else '미마감'
         region = ui_components.chip('국내여행', 'accent') if is_domestic(trip) else ''
@@ -220,7 +218,7 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
         # /trips 기본 목록과 같은 기준(마감 표시·이전 여행 제외), 현재 보는 여행은 예외.
         if item.get('tab_id') != current and not board.is_default_listed_trip(item):
             continue
-        label = str(item.get('display_title') or item.get('display_key') or '')
+        label = board.trip_display_label(item)
         entries.append(
             f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
             f"{' aria-current=\"page\"' if item.get('tab_id') == current else ''}>{board.esc(label)}</a></li>")
@@ -662,7 +660,7 @@ def _trip_options(current="", blank_label=None) -> str:
         options.append(
             f"<option value='{board.esc(trip['tab_id'])}'"
             f"{' selected' if trip['tab_id'] == current else ''}>"
-            f"{board.esc(trip['display_key'])} · {board.esc(trip['starts_on'])}~"
+            f"{board.esc(board.trip_display_label(trip))} · {board.esc(trip['starts_on'])}~"
             f"{board.esc(trip['ends_on'])}</option>")
     return "".join(options)
 
@@ -758,8 +756,25 @@ _MAX_STAY_DAYS = 366
 
 
 def _stored_periods():
+    """Saved periods with the source identity, so DATE-017 can be applied.
+
+    DATE-017 (보호) binds a period's evidence to the source's digest and
+    revision and voids an old preview when the source changes.  The plain
+    ``load_stored_periods`` read carries no identity, so the legacy screen could
+    not apply it; this read does, and an old core file without the identity
+    columns falls back to the plain read exactly as before.
+    """
     from app import core_writer
-    return read_scope.remember("stored_periods", core_writer.load_stored_periods)
+
+    def read():
+        if not core_writer.stored_periods_enabled():
+            return None
+        records = core_writer.load_stored_period_records()
+        if records:
+            return records
+        return core_writer.load_stored_periods()
+
+    return read_scope.remember("stored_period_records", read)
 
 
 def _manual_period_rows():
@@ -769,8 +784,14 @@ def _manual_period_rows():
 
 
 def _read_period(row, *, verified: bool):
-    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback."""
-    from . import ledger_stay_evidence
+    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback.
+
+    The stored value is shown only while it still describes the row's current
+    source (DATE-017). The freshness rule is the one the React ledger uses
+    (:meth:`plush_periods._record_is_stale`), so the two entry paths cannot
+    disagree about a saved period.
+    """
+    from . import ledger_stay_evidence, plush_periods
 
     def compute():
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
@@ -778,6 +799,15 @@ def _read_period(row, *, verified: bool):
         return pick(row, index)
     stored = _stored_periods()
     manual = _manual_period_rows() if stored is not None else set()
+    if stored is not None:
+        record = (plush_periods._stored_for(row, stored) if not verified
+                  else None)
+        if record is not None:
+            identities = plush_periods._current_source_identities(
+                board._active_store(), {plush_periods._transaction_id(row)})
+            if plush_periods._record_is_stale(
+                    record, identities, plush_periods._transaction_id(row)):
+                stored = {}
     return ledger_stay_evidence.read_period(row, stored, manual, compute, export=verified)
 
 
@@ -1458,7 +1488,9 @@ def _google_match_detail(row):
             + ''.join(f"<p class='p-sub'>{line}</p>" for line in lines) + '</details>')
 
 
-def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, google_match_detail='') -> str:
+def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft,
+                google_match_detail='', verified_return=None) -> str:
+    verified_return = verified_return or ''
     allowed, fixed = board.editable_fields(kind, row.get("source_kind", ""),
                                            bool(row.get("is_allocation")))
     rev = row.get("revision", 1)
@@ -1573,6 +1605,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
         f"<input type='hidden' name='expected_revision' value='{rev}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"<input type='hidden' name='return_to' value='{board.esc(back)}'>"
+        f"<input type='hidden' data-verified-return='{board.esc(verified_return)}' value=''>"
         "<div class='p-bd'>"
         # The source identifier, the revision, the source kind and every field the
         # endpoint fixes are what a support answer needs and what a working day
@@ -1981,11 +2014,17 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         expenses = [r for r in expenses if r.get('source_event_id') not in paired]
         whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
+        # SPEC §11.2.1 계약 1: the same query returns the same rows on both
+        # paths, so this compares case-insensitively over the same recorded
+        # fields the React list searches. `operator_note` stays in the set:
+        # this path is the owner's screen, and a viewer never reaches it.
+        text = str(query).casefold()
+
         def keep(row):
             blob = " ".join(str(row.get(key) or "") for key in (
                 "item", "description", "operator_note", "reservation_no",
                 "source_merchant", "customer_name"))
-            return query in blob
+            return text in blob.casefold()
         incomes = [r for r in incomes if keep(r)]
         expenses = [r for r in expenses if keep(r)]
     expenses = _sort_expenses_for_display(expenses)
@@ -1996,7 +2035,8 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
 @read_scope.scoped
 def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          error: str = "", message: str = "", archived: str = "",
-         draft: dict = None, back: str = "", participant_query: dict = None) -> str:
+         draft: dict = None, back: str = "", participant_query: dict = None,
+         verified_return: str = "") -> str:
     """The main ledger screen in the new design."""
     if _STORE_missing():
         return board.layout("여행 장부", "<div class='body'><p>저장소가 연결되지 않았습니다.</p></div>")
@@ -2028,7 +2068,8 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     participant_html = _participant_trip_panel(tab_id, participant_controls)
     reservations_html = trip_management_ui.reservations(board, trip)
     selected_panel = (panel_part(selected, back=back, error=error, message=message,
-                                 draft=draft or {}) if selected else '')
+                                 draft=draft or {}, verified_return=verified_return)
+                      if selected else '')
     drawer_html = (
         "<dialog class='drawer' id='ledger-drawer' aria-labelledby='ledger-drawer-title'>"
         "<div class='drawer-header'><h2 id='ledger-drawer-title'>거래 상세</h2>"
@@ -2108,7 +2149,8 @@ def _participant_trip_state(tab_id: str):
 
 
 def panel_part(row_id: str, *, back: str = "/board", error: str = "",
-               message: str = "", draft: dict = None) -> str:
+               message: str = "", draft: dict = None,
+               verified_return: str = "") -> str:
     """Just the edit panel, for a row click without a full page load."""
     if _STORE_missing() or not row_id:
         return ""
@@ -2131,7 +2173,8 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
     return _panel_html(row, kind, csrf=board.CSRF_TOKEN,
                        rule_case=board.learning_case_id(row_id),
                        error=error, message=message, back=back, draft=draft or {},
-                       google_match_detail=_google_match_detail(row))
+                       google_match_detail=_google_match_detail(row),
+                       verified_return=verified_return)
 
 
 def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
@@ -2244,14 +2287,21 @@ def viewer_trips_html(trips) -> str:
 
 
 def _matches(row: dict, needle: str) -> bool:
-    """Does this row contain the search text, over the fields the screen shows."""
+    """Does this row contain the search text, over the fields the screen shows.
+
+    SPEC §11.2.1 계약 1: the same query must return the same rows on both paths,
+    so this compares case-insensitively the way the React list does. The fields
+    are the ones the screen already shows plus the operator's note, which an
+    owner may read and searches.
+    """
     if not needle:
         return True
+    text = str(needle).casefold()
     hay = " ".join(str(row.get(f) or "") for f in (
         "occurred_on", "item", "description", "customer_name", "nickname",
         "reservation_no", "service_period", "source_merchant", "operator_note",
         "display_tab_id", "income_kind", "evidence_type"))
-    return needle in hay
+    return text in hay.casefold()
 
 
 def _summary_totals(rows_in, rows_ex):

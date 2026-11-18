@@ -76,6 +76,23 @@ def test_rust_writer_passes_digest_and_context_and_returns_the_summary(env, tmp_
                              'reconsider': True, 'transaction_ids': ['t1', 't2']}
 
 
+def test_decisions_only_repair_requires_backfill_and_period_facts_before_calling_rust(env, tmp_path):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    seen = _fake_run(monkeypatch, json.dumps({'ok': True, 'result': {'to_classify': 0}}) + '\n')
+    with pytest.raises(ValueError, match='CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS'):
+        core_writer.apply(conn, {'digest': 'd'}, [], decisions_only=True)
+    with pytest.raises(ValueError, match='CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS'):
+        core_writer.apply(conn, {'digest': 'd'}, [], decisions_only=True, backfill=True)
+    assert seen == {}  # the refusal happens before any core process or write
+    assert core_writer.apply(conn, {'digest': 'd'}, [], decisions_only=True,
+                             backfill=True, periods={}) == {'to_classify': 0}
+    assert seen['input']['decisions_only'] is True and seen['input']['periods'] == {}
+    assert '--backfill-decisions' in seen['command']
+
+
 def _counts_response(written):
     return json.dumps({'ok': True, 'result': {'to_classify': 1}, 'written': written, 'skipped_unjudged': 2,
                        'skipped_mismatch': 0, 'backfilled': 3, 'transaction_id': 'SECRET-TID'}) + '\n'

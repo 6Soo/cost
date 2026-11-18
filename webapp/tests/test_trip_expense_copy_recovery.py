@@ -5,15 +5,19 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 
 from webapp import ledger_design as design
+from webapp.static_assets import inline_document
 from webapp.tests.test_expense_copy_states import copy_state
+
+
+HTML = '<table><tbody><tr><td style="text-align:left">합성 거래처</td></tr></tbody></table>'
 
 
 @pytest.mark.parametrize('width', [1440, 390, 320])
 def test_pending_clipboard_recovers_and_native_retry_pastes_exact_tsv(copy_state, width):
     rows, preview = copy_state
     tsv = '2026-10-01\t합성 거래처\t식비\t\t\t카드\t1000'
-    document = design.render("<main id='main'>" + design._trip_copy_html(
-        'trip-synthetic', rows, preview) + '</main>')
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
     calls = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -73,6 +77,111 @@ def test_pending_clipboard_recovers_and_native_retry_pastes_exact_tsv(copy_state
             browser.close()
 
 
+def test_rich_copy_keeps_html_alignment_and_retry_payload(copy_state):
+    rows, preview = copy_state
+    tsv = '2026-10-01\t합성 거래처\t식비\t\t\t카드\t1000'
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(permissions=['clipboard-read', 'clipboard-write'])
+            page.route('http://127.0.0.1:9876/board**', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=document))
+            page.route('http://127.0.0.1:9876/api/**', lambda route: route.fulfill(
+                json=dict(tsv=tsv, html=HTML, row_count=1, total_krw=1000,
+                          source_available=True, held=[], matched=[])))
+            page.goto('http://127.0.0.1:9876/board')
+            page.evaluate('''() => {
+                window.copyPayloads = [];
+                document.addEventListener('copy', event => {
+                    window.copyPayloads.push({
+                        plain: event.clipboardData.getData('text/plain'),
+                        html: event.clipboardData.getData('text/html'),
+                        cancelled: event.defaultPrevented,
+                    });
+                });
+            }''')
+
+            page.get_by_role('button', name='Google 장부용 복사', exact=True).click()
+            expect(page.locator('#copy-status')).to_contain_text('지출내용이 복사되었습니다')
+            assert page.evaluate('window.copyPayloads[0].plain') == tsv
+            assert page.evaluate('window.copyPayloads[0].html') == HTML
+            assert page.evaluate('window.copyPayloads[0].cancelled')
+
+            clipboard = page.evaluate('''async () => {
+                const values = [];
+                for (const item of await navigator.clipboard.read()) {
+                    for (const type of item.types) {
+                        values.push({type, value: await (await item.getType(type)).text()});
+                    }
+                }
+                return values;
+            }''')
+            types = {item['type']: item['value'] for item in clipboard}
+            assert types['text/plain'] == tsv
+            assert types['text/html'] == HTML
+            assert 'text-align:left' in types['text/html']
+
+            prepared = page.locator('.trip-copy-manual textarea')
+            assert prepared.evaluate('e => e.dataset.html') == HTML
+            # The retry control stays in the prepared snapshot so a second copy
+            # cannot lose the alignment metadata after the first success.
+            page.locator('[data-copy-prepared]').evaluate('element => element.click()')
+            expect(page.locator('#copy-status')).to_contain_text('지출내용이 복사되었습니다')
+            assert len(page.evaluate('window.copyPayloads')) == 2
+            assert page.evaluate('window.copyPayloads[1].plain') == tsv
+            assert page.evaluate('window.copyPayloads[1].html') == HTML
+
+            page.evaluate('''() => {
+                const input = document.createElement('textarea');
+                input.id = 'paste-verification';
+                document.body.appendChild(input);
+                input.focus();
+            }''')
+            page.keyboard.press('Control+V')
+            expect(page.locator('#paste-verification')).to_have_value(tsv)
+        finally:
+            browser.close()
+
+
+def test_rich_copy_failure_shows_manual_retry_without_text_only_downgrade(copy_state):
+    rows, preview = copy_state
+    tsv = '2026-10-01\t합성 거래처\t식비\t\t\t카드\t1000'
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route('http://127.0.0.1:9876/board**', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=document))
+            page.route('http://127.0.0.1:9876/api/**', lambda route: route.fulfill(
+                json=dict(tsv=tsv, html=HTML, row_count=1, total_krw=1000,
+                          source_available=True, held=[], matched=[])))
+            page.goto('http://127.0.0.1:9876/board')
+            page.evaluate('''() => {
+                window.originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+                window.writeTextCalls = 0;
+                navigator.clipboard.writeText = async () => {
+                    window.writeTextCalls++;
+                    return undefined;
+                };
+                document.execCommand = () => false;
+            }''')
+            page.get_by_role('button', name='Google 장부용 복사', exact=True).click()
+            content = page.get_by_role('textbox', name='Google 시트에 붙여넣을 지출내용')
+            expect(content).to_be_visible()
+            expect(content).to_have_value(tsv)
+            expect(page.locator('.trip-copy-manual')).to_be_visible()
+            expect(page.locator('#copy-status')).to_contain_text('선택된 내용을 복사')
+            expect(page.locator('#copy-status')).not_to_contain_text('복사되었습니다')
+            assert page.evaluate('window.writeTextCalls') == 0
+            assert content.evaluate('e => e.dataset.html') == HTML
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize('width', [1440, 390, 320])
 def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, width):
     rows, preview = copy_state
@@ -81,8 +190,8 @@ def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, 
                     held=[{'transaction_id': 'tx-2', 'reason': 'ambiguous'}], matched=[{}, {}],
                     reconciliation={'cost_rows': [dict(transaction_id='tx-2', row_id='fresh&row',
                         occurred_on='2026-10-02', merchant='<새 대조 거래>', amount_krw=2000)]})
-    document = design.render("<main id='main'>" + design._trip_copy_html(
-        'trip-synthetic', rows, preview) + '</main>')
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
     requests = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -146,8 +255,8 @@ def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, 
 ])
 def test_copy_failure_restores_action_without_exposing_stale_text(copy_state, response, code, message):
     rows, preview = copy_state
-    document = design.render("<main id='main'>" + design._trip_copy_html(
-        'trip-synthetic', rows, preview) + '</main>')
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
@@ -181,8 +290,8 @@ def test_excluded_transactions_are_identifiable_and_escaped(copy_state):
                                      (200, '<!DOCTYPE html><title>Unexpected login page</title>')])
 def test_html_response_has_recovery_message_and_retry_fetches_fresh_content(copy_state, code, body):
     rows, preview = copy_state
-    document = design.render("<main id='main'>" + design._trip_copy_html(
-        'trip-synthetic', rows, preview) + '</main>')
+    document = inline_document(design.render(
+        "<main id='main'>" + design._trip_copy_html('trip-synthetic', rows, preview) + '</main>'))
     calls = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()

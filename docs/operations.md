@@ -1,3 +1,32 @@
+# 2026-11-18 22:45 — 수입 분리·M5 백업 거부·구 board 스키마 허용 운영 반영 (현재 운영)
+
+- **배포/실제 SHA:** actual `90ea51ff424efd5ac3954af43986be881ed4a30a`, Previous `c0c45c7fa9cdb291d198d5c3e9667801abb6721d`. 공식 `tools/deploy_verified_release.ps1 -Apply` exit0, continuous code-only, backend8752→**8751**·gateway8790. `deploy-evidence-90ea51ff….json`의 `recorded_at` 2026-11-18T13:45:47Z, `continuous-switch-90ea51ff….json` 13:45:04Z 기록.
+- **게이트:** 추적1,940파일·`release-audit` blob불일치0(동 `tracked_files` 1,940)·런타임 SHA verified·listener1(127.0.0.1:8751)·보호**14표** 전후 불변·health/ready200·비인증 보호API 3개 401·`prepared_before_stop`·`drained`·`worker_switched`·`core_writers` VERIFIED·paused=false. `fresh_backup_restore=false`(코드 전용, full backup 미사용)·`financial_apply=NOT_RUN`.
+- **포함:** 첫 부모 `cc7c28cd`(Google 수입을 별도 근거로 표시·미확인 금액을 통화 코드 대신 문구로), `c8375c27`(불가능·미래 날짜·미래 도장 백업 거부), `4aaac846`(COST·Google 수입 분리, GGL-003·GGL-014), `00d4aac5`(#1005 명세·규칙 정돈, 문서 전용), `90ea51ff`(manual-override 열 없는 구 board 파일 허용). 프런트 dist 3파일 SHA-256은 `release-audit`에 기록(index-BQP8FrcL.css·index-dcKU9JFy.js·index.html).
+- **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-90ea51ff….json`·`continuous-switch-90ea51ff….json`·`release-audit-90ea51ff….json`. 다음 배포의 `-PreviousSha`는 `90ea51ff`이며 배포 직전 실제 task·리스너·근거로 재확인한다. 이 기록 때문에 재배포하지 않는다.
+
+# 2026-11-18 18:54 — #1002·#1003·#1004 배포 (분류 출처 표시·교정 후 복귀·P2 결속)
+
+- **배포/실제 SHA:** actual `c0c45c7fa9cdb291d198d5c3e9667801abb6721d`, Previous `d27cd89a3a3fd6d57a7a4ed4064b4e172b72a799`. 공식 도구 exit0, backend8751→**8752**·gateway8790. `deploy-evidence-c0c45c7f….json` `recorded_at` 2026-11-18T09:54:17Z, `continuous-switch-c0c45c7f….json` 09:54:08Z.
+- **게이트:** 추적1,930파일 blob불일치0(release-audit `tracked_files` 1,930)·런타임 SHA verified·listener1·보호14표 불변·health/ready200·비인증 보호API 3개 401·worker 전환·core writers VERIFIED·paused=false. 코드 전용(`fresh_backup_restore=false`)·금융 apply NOT_RUN.
+- **포함:** `463d7f9c`(#1002 교정 후 같은 장부 목록 상태로 복귀), `b8c81bcc`(#1003 P2 응답 결속·합성 Replay 분리), `c0c45c7f`(#1004 행 상세에 저장된 분류 출처 표시). 프런트 dist 3파일 SHA-256은 `release-audit`(index-B0wxlqS0.css·index-CVZj5sWE.js·index.html).
+- **근거/다음:** `deploy-evidence-c0c45c7f….json`·`continuous-switch-c0c45c7f….json`·`release-audit-c0c45c7f….json`. 다음 배포 PreviousSha는 `c0c45c7f`였다.
+
+# 2026-11-18 17:31 — #994~#1001 병합 배포 (복사 성능·사이드바 선택·M3/M5 보완)
+
+- **배포/실제 SHA:** actual `d27cd89a3a3fd6d57a7a4ed4064b4e172b72a799`, Previous `d24836b4ff1f04cbd5e70f67b69c164dbfacb79b`. 공식 도구 exit0, backend8752→**8751**·gateway8790. `deploy-evidence-d27cd89a….json` `recorded_at` 2026-11-18T08:31:58Z, `continuous-switch-d27cd89a….json` 08:31:41Z.
+- **게이트:** 추적1,924파일 blob불일치0·런타임 SHA verified·listener1·보호14표 불변·health/ready200·비인증 보호API 3개 401·worker 전환·core writers VERIFIED·paused=false. 코드 전용·금융 apply NOT_RUN. `release-audit`의 `matches_prior_frontend_assets=true`로 dist 3파일이 직전 `d24836b4`와 같다(이 배포에 프런트 소스 변경 없음).
+- **포함:** `bff6e2aa`(#994 Google 장부 복사 캐시·`text/html` rich copy), `131078a8`(#995 사이드바 현재 여행 표시), `2c079012`(#996 M5 원본 스냅숏 보존), `935db712`(#997 추출기 기준선 producer manifest 결속), `94c67052`(#998 결정 이력의 원문 해시·revision), `228202fe`(#999 읽기 전용 결정 감사), `d5d2ade3`(#1000 M3/M4/M5 로드맵 문서), `d27cd89a`(#1001 요청 수 계측). `d24836b4`(2026-11-18 04:33 절)의 코드는 #995(`131078a8`)로도 main에 들어왔고, 두 커밋의 차이는 `docs/operations.md`·`docs/session_handoff.md`뿐이다(`git diff --stat 131078a8 d24836b4`).
+- **근거/다음:** `deploy-evidence-d27cd89a….json`·`continuous-switch-d27cd89a….json`·`release-audit-d27cd89a….json`. 다음 배포 PreviousSha는 `d27cd89a`였다.
+
+# 2026-11-18 — 현재 여행 탭의 좌측 목록 선택 표시 운영 반영
+
+- **변경:** 사용자 요청 “현재 보고있는 탭이 왼쪽 여행 목록에도 표기되게”. React 셸이 URL 문자열 포함(`includes`)으로 선택을 판정해 접두사 ID까지 선택되는 문제를 정확 ID 동일 비교로 바꾸고, 현재 여행 ID를 사이드바·여행 전환·태블릿 메뉴에 전달했다. 레거시 Python 셸은 여행 문맥을 `/board`에서만 넘기던 것을 여행 관련 8경로로 확장하고, `_active_trip_nav`의 8개 제한을 제거해 뒤쪽 여행도 선택 상태를 유지한다. 판정·금융·원문·스키마는 바꾸지 않는다.
+- **검사/검수:** 최종 후보 `d24836b4ff1f04cbd5e70f67b69c164dbfacb79b`. 공식 영향 `PASSED` 726/726·76 subtests·skip0·known failure0·브라우저 필수 35건 전부 실행·pytest/compile exit0. 표적 Python 39+32, 프런트 13건+타입/빌드 PASS. CI는 결제 한도로 2 job 시작 전 차단(annotation 직접 확인)이라 지침의 독립 검수 예외를 적용했고, 교차 세션 Claude가 정확 3파일 코드 diff를 읽고 PASS(blocker 0, low 1건은 React/Python 경로 범위 차이 설명). 데이터 보호 검사 차단0·삭제0.
+- **배포/보호:** 공식 `tools/deploy_verified_release.ps1 -Apply` exit0, actual `d24836b4`, Previous `9b2e3212986f1fb99e8f2108477d67b532d446f9`(Plush bootstrap read_scope 수정은 병합으로 그대로 보존, `plush_api.py`·`read_scope.py` diff 0). backend8751→**8752**·gateway8790. 추적1,912파일 blob불일치0·빌드dist 3파일 SHA256 일치(index-Ccqethtq.js `e875bd50…`)·런타임 SHA verified·listener1·보호14표 전후 불변·health/ready200·비인증 보호API 3개 401·core writers VERIFIED·worker 전환·paused=false. 코드 전용(full backup 미사용), 금융 apply/마이그레이션/Google 쓰기 없음.
+- **실화면:** 인증된 운영 브라우저에서 `/board?tab=…` 이동 시 좌측 여행 목록이 정확히 1개만 선택 표시되고 본문 제목과 일치. `/receipts`·`/export`·`/reserve-links`·`/participants/insurance-match`(React 셸)와 `/participants`(레거시 셸)에서도 같은 선택이 유지되며, 탭 파라미터가 없는 `/board`는 선택 0이다. 여행명·원문은 Git에 보존하지 않았다.
+- **근거/다음:** `D:/WebLedgerHost/releases/deploy-evidence-d24836b4….json`·`continuous-switch-d24836b4….json`·`release-audit-d24836b4….json`, 작업폴더 `.local-archive/active-trip-sidebar-deploy-20261118/`(review-evidence·protection-before/after·prepare-release·release.zip). 남은 작업/차단 없음, 다음 PreviousSha는 실제 운영값 재확인. 완료 기록만으로 재배포하지 않는다.
+
 # 2026-11-17 15:41 — 최근 여행 정렬 수정 운영 반영
 
 - 공식 배포 최종 exit0, actual `bd04eddb8ad1fc1f2bbc7307095fea00d1d07613` / backend8752·gateway8790, Previous `acc0d27413ea01c455d2c9ab4d98155199f7ead0`. PR991 merge `e8bf7a33`는 검수 후보와 트리 동일. 독립 gpt-6.1-sol medium 정확 SHA APPROVE, frontend58·영향46·typecheck/build PASS, CI 결제 문제 시작 전 차단 확인.

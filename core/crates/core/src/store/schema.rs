@@ -163,6 +163,25 @@ ALTER TABLE decisions ADD COLUMN evidence_digest TEXT NOT NULL DEFAULT '';
 ALTER TABLE decisions ADD COLUMN period_fn_version INTEGER NOT NULL DEFAULT 0;
 ";
 
+const V3: &str = "
+ALTER TABLE jobs ADD COLUMN budget_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0 CHECK (lease_generation >= 0);
+ALTER TABLE jobs ADD COLUMN result_json TEXT NOT NULL DEFAULT '';
+CREATE INDEX jobs_state_id ON jobs(state, job_id);
+CREATE TRIGGER jobs_state_valid_insert
+BEFORE INSERT ON jobs
+WHEN NEW.state NOT IN ('queued','leased','succeeded','failed','dead')
+BEGIN
+    SELECT RAISE(ABORT, 'invalid_job_state');
+END;
+CREATE TRIGGER jobs_state_valid_update
+BEFORE UPDATE OF state ON jobs
+WHEN NEW.state NOT IN ('queued','leased','succeeded','failed','dead')
+BEGIN
+    SELECT RAISE(ABORT, 'invalid_job_state');
+END;
+";
+
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -173,6 +192,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "판정에 이용기간 근거 digest·함수 버전 저장(설계 §2.7)",
         sql: V2,
+    },
+    Migration {
+        version: 3,
+        name: "M5 제공자 비종속 작업 큐·임대·결과",
+        sql: V3,
     },
 ];
 

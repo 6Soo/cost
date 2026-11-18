@@ -133,6 +133,47 @@ def test_trip_costs_are_reached_from_trip_management_not_a_standalone_ledger_men
     assert "여행 장부" not in html
 
 
+def test_trip_context_marks_current_trip_in_sidebar():
+    live_trips = [{
+        'tab_id': 'receipt-trip',
+        'display_title': '영수증 여행',
+        'starts_on': '2026-11-01',
+        'ends_on': '2026-11-03',
+    }]
+    original = '<html><head></head><body><main>내용</main></body></html>'
+    for path in (
+        '/receipts?trip=receipt-trip',
+        '/participants?trip=receipt-trip',
+        '/expense/new?tab=receipt-trip',
+    ):
+        with patch.object(ledger_board, 'current_role', return_value='owner'), \
+                patch.object(ledger_board, 'live_trips', return_value=live_trips), \
+                patch.object(ledger_board, 'is_default_listed_trip', return_value=False), \
+                patch.object(ledger_design, 'nav_region', return_value=None):
+            html = site_shell.wrap_document(original, path)
+        assert "nv-current" in html, path
+        assert "aria-current='page'" in html, path
+        assert '>영수증 여행</span>' in html, path
+
+
+def test_current_trip_is_not_cut_from_sidebar_after_eight_other_trips():
+    live_trips = [{
+        'tab_id': f'trip-{index}',
+        'display_title': f'합성 여행 {index}',
+        'display_key': f'{index:02d}',
+        'starts_on': f'2026-01-{index:02d}',
+        'ends_on': f'2026-01-{index:02d}',
+    } for index in range(1, 10)]
+    with patch.object(ledger_board, 'live_trips', return_value=live_trips), \
+            patch.object(ledger_board, 'is_default_listed_trip', return_value=True):
+        html = site_shell._active_trip_nav('trip-9')
+    for index in range(1, 10):
+        assert f'>합성 여행 {index}</span>' in html
+    assert "class='nv nv-current'" in html
+    assert "href='/board?tab=trip-9'" in html
+    assert '>합성 여행 9</span>' in html
+
+
 def test_cleanup_preserves_errors_confirmation_and_scripts():
     original = ("<p>자동 추출은 연결되지 않았습니다. 사진을 보고 입력하세요.</p>"
                 "<p role='alert'>자동 추출은 연결되지 않았습니다. 설정을 확인하세요.</p>"

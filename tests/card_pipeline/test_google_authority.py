@@ -780,6 +780,114 @@ def test_reader_gets_a_consistent_pair(tmp_path: Path):
     assert snapshot["schema"] == ga.SCHEMA and "main" in rows
 
 
+def test_repeated_reader_calls_reuse_validated_json_and_return_independent_values(tmp_path: Path, monkeypatch):
+    ga._clear_reader_caches()
+    snapshot_path = tmp_path / "snapshot.json"
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "marker": {"value": "first"}})
+    reads, parses = [0], [0]
+    real_read_text, real_loads = Path.read_text, json.loads
+
+    def counting_read_text(self, *args, **kwargs):
+        reads[0] += 1
+        return real_read_text(self, *args, **kwargs)
+
+    def counting_loads(*args, **kwargs):
+        parses[0] += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    monkeypatch.setattr(json, "loads", counting_loads)
+    first = ga.load_snapshot(snapshot_path)
+    first["marker"]["value"] = "mutated by caller"
+    second = ga.load_snapshot(snapshot_path)
+    third = ga.load_snapshot(snapshot_path)
+    assert second == third == {"schema": ga.SCHEMA, "marker": {"value": "first"}}
+    assert reads[0] == 1
+    assert parses[0] == 1
+
+
+def test_reader_cache_observes_an_atomic_file_replacement(tmp_path: Path):
+    ga._clear_reader_caches()
+    snapshot_path = tmp_path / "snapshot.json"
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "old"})
+    assert ga.load_snapshot(snapshot_path)["version"] == "old"
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "new"})
+    assert ga.load_snapshot(snapshot_path)["version"] == "new"
+
+
+def test_reader_cache_hit_rechecks_identity_after_the_lookup(tmp_path: Path, monkeypatch):
+    ga._clear_reader_caches()
+    snapshot_path = tmp_path / "snapshot.json"
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "old"})
+    assert ga.load_snapshot(snapshot_path)["version"] == "old"
+
+    real_cache_get = ga._cache_get
+    replaced = []
+
+    def racing_cache_get(cache, key):
+        cached = real_cache_get(cache, key)
+        if cached is not None and not replaced:
+            replaced.append(True)
+            ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "new"})
+        return cached
+
+    monkeypatch.setattr(ga, "_cache_get", racing_cache_get)
+    assert ga.load_snapshot(snapshot_path)["version"] == "new"
+    assert replaced == [True]
+
+
+def test_reader_cache_recovers_after_corrupt_or_invalid_snapshot(tmp_path: Path):
+    ga._clear_reader_caches()
+    snapshot_path = tmp_path / "snapshot.json"
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "valid"})
+    assert ga.load_snapshot(snapshot_path)["version"] == "valid"
+
+    snapshot_path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ga.SnapshotError) as corrupt:
+        ga.load_snapshot(snapshot_path)
+    assert corrupt.value.code == "SNAPSHOT_UNREADABLE"
+
+    ga._write_atomic(snapshot_path, {"schema": "previous-schema", "version": "wrong-schema"})
+    with pytest.raises(ga.SnapshotError) as schema:
+        ga.load_snapshot(snapshot_path)
+    assert schema.value.code == "SNAPSHOT_SCHEMA_MISMATCH"
+
+    ga._write_atomic(snapshot_path, {"schema": ga.SCHEMA, "version": "recovered"})
+    assert ga.load_snapshot(snapshot_path)["version"] == "recovered"
+
+
+def test_rows_cache_recovers_after_corrupt_schema_or_generation_mismatch(tmp_path: Path):
+    ga._clear_reader_caches()
+    rows_path = tmp_path / "rows-private.json"
+    generation = "a" * 32
+    rows_file = ga._rows_file(rows_path, generation)
+    valid = {"schema": ga.ROWS_SCHEMA, "generation": generation,
+             "sources": {"main": {"content_sha256": "valid"}}}
+
+    for invalid, code in [
+        ("{not json", "ROWS_UNREADABLE"),
+        ({"schema": "previous-schema", "generation": generation, "sources": {}},
+         "ROWS_SCHEMA_MISMATCH"),
+        ({"schema": ga.ROWS_SCHEMA, "generation": "b" * 32, "sources": {}},
+         "ROWS_GENERATION_MISMATCH"),
+    ]:
+        ga._write_atomic(rows_file, valid)
+        first = ga.load_rows(rows_path, generation)
+        first["main"]["content_sha256"] = "mutated by caller"
+        assert ga.load_rows(rows_path, generation)["main"]["content_sha256"] == "valid"
+
+        if isinstance(invalid, str):
+            rows_file.write_text(invalid, encoding="utf-8")
+        else:
+            ga._write_atomic(rows_file, invalid)
+        with pytest.raises(ga.SnapshotError) as raised:
+            ga.load_rows(rows_path, generation)
+        assert raised.value.code == code
+
+    ga._write_atomic(rows_file, {**valid, "sources": {"main": {"content_sha256": "recovered"}}})
+    assert ga.load_rows(rows_path, generation)["main"]["content_sha256"] == "recovered"
+
+
 def test_reader_refuses_rows_whose_fingerprint_belongs_to_another_run(tmp_path: Path):
     snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
     data = _row_book([("A", "식비", 1)])

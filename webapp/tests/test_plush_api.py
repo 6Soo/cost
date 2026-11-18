@@ -66,6 +66,34 @@ def test_bootstrap_and_ledger_are_structured_and_use_string_amounts(bound_store)
     assert "operator_note" not in json.dumps(ledger, ensure_ascii=False)
 
 
+def test_trip_titles_use_the_andre_suffix_without_rewriting_source_keys(bound_store):
+    store, _ = bound_store
+    andre = store.create_trip(
+        starts_on="2026-10-22", ends_on="2026-10-23", destination="합성",
+        display_key="andre::2026::1022_합성", client_request_id="andre-label-api",
+        actor="google-sync",
+    )
+    aslan = store.create_trip(
+        starts_on="2026-10-22", ends_on="2026-10-23", destination="합성",
+        display_key="1022_합성", client_request_id="aslan-label-api",
+    )
+
+    status, bootstrap = call("/api/plush/bootstrap", "syn-owner", store)
+    assert status == 200
+    by_id = {trip["id"]: trip for trip in bootstrap["trips"]}
+    assert by_id[andre["tab_id"]]["title"] == "1022_합성 · 안드레"
+    assert by_id[andre["tab_id"]]["display_key"] == "andre::2026::1022_합성"
+    assert by_id[aslan["tab_id"]]["title"] == "1022_합성"
+    assert by_id[aslan["tab_id"]]["display_key"] == "1022_합성"
+
+    status, ledger = call(
+        f"/api/plush/ledger?tab={andre['tab_id']}", "syn-owner", store
+    )
+    assert status == 200
+    assert ledger["trip"]["title"] == "1022_합성 · 안드레"
+    assert ledger["trip"]["display_key"] == "andre::2026::1022_합성"
+
+
 def test_unknown_trip_and_row_answer_404(bound_store):
     """수락 #10: 없는 여행 id·행은 200 빈 장부가 아니라 404 RESOURCE_NOT_FOUND여야 한다."""
     store, _ = bound_store

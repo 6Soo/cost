@@ -16,18 +16,9 @@
 
 ## 영역별 판정 규칙
 
-- [코드와 규칙이 다른 곳](policy/CODE_GAPS.md)
-- [판정 규칙 — 이용기간·날짜](policy/date.md)
-- [판정 규칙 — Google 장부](policy/google.md)
-- [판정 규칙 — 수입·참가자](policy/income.md)
-- [판정 규칙 — 항목 분류](policy/item.md)
-- [판정 규칙 — OTA↔카드 연결](policy/link.md)
-- [판정 규칙 — 처리 원칙](policy/process.md)
-- [판정 규칙 — 영수증](policy/receipt.md)
-- [판정 규칙 — 장부 기록](policy/record.md)
-- [판정 규칙 — 환불·취소](policy/refund.md)
-- [판정 규칙 — 수집·원본](policy/source.md)
-- [판정 규칙 — 여행 귀속](policy/trip.md)
+- [업무 단계별 규칙 안내 — 11개 영역·규칙 ID 검색](policy/README.md)
+- [판정의 공통 우선순위와 사용자 예외](DECISION_POLICY.md)
+- [코드와 규칙이 다른 곳 — 실제 수정 전 재검증](policy/CODE_GAPS.md)
 
 ## 절차서
 
@@ -66,6 +57,7 @@
 
 ## 검사·조사 근거
 
+- [저장소 전체 경량화 정적 감사 — 파일·코드·문서·검증 우선순위 (2026-11-18)](audits/repository-lightweight-review-20261118.md)
 - [2026년 3분기 AI 분기 검수 보고](agents/artifacts/ai-quarter-review-2026Q3.md)
 - [자동 기록 원자성·금액 묶음 정렬 확인 (2026-11-13)](agents/artifacts/amount-group-and-revision-20261113.md)
 - [배포된 계약과 기존 검사 대조 (2026-11-12)](agents/artifacts/baseline-check-reconciliation-20261112.md)

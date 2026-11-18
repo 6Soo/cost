@@ -389,6 +389,78 @@ fn only_a_changed_basis_selects_a_stored_transaction_for_rejudging() {
 }
 
 #[test]
+fn decision_history_keeps_source_identity_before_and_after() {
+    let dir = Scratch::new("history-identity");
+    let conn = open_core(&dir.0.join("core.sqlite")).unwrap();
+    let hotel = input(vec![base_row("syn-t1", json!({}))]);
+    let facts = BTreeMap::from([("syn-t1".to_owned(), candidate(fact(json!({}))))]);
+    let decision = decided(&hotel, &facts, "syn-t1");
+    let digests = digests_for(&hotel, &facts);
+    assert!(
+        save_decision(
+            &conn,
+            "main",
+            &decision,
+            "inference",
+            &digests["syn-t1"],
+            1,
+            "2026-11-18T00:00:00Z",
+            "req-1"
+        )
+        .unwrap()
+    );
+    let history: i64 = conn
+        .query_row("SELECT count(*) FROM decision_history", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(history, 0, "첫 저장은 이전 행이 없어 이력을 남기지 않는다");
+    // 같은 판정이라도 원천 개정 번호가 바뀌면 저장하고 전후 지문을 이력에 남긴다.
+    assert!(
+        save_decision(
+            &conn,
+            "main",
+            &decision,
+            "inference",
+            &digests["syn-t1"],
+            2,
+            "2026-11-18T01:00:00Z",
+            "req-2"
+        )
+        .unwrap()
+    );
+    let (before, after): (String, String) = conn
+        .query_row(
+            "SELECT before_json,after_json FROM decision_history WHERE transaction_id='syn-t1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let before: Value = serde_json::from_str(&before).unwrap();
+    let after: Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(before["source_hash"], json!(HASH));
+    assert_eq!(before["revision"], json!(1));
+    assert_eq!(after["source_hash"], json!(HASH));
+    assert_eq!(after["revision"], json!(2));
+    // 같은 레코드(지문 포함)를 다시 저장하면 쓰지도, 이력을 남기지도 않는다.
+    assert!(
+        !save_decision(
+            &conn,
+            "main",
+            &decision,
+            "inference",
+            &digests["syn-t1"],
+            2,
+            "2026-11-18T02:00:00Z",
+            "req-3"
+        )
+        .unwrap()
+    );
+    let history: i64 = conn
+        .query_row("SELECT count(*) FROM decision_history", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(history, 1);
+}
+
+#[test]
 fn a_period_only_change_rejudges_even_when_the_seven_columns_are_equal() {
     let held = base_row(
         "syn-h",

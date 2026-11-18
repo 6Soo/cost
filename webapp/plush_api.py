@@ -14,6 +14,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
+from . import ledger_google_match
+from . import ledger_periods as period_rows
 from . import plush_projection as projection
 
 
@@ -126,10 +128,47 @@ def _trip_for_query(board: Any, access: Any, session: Any, owner: bool,
         return trip, list(board.list_tab_rows(None))
     trip = next((item for item in trips if str(item.get("tab_id")) == tab_id), None)
     if trip is None:
+        # SPEC §11.2.1 계약 1·3: the quarter 기타비용 tab and the refund tab are
+        # board destinations the legacy list already serves, so the common
+        # query answers them too instead of reporting an unknown trip.
+        quarter = _quarter_tab_entry(tab_id)
+        if quarter is not None:
+            return quarter, list(board.list_tab_rows(tab_id))
+        if tab_id == "refunds":
+            # The refund tab is owner-only attribution; members come from the
+            # same rule the legacy attribution uses (RFND-022 / ITEM-011).
+            if not owner:
+                raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
+            return _refund_tab_entry(), list(board.list_tab_rows(tab_id))
         raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
     if not owner:
         access.require_view_tab(session.user_id, tab_id)
     return trip, list(board.list_tab_rows(tab_id))
+
+
+def _refund_tab_entry() -> dict[str, Any]:
+    """The refund tab's own identity, not a trip in the sidebar list."""
+    return {
+        "tab_id": "refunds", "display_key": "refunds", "display_title": "환불",
+        "starts_on": "", "ends_on": "", "tab_kind": "other",
+        "archived": False, "visual_closed": False,
+    }
+
+
+def _quarter_tab_entry(tab_id: str) -> dict[str, Any] | None:
+    """A ``quarter:YYYY:Q`` tab's identity, or None when it is not one."""
+    from app import quarter_tab
+
+    parsed = quarter_tab.parse_tab(tab_id)
+    if not parsed:
+        return None
+    year, quarter = parsed
+    return {
+        "tab_id": tab_id, "display_key": tab_id,
+        "display_title": f"{year}년 {quarter}분기 기타비용",
+        "starts_on": "", "ends_on": "", "tab_kind": "quarter",
+        "archived": False, "visual_closed": False,
+    }
 
 
 def _source_income(board, access, session, owner, tab_id):
@@ -138,17 +177,38 @@ def _source_income(board, access, session, owner, tab_id):
                              visible_tabs=set() if owner else set(access.visible_tabs(session.user_id)))
 
 
+def _confirmed_total(rows: list[dict[str, Any]]) -> str:
+    """The confirmed KRW total of a row set, with Google and unreadable amounts out.
+
+    GGL-003: internal COST income and Google income are never summed, so a Google
+    row never contributes to a total. GGL-014 / SPEC §11.2.1 계약 4: an amount the
+    source could not read is not a zero, so it is left out of the total instead of
+    silently making the figure smaller than it claims to be.
+    """
+    return projection.money(sum(
+        projection._display_amount(row) for row in rows
+        if not row.get("google_income") and not row.get("amount_missing")))
+
+
 def _with_income(rows, source):
     ids = {row.get('row_id') for row in rows}
     return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
 
 
-def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
+                  income_source: dict[str, Any] | None = None) -> dict[str, Any]:
     # The store's displayed amount/date projection is authoritative.  This
     # fallback is only for test doubles that expose plain rows.
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
-    return projection.trip_summary(trip, rows)
+    # GGL-003: the summary keeps COST and Google income apart. The verified flag
+    # the source block reports is the only thing that lets Google stand in.
+    verified_trip = dict(trip, google_verified=bool((income_source or {}).get("verified")))
+    summary = projection.trip_summary(verified_trip, rows)
+    from . import ledger_board
+
+    summary["title"] = ledger_board.trip_display_label(trip)
+    return summary
 
 
 def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str, Any]:
@@ -161,7 +221,7 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
         rows = list(board.list_tab_rows(trip["tab_id"]))
         income = _source_income(board, access, session, owner, trip['tab_id'])
         rows = _with_income(rows, income)
-        summary = _trip_summary(board, trip, rows)
+        summary = _trip_summary(board, trip, rows, income_source=income)
         summary['income_source'] = {key: value for key, value in income.items() if key != 'rows'}
         summaries.append(summary)
     capabilities = ["ledger.read", "row.read", "transactions.read"]
@@ -202,10 +262,27 @@ def _home(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str,
     return result
 
 
-def _row_search(row: dict[str, Any], board: Any) -> str:
+def _row_search(row: dict[str, Any], board: Any, *, owner: bool = False) -> str:
     if board is not None and hasattr(board, "projected"):
         row = board.projected(row)
-    return projection.search_text(row)
+    return projection.search_text(row, owner=owner)
+
+
+def _refund_member_ids(board: Any, owner: bool) -> set:
+    """Transactions in a completed net-zero refund group (owner attribution).
+
+    The rule itself lives in ``refund_tab.member_ids``, the same helper the
+    legacy board and the refund tab use, so the two paths cannot disagree about
+    which rows belong to the refund tab.
+    """
+    if not owner or board is None:
+        return set()
+    try:
+        from . import refund_tab
+
+        return set(refund_tab.member_ids(board))
+    except Exception:
+        return set()
 
 
 def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
@@ -216,6 +293,14 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     rows = _with_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
+    # RFND-022 / ITEM-011: a completed net-zero refund group belongs to the
+    # refund tab and is not shown or summed again in the general expenses. This
+    # changes only which rows are displayed — the amounts, signs and the refund
+    # relationship itself are untouched. The refund tab keeps them.
+    if owner and str(trip.get("tab_id") or "") != "refunds":
+        excluded = _refund_member_ids(board, True)
+        if excluded:
+            rows = [row for row in rows if row.get("source_event_id") not in excluded]
     all_rows = list(rows)
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
@@ -226,7 +311,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     rows = list(kind_rows)
     text = _first(query, "q").strip().casefold()
     if text:
-        rows = [row for row in rows if text in _row_search(row, None)]
+        rows = [row for row in rows if text in _row_search(row, None, owner=owner)]
     sort = _first(query, "sort", "date_desc")
     if sort not in _SORTS:
         raise _ProjectionError("INVALID_VALUE", "정렬 조건이 올바르지 않아요", 400)
@@ -240,8 +325,12 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
         try:
             amount = int(shown["amount"])
         except ValueError:
-            amount = 0
-        return (amount, shown["id"])
+            # An unknown amount is not a zero (SPEC §11.2.1 계약 4 / GGL-014) and
+            # must not sit among real balances. The flag is chosen so `reverse`
+            # still leaves the unknowns last: ascending sorts flag 1 before 0,
+            # descending reverses that into flag 0 before 1.
+            return (0 if sort.endswith("_desc") else 1, 0, shown["id"])
+        return (1 if sort.endswith("_desc") else 0, amount, shown["id"])
 
     rows.sort(key=key, reverse=sort.endswith("_desc"))
     try:
@@ -255,15 +344,36 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     selected = rows[start:start + page_size]
     closed = bool(trip.get("visual_closed") or trip.get("archived"))
     read_only = (not owner) or closed
+    # SPEC §11.2.1 계약 4: the period shown here is the same stored/manual read
+    # the legacy screen performs, annotated once for the rows on this page.
+    annotated = period_rows.annotate(selected, board)
+    # SPEC §11.2.1 계약 4: the row carries its Google 대사 status, from the same
+    # owner-only rule the legacy board uses. A viewer gets none (the helper
+    # refuses without the owner role).
+    match_status = ledger_google_match.annotations(
+        _board_instance(board), str(trip.get('tab_id') or ''), selected, owner=owner)
+    dto_rows = []
+    for row in annotated:
+        period, period_source = period_rows.period_for_row(row, board)
+        compact, full = period_rows.display_label(row)
+        dto_rows.append(projection.ledger_row(
+            row, read_only=read_only or row.get('google_income', False),
+            period=period, period_source=period_source,
+            period_label=compact, period_label_full=full,
+            google_match=match_status.get(str(row.get('row_id') or ''))))
     return {
-        "trip": _trip_summary(board, trip, all_rows),
+        "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
-        "rows": [projection.ledger_row(row, read_only=read_only or row.get('google_income', False)) for row in selected],
+        "rows": dto_rows,
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
-        "filtered_total": projection.money(sum(projection._display_amount(row) for row in rows)),
-        "total": projection.money(sum(projection._display_amount(row) for row in kind_rows)),
+        # GGL-003/GGL-014: a Google amount is never summed into a COST total. The
+        # legacy screen keeps the Google block out of its own 합계, so a total
+        # that added it would make the two entry paths disagree. An unreadable
+        # amount is excluded rather than counted as zero (SPEC §11.2.1 계약 4).
+        "filtered_total": _confirmed_total(rows),
+        "total": _confirmed_total(kind_rows),
         "closed": closed,
     }
 
@@ -325,9 +435,16 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         })
     # Keep source detail unprojected for provenance, but make the row shown to
     # the user follow the exact same correction projection as the ledger list.
+    # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
+    display_row = period_rows.annotate([display_row], board)[0]
+    period, period_source = period_rows.period_for_row(display_row, board)
+    compact, full = period_rows.display_label(display_row)
     return {
-        "row": projection.ledger_row(display_row, read_only=read_only),
+        "row": projection.ledger_row(display_row, read_only=read_only,
+                                     period=period, period_source=period_source,
+                                     period_label=compact, period_label_full=full),
         "source": projection.safe_source(row) if owner else None,
+        "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,
         "history": list(board.list_history(row_id)) if owner and not row.get('google_income') and hasattr(board, "list_history") else [],
         "lineage": [projection.safe_source(row)] if owner else [],
@@ -1472,10 +1589,13 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
         board = _board_instance(board)
         ledger_board, access, session = _auth(handler)
         query = _query(parsed)
-        if path == "/api/plush/bootstrap":
-            result = _bootstrap(ledger_board, access, session, board)
-        elif path == "/api/plush/home":
-            result = _home(ledger_board, access, session, board)
+        # One request reads each Google snapshot and row set once. Bootstrap and
+        # home both walk every trip, and each trip re-reads the same 1.7MB files
+        # through plush_income: ~3.5s for 72 trips uncached, ~0.8s inside one scope.
+        from . import read_scope
+        if path in ("/api/plush/bootstrap", "/api/plush/home"):
+            projection_fn = _bootstrap if path == "/api/plush/bootstrap" else _home
+            result = read_scope.scoped(projection_fn)(ledger_board, access, session, board)
         elif path == "/api/plush/ledger":
             result = _ledger(ledger_board, access, session, board, query)
         elif path == "/api/plush/row":

@@ -1,4 +1,5 @@
 import pytest
+from html.parser import HTMLParser
 
 from app.google_tsv import COLUMNS, expense_tsv
 
@@ -10,10 +11,44 @@ def row(transaction_id, **overrides):
     return base
 
 
+class _TableCells(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows = []
+        self._cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self.rows.append([])
+        elif tag == "td":
+            self._cell = []
+            assert dict(attrs).get("style") == "text-align:left"
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "td" and self._cell is not None:
+            self.rows[-1].append("".join(self._cell))
+            self._cell = None
+
+
+def _html_cells(result):
+    parser = _TableCells()
+    parser.feed(result["html"])
+    return parser.rows
+
+
 def test_seven_columns_in_contract_order_one_row_per_transaction():
     result = expense_tsv([row("t1", period="2027-08-01~02", reservation_no="R-1", evidence="receipt")], layout="rev")
     assert len(COLUMNS) == 7
     assert result["tsv"] == "2027-08-02\tPAYEE-A\t식비\t2027-08-01~02\tR-1\t영수증\t10000\n"
+    assert result["html"].startswith("<table><tbody><tr>") and result["html"].endswith("</tbody></table>")
+    assert "<th" not in result["html"]
+    assert [_cells for _cells in _html_cells(result)] == [[
+        "2027-08-02", "PAYEE-A", "식비", "2027-08-01~02", "R-1", "영수증", "10000",
+    ]]
     assert result["row_count"] == 1 and result["total_krw"] == 10000 and result["held"] == []
 
 
@@ -34,6 +69,7 @@ def test_not_ready_and_invalid_rows_are_held_with_reason():
         row("", ),
     ], layout="rev")
     assert result["row_count"] == 0 and result["tsv"] == ""
+    assert result["html"] == "<table><tbody></tbody></table>"
     reasons = {h["transaction_id"]: h["reason"] for h in result["held"]}
     assert reasons == {"a": "NOT_READY", "b": "AMOUNT_INVALID", "c": "EVIDENCE_UNKNOWN",
                        "d": "DATE_INVALID", "e": "FIELD_MISSING", "": "ID_MISSING"}
@@ -62,11 +98,24 @@ def test_invalid_copy_of_same_identity_also_blocks_the_ready_copy(invalid, reaso
 def test_formula_like_text_is_neutralized(payee):
     result = expense_tsv([row("t1", payee=payee)], layout="rev")
     assert result["tsv"].split("\t")[1] == "'" + payee
+    assert _html_cells(result)[0][1] == "'" + payee
 
 
 def test_tabs_and_newlines_cannot_break_the_paste_row():
     result = expense_tsv([row("t1", payee="A\tB\nC")], layout="rev")
     assert result["tsv"].count("\n") == 1 and result["tsv"].split("\t")[1] == "A B C"
+    assert _html_cells(result)[0][1] == "A B C"
+
+
+def test_html_cells_are_escaped_and_use_left_alignment_without_a_header():
+    payee = "PAYEE <A> & B"
+    result = expense_tsv([row("t1", payee=payee)], layout="rev")
+    assert result["tsv"].split("\t")[1] == payee
+    assert "PAYEE &lt;A&gt; &amp; B" in result["html"]
+    assert "<th" not in result["html"]
+    assert len(_html_cells(result)) == 1
+    assert result["html"].count("<td ") == 7
+    assert result["html"].count('style="text-align:left"') == 7
 
 
 def test_non_standard_target_layout_is_refused():

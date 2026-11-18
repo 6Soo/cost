@@ -1130,10 +1130,27 @@ def verified_period_for(row, index):
 
 
 def manual_period_rows(store) -> set:
-    """row_ids whose service period a person set (an empty value is an explicit "unknown")."""
+    """row_ids whose service period a person set (an empty value is an explicit "unknown").
+
+    An old board file can carry `board_manual_overrides` with only `row_id`, or with no
+    such table at all (APP-065 / `app/manual_overrides.py` reads that shape already).
+    Without a `field` column no record can say *which* field a person overrode, so none
+    of them can be read as a service-period override: the answer is the empty set, not
+    the table's row_ids. Returning them would turn a stored Rust decision into an
+    "unknown" period for a row whose manual value was something else entirely, and a
+    read must never invent a person's correction.
+    """
     if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
         return set()
     with store._lock:
+        if not store.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table'"
+                " AND name='board_manual_overrides'").fetchone():
+            return set()
+        columns = {row[1] for row in store.conn.execute(
+            "PRAGMA table_info(board_manual_overrides)")}
+        if 'field' not in columns:
+            return set()
         return {str(r[0]) for r in store.conn.execute(
             "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
 

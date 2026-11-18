@@ -7,7 +7,7 @@ import { RowDrawer } from './rowDrawer';
 import { humanDate, readPage, requestId, useUrlSearch } from './urlState';
 import './ledger.css';
 
-type LedgerKind = 'expense' | 'income';
+import type { LedgerKind } from './urlState';
 type LedgerSort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'merchant_asc';
 type LedgerPayload = {
   trip: TripSummary;
@@ -18,7 +18,7 @@ type LedgerPayload = {
   filtered_total: string;
   total: string;
   closed: boolean;
-  income_source?: { available: boolean; verified: boolean; reason: string };
+  income_source?: { available: boolean; verified: boolean; reason: string; total?: string | null };
 };
 type CopyPayload = { tsv: string; row_count: number; total_krw: string; message?: string };
 type ExportJob = { job_id?: string; id?: string; status?: string; message?: string };
@@ -42,6 +42,50 @@ function safeMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : fallback;
 }
 
+/**
+ * SPEC §11.2.1 계약 4 · 사용자 결정 2026-11-14 (렌더 시점 판정 금지).
+ *
+ * The period is a stored decision. This component prints the string the server
+ * resolved and only names that value's state; it never parses the dates, counts
+ * nights, or fills a blank from the row's own fields. A value the server left
+ * blank stays blank, and the state says which kind of blank it is.
+ */
+export function PeriodValue({ period, label, status, basis, source, manualBlank }: {
+  period: string;
+  label?: string;
+  status?: LedgerRow['period_status'];
+  basis?: string;
+  source?: string;
+  manualBlank?: boolean;
+}) {
+  // The server decides both the value and its wording: `label` is the compact
+  // string the legacy cell prints. Falling back to the raw stored `period` is
+  // a display default only, never a computation.
+  const shown = label || period;
+  if (status === 'stale') {
+    return <span className="cost-ledger__period-stale">원본이 바뀌어 저장된 기간을 표시하지 않습니다</span>;
+  }
+  if (manualBlank) {
+    return <span className="cost-ledger__period-unknown">사용자가 비워 둔 이용 기간</span>;
+  }
+  if (status === 'unknown') {
+    return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  }
+  if (!shown) return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  if (status === 'inferred') {
+    return (
+      <span className="cost-ledger__period-inferred">
+        <span>{shown}</span>
+        <small>추정{basis ? ` · ${basis}` : ''}</small>
+      </span>
+    );
+  }
+  if (status === 'computed') return <span>{shown} <small>증빙 계산</small></span>;
+  if (status === 'verified') return <span>{shown} <small>확인됨</small></span>;
+  if (source === 'manual') return <span>{shown} <small>수동 지정</small></span>;
+  return <span>{shown}</span>;
+}
+
 function LedgerDesktopTable({
   rows,
   onOpen,
@@ -62,6 +106,20 @@ function LedgerDesktopTable({
       ),
     },
     { key: 'category', header: '항목', cell: (row: LedgerRow) => row.category || '항목 없음' },
+    {
+      key: 'period',
+      header: '이용 기간',
+      cell: (row: LedgerRow) => (
+        <PeriodValue
+          period={row.period}
+          label={row.period_label}
+          status={row.period_status}
+          basis={row.period_basis}
+          source={row.period_source}
+          manualBlank={row.period_manual_blank}
+        />
+      ),
+    },
     { key: 'amount', header: '금액', align: 'end' as const, cell: (row: LedgerRow) => <Amount value={row.amount} currency={currencyLabel(row.currency)} /> },
     { key: 'evidence', header: '근거', cell: (row: LedgerRow) => row.evidence_summary || '근거 요약 없음' },
   ];
@@ -91,6 +149,18 @@ function LedgerMobileList({
             <strong>{row.merchant || row.description || '내용 없음'}</strong>
             <span className="cost-ledger__mobile-bottom">
               <span>{row.category || '항목 없음'}</span>
+              {(row.period || row.period_status || row.period_manual_blank) && (
+                <span className="cost-ledger__mobile-period">
+                  <PeriodValue
+                    period={row.period}
+                    label={row.period_label}
+                    status={row.period_status}
+                    basis={row.period_basis}
+                    source={row.period_source}
+                    manualBlank={row.period_manual_blank}
+                  />
+                </span>
+              )}
               {row.evidence_summary && <span>{row.evidence_summary}</span>}
             </span>
           </button>
@@ -149,7 +219,10 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     setLoadError(null);
     setLoadNotFound(false);
     getJSON<LedgerPayload>(requestUrl, controller.signal)
-      .then((payload) => setData(payload))
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        setData(payload);
+      })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
         setLoadNotFound(reason instanceof ApiError && reason.status === 404);
@@ -163,6 +236,19 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
 
   const trips = bootstrap.trips;
   const loadedTrip = data?.trip.id === tab ? data.trip : undefined;
+  /* The Google income source belongs to the trip response currently on screen.
+     It is only shown to the owner of a normal trip: quarter, refund and
+     protected tabs have no income linkage (the server reports their kind as
+     "quarter"), and this is an operator message. Because loadedTrip is derived
+     from data for the selected tab, a payload left over from the previous tab
+     cannot paint its source here while the new response is still in flight. */
+  const incomeSource = bootstrap.role === 'owner' && loadedTrip?.kind === 'trip'
+    ? data?.income_source
+    : undefined;
+  /* §11.2.1 계약 4 + GGL-014: an unverified Google block does not enter the
+     confirmed figure, so the summary 수입/차액 are marked provisional while the
+     server figure itself is shown unchanged. This is a label only. */
+  const incomeProvisional = incomeSource?.available === true && incomeSource.verified === false;
   const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
   const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
   const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
@@ -265,10 +351,11 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
           </div>
         </div>
         {currentTrip && (
-          <dl className="cost-ledger__summary" aria-label="여행 손익">
-            <div><dt>수입</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
+          <dl className={`cost-ledger__summary${incomeProvisional ? ' cost-ledger__summary--provisional' : ''}`}
+            aria-label="여행 손익">
+            <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
             <div><dt>지출</dt><dd><Amount value={currentTrip.expense} currency="KRW" /></dd></div>
-            <div><dt>차액</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
+            <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
           </dl>
         )}
       </header>
@@ -336,15 +423,37 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </InlineNotice>
       )}
 
-      {data?.income_source?.available && !data.income_source.verified && (
+      {incomeSource?.available && !incomeSource.verified && (
         <InlineNotice tone="warning" title="수입 원장 대조 정보">
           Google 수입 원장의 대사가 완료되지 않았습니다. 표시된 수입과 차액은 잠정 금액입니다. 빈 금액은 미확인으로 표시합니다.
         </InlineNotice>
       )}
-      {data?.income_source && !data.income_source.available && data.income_source.reason !== 'NOT_CONNECTED' && (
+      {incomeSource && !incomeSource.available && incomeSource.reason === 'NOT_CONNECTED' && (
+        <InlineNotice tone="info" title="Google 수입 원장 미연결">
+          이 여행에 연결된 Google 수입 원장이 없습니다. Google 수입 행은 이 여행의 수입 탭에 표시되지 않습니다.
+        </InlineNotice>
+      )}
+      {incomeSource && !incomeSource.available && incomeSource.reason !== 'NOT_CONNECTED' && (
         <InlineNotice tone="warning" title="Google 수입 내역을 불러오지 못했습니다">
           현재 표시된 COST 수입 외에 연결된 원장의 수입이 있을 수 있습니다.
         </InlineNotice>
+      )}
+      {incomeSource?.available && (
+        /* GGL-003·GGL-014: the Google block is separate evidence. It is shown
+           here on its own and is never added to the summary 수입·차액 above,
+           which stay exactly the server's trip.income/trip.profit. */
+        <section className="cost-ledger__google-income" aria-label="Google 수입 별도 증거">
+          <span>연결된 Google 수입 합계</span>
+          {incomeSource.total ? (
+            <Amount value={incomeSource.total} currency="KRW" />
+          ) : (
+            <span className="cost-ledger__google-income-missing">금액 미확인</span>
+          )}
+          <span className={`cost-ledger__match cost-ledger__match--${incomeSource.verified ? 'ok' : 'warn'}`}>
+            {incomeSource.verified ? '검증됨' : '미검증'}
+          </span>
+          <small>이 금액은 위 수입·차액에 더하지 않습니다.</small>
+        </section>
       )}
       {loading && <Loading label="장부 조회 중" />}
       {!loading && !loadError && data && (
@@ -377,6 +486,9 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
       <RowDrawer
         rowId={selectedRowId}
         bootstrap={bootstrap}
+        tab={tab}
+        kind={kind}
+        search={search}
         onClose={closeRow}
         onSaved={() => setRefreshVersion((version) => version + 1)}
       />
