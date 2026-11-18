@@ -244,15 +244,24 @@ def _trip_kpi_html(tab_id: str) -> str:
     """The three ledger figures, using the existing COST/Google read paths."""
     if not tab_id or _STORE_missing():
         return ""
+    from . import ledger_query
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(tab_id, '', '')
     expense = sum(board._shown_amount(row) for row in expenses)
-    income = None
     from .google_ledger_page import get_trip_income_summary
     google_income = get_trip_income_summary(tab_id)
-    if incomes:
-        income = sum(board._shown_amount(row) for row in incomes)
-    elif google_income and not _whole_income and google_income.get('show_rows'):
-        income = int(google_income.get('amount') or 0)
+    google_confirmed = bool(google_income and google_income.get('show_rows'))
+    # SPEC §11.2.1 계약 2·4 with GGL-003·GGL-014: COST income is the confirmed
+    # figure; the verified Google block is a separate evidence source and only
+    # substitutes when the tab has no usable COST income. Unverified or
+    # unconnected income stays unknown, never a confirmed zero.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    recorded = [row for row in incomes if row.get('row_id') not in linked
+                and not row.get('google_income')]
+    income, known = ledger_query.confirmed_income(
+        incomes, linked=linked, google_verified=google_confirmed,
+        google_total=int((google_income or {}).get('amount') or 0),
+        prefiltered=True, amount=board._shown_amount)
+    income = income if known else None
     balance = income - expense if income is not None else None
 
     def amount(value):
@@ -261,8 +270,11 @@ def _trip_kpi_html(tab_id: str) -> str:
         text = _money(value)
         return text.replace('-', '−', 1) if text.startswith('-') else text
 
+    google_count = int((google_income or {}).get('count') or 0) if google_confirmed else 0
+    # GGL-003: the Google block is separate evidence, so its count is named only
+    # when it is the income source that supplied the figure.
     income_note = ("장부 확인 필요"
-                   if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
+                   if income is None else f"수입 {len(recorded) or google_count}건")
     balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
     income_kpi = ui_components.kpi('수입', amount(income), income_note)
     if income is None:
