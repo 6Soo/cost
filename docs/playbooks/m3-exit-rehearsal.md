@@ -147,13 +147,14 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 ## digest 규칙 — 이 예행에서 가장 많이 틀리는 곳
 
-`apply`는 계획을 **다시 만들어** digest를 대조하고, 다르면 `CLASSIFICATION_PREVIEW_STALE`로 아무것도 쓰지 않는다(`core/crates/core/src/apply.rs:167-169`). digest는 다음 세 가지에 따라 달라진다. **audit과 apply에서 이 셋을 똑같이 맞춰야 한다.**
+`apply`는 계획을 **다시 만들어** digest를 대조하고, 다르면 `CLASSIFICATION_PREVIEW_STALE`로 아무것도 쓰지 않는다(`core/crates/core/src/apply.rs:167-169`). digest는 다음 네 가지에 따라 달라진다. **audit과 apply에서 이 넷을 똑같이 맞춰야 한다.**
 
 | 무엇이 digest를 바꾸는가 | 코드 위치 | 어떻게 맞추는가 |
 | --- | --- | --- |
 | `context`가 `trips`·`nets`·`evidence`를 덮어쓰는지 여부 | `core/crates/core/src/plan/mod.rs:477` `fingerprint`, `pipeline.rs:203` `overlay_context` | **audit과 apply에 같은 JSON 문자열을 준다.** `{"periods":{}}`만 주면 DB에서 읽은 여행 목록을 쓴다. `"trips"` 키를 넣으면 그 값이 이긴다 |
 | `reconsider` | `plan/mod.rs:528`(digest 입력), `main.rs:475`(`--reconsider` 또는 `context.reconsider`), `completeness.rs:66`(audit은 `context.reconsider`만 본다) | **양쪽에 같은 방식으로 준다.** audit은 `--reconsider` 플래그를 받지 않는다(코드 확인) → `context`의 `"reconsider":true`만 쓴다. apply는 **플래그나 context 중 하나만** 준다 |
 | `context.periods`(이용기간 근거) | `plan/mod.rs:521-529` `evidence`, `apply.rs:144-155` | 양쪽에 같은 `periods` 객체를 준다. **없으면 audit이 `PERIOD_FACTS_REQUIRED`로 거부한다** |
+| `context.transaction_ids`(범위 제한) | `main.rs:449-453`(apply는 `selected`로 넘긴다), `completeness.rs:62-67`(audit은 `overlay_context`에 `None`을 넘긴다) | **audit에 `transaction_ids`를 넣지 않는다.** audit은 이 키를 무시하고 전체를 훑는다(`scanned 3002`). apply에만 넣으면 `selected`가 digest에 들어가 조건이 어긋나 `CLASSIFICATION_PREVIEW_STALE`이 난다(실제로 확인: audit digest가 ids 목록을 바꿔도 `77a0c063…`로 같고, apply에 ids를 넣으면 거부됨) |
 
 핵심: **같은 변수 하나(`$ctx`)를 두 명령에 그대로 파이프한다.** ②와 ③에서 문자열을 손으로 다시 치면 실패한다.
 
@@ -180,7 +181,7 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 | 증상 (출력 코드) | 원인 | 확인·고치기 |
 | --- | --- | --- |
 | `{"error":{"code":"PYTHON_BRIDGE_FAILED:PYTHON_NOT_STARTED"}}` | `--python`에 `python`(맨 이름)을 줬고 코어가 하위 프로세스를 띄울 때 PATH에서 못 찾았다. ① 이 예행에서 처음 걸린 지점 | `(Get-Command python).Source`의 **절대경로**를 `--python`에 준다. `--repo-root`도 절대경로 |
-| `CLASSIFICATION_PREVIEW_STALE` | ②와 ③의 조건이 다르다. ⑤ digest 규칙 세 가지 중 하나가 어긋났다 | ②와 ③에 **같은 `$ctx` 문자열**을 파이프했는지, `reconsider`를 한쪽만 줬는지, `periods`가 양쪽에 있는지 확인한다. 고친 뒤 ②부터 다시 한다 |
+| `CLASSIFICATION_PREVIEW_STALE` | ②와 ③의 조건이 다르다. ⑤ digest 규칙 네 가지 중 하나가 어긋났다 | ②와 ③에 **같은 `$ctx` 문자열**을 파이프했는지, `reconsider`를 한쪽만 줬는지, `periods`가 양쪽에 있는지, **`transaction_ids`를 apply에만 넣지 않았는지**(audit은 이 키를 무시한다) 확인한다. 고친 뒤 ②부터 다시 한다 |
 | `PERIOD_FACTS_REQUIRED` (audit) | `context`에 `periods` 객체가 없다(`main.rs:501-503`) | `$ctx`에 `"periods":{}`를 넣는다. 운영에서는 `app.core_writer.periods_for`의 실제 근거를 넣는다 |
 | `{"error":{"code":"USAGE_INVALID"}}` (apply) | `--digest`를 빠뜨렸다. apply는 digest가 **필수**다(`main.rs:437`) | ②에서 digest를 먼저 얻는다 |
 | `{"error":{"code":"IO_ERROR"}}` (audit/apply, context에 `trips`를 넣었을 때) | context 파일을 Windows 기본 인코딩으로 써서 한글 여행 이름이 깨졌다 | context 파일을 **UTF-8**로 쓴다(`open(path,'w',encoding='utf-8')`). PowerShell 7은 기본이 UTF-8이지만, 리다이렉션(`>`)으로 만든 파일은 확인한다 |
@@ -209,5 +210,5 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 ## 이 절차서가 확인한 것과 확인하지 않은 것
 
-- 확인(2026-11-19, `3d8e8791`, debug 빌드): 3,002행 합성 보드에서 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 두 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`)와 `PYTHON_NOT_STARTED` 진단.
+- 확인(2026-11-19, `3d8e8791`, debug 빌드): 3,002행 합성 보드에서 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 세 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`, `USAGE_INVALID`)와 `PYTHON_NOT_STARTED`·`IO_ERROR` 진단. `transaction_ids`가 audit digest에 영향을 주지 않으나 apply에는 주는 것도 실제 실행으로 확인했다.
 - 하지 않음: 운영 DB 접근, `release` 빌드 실행, 실제 OTA 이용기간 근거 생성(운영 자료 필요), 대규모(1만 행 이상) 성능 측정.
