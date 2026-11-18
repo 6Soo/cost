@@ -123,6 +123,28 @@ def test_react_row_keeps_a_real_date_in_both_fields(bound_store):
     assert row["period"] == "2026-11-10~2026-11-12", row
 
 
+def test_a_blank_period_cell_does_not_remove_the_row_from_search(bound_store):
+    """표시 칸을 비우는 것이 검색 결과를 줄이지는 않는다 (SPEC §11.2.1 계약 1).
+
+    레거시 검색은 행의 저장된 `service_period` 원문을 훑는다. 화면에 보이는
+    `period`가 빈 칸이 되면서 그 필드만 검색하면 레거시에서는 찾히는 행이
+    React에서 사라진다. 저장 필드를 함께 읽어 같은 결과를 유지한다.
+    """
+    store, _access = bound_store
+    tab = make_trip(store)
+    # A category that has no period cell (so the displayed period is blank)
+    # but whose stored range matches the query.
+    rid = store.create_manual_expense(
+        fields={"display_tab_id": tab, "occurred_on": "2026-11-12", "amount_krw": 12000,
+                "item": "분기 기타비용", "pay_method": "현금", "description": "합성",
+                "service_period": "2026-06-20~2026-06-25"},
+        client_request_id=f"policy-{_uid()}")["row_id"]
+    status, body = react_ledger(store, tab, kind="expense", q="2026-06-20")
+    assert status == 200, body
+    assert [r["id"] for r in body["rows"]] == [rid], body["rows"]
+    assert next(r for r in body["rows"] if r["id"] == rid)["period"] == ""
+
+
 # ---------------------------------------------------------------------------
 # ② 수입 미확인 — em dash 한 글자
 # ---------------------------------------------------------------------------

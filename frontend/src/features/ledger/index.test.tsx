@@ -61,7 +61,7 @@ describe('stored use period on the React ledger', () => {
     // 소유자 결정 2026-11-19 ①: no date means an empty cell. The server also
     // blanks `period` alongside an empty label, so nothing can refill it.
     renderPage([row({ id: 'r-unknown', period: '', period_status: 'unknown', period_source: 'decision' })]);
-    const table = await screen.findByLabelText('여행 장부 거래 목록');
+    const table = await screen.findByRole('table', { name: '여행 장부 거래 목록' });
     const cell = table.querySelector('.cost-ledger__period-blank');
     expect(cell).toBeTruthy();
     expect(cell?.textContent).toBe('');

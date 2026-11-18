@@ -232,8 +232,13 @@ def search_text(row: dict[str, Any], *, owner: bool = False) -> str:
     projected = ledger_row(row)
     parts = [str(projected.get(key) or "") for key in (
         "date", "merchant", "description", "category", "payment", "period", "evidence_summary")]
+    # The legacy board searches the row's own recorded fields, including the
+    # stored period range (``ledger_design._matches``). The displayed ``period``
+    # is blank whenever the cell is blank (소유자 결정 2026-11-19), so the search
+    # has to read the stored field itself or a query that finds the row on the
+    # legacy path would miss it on this one (SPEC §11.2.1 계약 1).
     parts.extend(str(row.get(key) or "") for key in (
-        "item", "reservation_no", "source_merchant", "customer_name"))
+        "item", "reservation_no", "source_merchant", "customer_name", "service_period"))
     if owner:
         parts.append(str(row.get("operator_note") or ""))
     return " ".join(parts).casefold()
