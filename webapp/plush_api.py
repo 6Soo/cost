@@ -297,10 +297,19 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     # refund tab and is not shown or summed again in the general expenses. This
     # changes only which rows are displayed — the amounts, signs and the refund
     # relationship itself are untouched. The refund tab keeps them.
+    #
+    # The legacy rule (``ledger_design._selected_rows``) applies this to the
+    # expense rows only: its income list is never filtered, because the refund
+    # relationship is a card-expense fact and an income row's own key is not a
+    # member of it. Filtering every row here would drop an income row that
+    # happens to carry such a key from React and keep it on the legacy board,
+    # so this bounds the exclusion the same way the legacy read does.
     if owner and str(trip.get("tab_id") or "") != "refunds":
         excluded = _refund_member_ids(board, True)
         if excluded:
-            rows = [row for row in rows if row.get("source_event_id") not in excluded]
+            rows = [row for row in rows
+                    if row.get("row_kind") == "income"
+                    or row.get("source_event_id") not in excluded]
     all_rows = list(rows)
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
