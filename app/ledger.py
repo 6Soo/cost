@@ -117,12 +117,18 @@ def _manual_board_values(store, transaction_ids=None):
     record *and* a non-empty payload value is returned — a record whose payload lacks that field says nothing
     about it, and the pre-existing behaviour stays.
     An old board file without a `field` column cannot say which field a person corrected, so it contributes
-    nothing (`app/manual_overrides.py:41-69` degrades the same way, as does `manual_period_rows`).
+    nothing (`app/manual_overrides.py:41-69` degrades the same way, as does `manual_period_rows`). A store with
+    no board tables at all (a card-only file) has no manual record either, so it contributes nothing rather
+    than failing the read (`preview` must keep working there).
     """
     from .manual_overrides import manual_fields
 
-    # An old board file with a row-id-only table cannot say which field a person corrected (`manual_fields`
-    # itself would still be asked for `(row_id, field)` pairs). No field can be named, so nothing is merged.
+    # No board file, no `field` column: nothing can be named, so nothing is merged.
+    tables = {r[0] for r in store.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name IN ('board_manual_overrides','board_rows')")}
+    if len(tables) < 2:
+        return {}
     columns = {r[1] for r in store.conn.execute('PRAGMA table_info(board_manual_overrides)')}
     if 'field' not in columns:
         return {}
@@ -153,6 +159,26 @@ def _manual_board_values(store, transaction_ids=None):
         if found:
             values[tid] = found
     return values
+
+
+def _tab_is_not_a_trip(tab) -> bool:
+    """A quarter-cost tab, the refunds tab and the unassigned tab are destinations, never trips."""
+    if not tab:
+        return True
+    if tab in ("unclassified", REFUND_TAB):
+        return True
+    from .quarter_tab import parse_tab
+    return parse_tab(tab) is not None
+
+
+def _board_override_exists(store, row_id: str, field: str) -> bool:
+    """A real manual override of `field`, or False when the file has no board tables (a card-only file)."""
+    from .manual_overrides import exists_sql as manual_exists_sql
+    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                              " AND name='board_manual_overrides'").fetchone():
+        return False
+    return bool(store.conn.execute(
+        'SELECT ' + manual_exists_sql(store.conn, '?', field), (row_id,)).fetchone()[0])
 
 
 def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
@@ -250,7 +276,12 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "item": manual.get("item") or (decision or {}).get("item", item) or "",
             "description": manual.get("description") or (decision or {}).get("description", description) or "",
             "display_tab_id": manual.get("display_tab_id") or (decision or {}).get("display_tab_id", tab) or "",
-            "trip_id": trip_id, "revision": revision,
+            # A board correction of the attribution moves the row with it: `project` refuses a trip that
+            # disagrees with the tab, and the refunds and quarter tabs carry no trip at all. Without a
+            # manual tab the stored pair is kept as it was.
+            "trip_id": ("" if _tab_is_not_a_trip(manual.get("display_tab_id"))
+                        else manual["display_tab_id"]) if manual.get("display_tab_id") else trip_id,
+            "revision": revision,
             "decided": bool(decided), "classification_state": state,
             "already_booked": transaction_id in booked_ids,
             "duplicate_of": duplicate_of or "",
@@ -722,7 +753,6 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
     if (link.get("inferred") or link.get("status") != "full"
             or link.get("net_krw") != 0 or entry.get("transaction_id") != transaction_id):
         return
-    from .manual_overrides import exists_sql as manual_exists_sql
     current = store.conn.execute(
         "SELECT classification_source, decided_at FROM transactions WHERE transaction_id=?",
         (transaction_id,),
@@ -732,8 +762,7 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
         return
     if current[1] is not None:
         return
-    if store.conn.execute('SELECT ' + manual_exists_sql(store.conn, '?', 'display_tab_id'),
-                          ('card-' + transaction_id,)).fetchone()[0]:
+    if _board_override_exists(store, 'card-' + transaction_id, 'display_tab_id'):
         return
     store.conn.execute(
         "UPDATE transactions SET classification_state='classified',"

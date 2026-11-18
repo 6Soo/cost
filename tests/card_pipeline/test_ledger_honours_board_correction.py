@@ -121,5 +121,64 @@ def test_legacy_override_table_without_a_field_column_is_not_read_as_a_field_cor
         store.close()
 
 
+def test_a_corrected_tab_carries_the_trip_derived_from_it(recorded):
+    """A person's tab must move the booked trip with it — `flow.project` refuses a disagreeing pair.
+
+    `transactions.trip_id` keeps the automatic trip after a board-only correction of the tab. Without
+    deriving the trip from the corrected tab the commit was rejected with `TRIP_TARGET_CONFLICT`, so
+    nothing at all was booked (the pre-change behaviour booked the automatic tab instead).
+    """
+    store, tid = recorded
+    _write_board(store, tid, display_tab_id='trip-other')
+    _override(store, tid, 'display_tab_id')
+
+    preview = ledger.preview(store, _batch_id(store),
+                             trip_validator=lambda tab: tab in ('trip-syn', 'trip-other'),
+                             tab_validator=lambda tab: tab in ('trip-syn', 'trip-other'))
+    row, = [r for r in preview['rows'] if r['transaction_id'] == tid]
+    assert row['display_tab_id'] == 'trip-other'
+    assert row['trip_id'] == 'trip-other', (
+        'the booked trip must agree with the tab a person chose: %r' % (row,))
+    booked = store.conn.execute('SELECT display_tab_id, trip_id FROM ledger_entries'
+                                ' WHERE transaction_id=?', (tid,)).fetchone()
+    assert booked is None or booked == ('trip-other', 'trip-other')
+
+
+def test_a_corrected_tab_that_is_not_a_trip_carries_no_trip(recorded):
+    """The refunds, unassigned and quarter tabs are destinations; their rows carry no trip."""
+    store, tid = recorded
+    _write_board(store, tid, display_tab_id='quarter:2026:3')
+    _override(store, tid, 'display_tab_id')
+
+    preview = ledger.preview(store, _batch_id(store), trip_validator=lambda tab: False,
+                             tab_validator=lambda tab: True)
+    row, = [r for r in preview['rows'] if r['transaction_id'] == tid]
+    assert row['display_tab_id'] == 'quarter:2026:3'
+    assert row['trip_id'] == '', 'a quarter tab is not a trip, so the automatic trip must not survive'
+
+
+def test_a_file_without_board_tables_still_previews(batch):
+    """A card-only file has no manual record, so the read contributes nothing instead of failing."""
+    path, board, decisions = batch
+    store = Store.open(str(path))
+    try:
+        tid = decisions[0]['transaction_id']
+        board.conn.execute("UPDATE transactions SET item='숙박비', display_tab_id='trip-syn',"
+                           " trip_id='trip-syn', classification_state='classified',"
+                           " classification_source='inference' WHERE transaction_id=?", (tid,))
+        board.conn.commit()
+        board.conn.execute('DROP TABLE board_revisions')
+        board.conn.execute('DROP TABLE board_manual_overrides')
+        board.conn.execute('DROP TABLE board_rows')
+        board.conn.commit()
+        preview = ledger.preview(store, _batch_id(store), trip_validator=lambda tab: tab == 'trip-syn',
+                                 tab_validator=lambda tab: tab == 'trip-syn')
+        row, = [r for r in preview['rows'] if r['transaction_id'] == tid]
+        assert row['item'] == '숙박비'
+        assert row['trip_id'] == 'trip-syn'
+    finally:
+        store.close()
+
+
 def _batch_id(store):
     return store.conn.execute('SELECT batch_id FROM import_batch_rows LIMIT 1').fetchone()[0]
