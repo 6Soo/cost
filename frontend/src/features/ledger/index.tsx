@@ -42,6 +42,45 @@ function safeMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : fallback;
 }
 
+/**
+ * SPEC §11.2.1 계약 4 · 사용자 결정 2026-11-14 (렌더 시점 판정 금지).
+ *
+ * The period is a stored decision. This component prints the string the server
+ * resolved and only names that value's state; it never parses the dates, counts
+ * nights, or fills a blank from the row's own fields. A value the server left
+ * blank stays blank, and the state says which kind of blank it is.
+ */
+export function PeriodValue({ period, status, basis, source, manualBlank }: {
+  period: string;
+  status?: LedgerRow['period_status'];
+  basis?: string;
+  source?: string;
+  manualBlank?: boolean;
+}) {
+  if (status === 'stale') {
+    return <span className="cost-ledger__period-stale">원본이 바뀌어 저장된 기간을 표시하지 않습니다</span>;
+  }
+  if (manualBlank) {
+    return <span className="cost-ledger__period-unknown">사용자가 비워 둔 이용 기간</span>;
+  }
+  if (status === 'unknown') {
+    return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  }
+  if (!period) return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  if (status === 'inferred') {
+    return (
+      <span className="cost-ledger__period-inferred">
+        <span>{period}</span>
+        <small>추정{basis ? ` · ${basis}` : ''}</small>
+      </span>
+    );
+  }
+  if (status === 'computed') return <span>{period} <small>증빙 계산</small></span>;
+  if (status === 'verified') return <span>{period} <small>확인됨</small></span>;
+  if (source === 'manual') return <span>{period} <small>수동 지정</small></span>;
+  return <span>{period}</span>;
+}
+
 function LedgerDesktopTable({
   rows,
   onOpen,
@@ -62,6 +101,19 @@ function LedgerDesktopTable({
       ),
     },
     { key: 'category', header: '항목', cell: (row: LedgerRow) => row.category || '항목 없음' },
+    {
+      key: 'period',
+      header: '이용 기간',
+      cell: (row: LedgerRow) => (
+        <PeriodValue
+          period={row.period}
+          status={row.period_status}
+          basis={row.period_basis}
+          source={row.period_source}
+          manualBlank={row.period_manual_blank}
+        />
+      ),
+    },
     { key: 'amount', header: '금액', align: 'end' as const, cell: (row: LedgerRow) => <Amount value={row.amount} currency={currencyLabel(row.currency)} /> },
     { key: 'evidence', header: '근거', cell: (row: LedgerRow) => row.evidence_summary || '근거 요약 없음' },
   ];
@@ -91,6 +143,17 @@ function LedgerMobileList({
             <strong>{row.merchant || row.description || '내용 없음'}</strong>
             <span className="cost-ledger__mobile-bottom">
               <span>{row.category || '항목 없음'}</span>
+              {(row.period || row.period_status || row.period_manual_blank) && (
+                <span className="cost-ledger__mobile-period">
+                  <PeriodValue
+                    period={row.period}
+                    status={row.period_status}
+                    basis={row.period_basis}
+                    source={row.period_source}
+                    manualBlank={row.period_manual_blank}
+                  />
+                </span>
+              )}
               {row.evidence_summary && <span>{row.evidence_summary}</span>}
             </span>
           </button>

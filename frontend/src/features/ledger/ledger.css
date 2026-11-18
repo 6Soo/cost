@@ -35,6 +35,15 @@
 .cost-ledger__row-open:focus-visible,
 .cost-ledger__mobile-row:focus-visible,
 .cost-ledger a:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
+/* A stored period reads as one value with its state as a word; colour is never the only cue. */
+.cost-ledger__period-inferred { display: grid; gap: 2px; min-width: 0; }
+.cost-ledger__period-inferred span { overflow-wrap: anywhere; }
+.cost-ledger__period-inferred small,
+.cost-ledger__period-stale,
+.cost-ledger__period-unknown { color: var(--cost-text-secondary); font-size: .8125rem; }
+.cost-ledger__period-stale,
+.cost-ledger__period-unknown { overflow-wrap: anywhere; }
+.cost-ledger__mobile-period { min-width: 0; }
 .cost-ledger__mobile-list { display: none; margin: 0; padding: 0; list-style: none; border: 1px solid var(--cost-border); border-radius: 18px; overflow: hidden; background: var(--cost-surface); }
 .cost-ledger__mobile-list li + li { border-top: 1px solid var(--cost-border); }
 .cost-ledger__mobile-row { display: grid; gap: 8px; width: 100%; min-height: 88px; padding: 14px 16px; border: 0; background: transparent; color: var(--cost-text); text-align: left; font: inherit; cursor: pointer; }
@@ -55,6 +64,8 @@
 .cost-ledger__drawer-content { display: grid; gap: 20px; min-width: 0; }
 .cost-ledger__detail-amount { text-align: right; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .cost-ledger__detail-description { margin: 0; overflow-wrap: anywhere; }
+.cost-ledger__detail-period { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; align-items: baseline; }
+.cost-ledger__detail-period-key { color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__detail-section { display: grid; gap: 10px; min-width: 0; padding-top: 16px; border-top: 1px solid var(--cost-border); }
 .cost-ledger__detail-section h3,
 .cost-ledger__detail-actions h3,
