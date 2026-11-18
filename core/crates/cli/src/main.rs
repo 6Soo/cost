@@ -39,6 +39,7 @@ enum CliError {
     Apply(ApplyError),
     Store,
     CoreSchemaMismatch,
+    PeriodFactsRequired,
     Shadow(ShadowError),
     Guard(GuardError),
     ConfigInvalid,
@@ -63,7 +64,11 @@ impl CliError {
             }
             Self::Pipeline(PipelineError::Store(_)) | Self::Store => "STORE_ERROR".to_owned(),
             Self::CoreSchemaMismatch => "CORE_SCHEMA_MISMATCH".to_owned(),
+            Self::PeriodFactsRequired => "PERIOD_FACTS_REQUIRED".to_owned(),
             Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
+            Self::Apply(ApplyError::RepairInvalid) => {
+                "CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS".to_owned()
+            }
             Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
             Self::Apply(_) => "APPLY_FAILED".to_owned(),
             Self::Shadow(error) => error.code(),
@@ -156,12 +161,13 @@ fn main() -> ExitCode {
         Some("links") => finish(links_cmd(&args[1..]), "ok"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
+        Some("audit-decisions") => finish(audit_decisions(&args[1..]), "ok"),
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
         Some("periods") => finish(periods(&args[1..]), "ok"),
         Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
         Some(_) => {
             eprintln!(
-                "usage: costcore <shadow|shadow-links|links|plan|apply|rejudge|periods|migrate> ..."
+                "usage: costcore <shadow|shadow-links|links|plan|apply|audit-decisions|rejudge|periods|migrate> ..."
             );
             ExitCode::from(2)
         }
@@ -437,6 +443,12 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect()
     });
+    // 저장 복구 요청은 core를 열기 전에 거부한다(명시적 backfill과 이용기간 근거가 필요하다).
+    if context["decisions_only"] == json!(true)
+        && (!flags.on("--backfill-decisions") || !context["periods"].is_object())
+    {
+        return Err(CliError::Apply(ApplyError::RepairInvalid));
+    }
     let links = if context["links"].is_object() {
         links_from(&context["links"])
     } else {
@@ -462,6 +474,52 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
         0,
         json!({"ok": true, "result": out.summary, "written": out.written,
             "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch, "backfilled": out.backfilled}),
+    ))
+}
+
+/// `costcore audit-decisions --db BOARD --core CORE.sqlite [--allow-live]`: 저장된 판정을 재계산 그림자와 무관하게
+/// 원천·투영과 직접 대조한다(읽기 전용, 쓰기·이관 없음). 공개 출력은 건수뿐이다. 통과하면 0, 차이가 있으면 1.
+fn audit_decisions(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+    let core_path = PathBuf::from(flags.get("--core").ok_or(CliError::UsageInvalid)?);
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    if !flags.on("--allow-live") {
+        reject_live_db(&db, &host)?;
+    }
+    let mut body = String::new();
+    std::io::stdin().read_to_string(&mut body)?;
+    let context: Value = serde_json::from_str(&body).map_err(|_| CliError::Stdin)?;
+    if !context["periods"].is_object() {
+        return Err(CliError::PeriodFactsRequired);
+    }
+    let links = if context["links"].is_object() {
+        links_from(&context["links"])
+    } else {
+        python_bridge(&flags).refund_links(&db, None)?
+    };
+    let board = cost_core::store::open_board_readonly(&db)?;
+    let core = cost_core::store::open_board_readonly(&core_path)?;
+    board.execute_batch("BEGIN").map_err(|_| CliError::Store)?;
+    core.execute_batch("BEGIN").map_err(|_| CliError::Store)?;
+    let report = cost_core::apply::completeness::audit(&board, &core, &context, &links)?;
+    let passed = report.eligible_missing == 0
+        && report.eligible_stale == 0
+        && report.projection_mismatch == 0
+        && report.source_mismatch == 0
+        && report.period_mismatch == 0
+        && report.classification_change_required == 0
+        && report.orphaned == 0;
+    Ok((
+        if passed { 0 } else { 1 },
+        json!({"ok":passed,"coverage": {
+        "scanned":report.scanned,"stored":report.stored,"eligible":report.eligible,
+        "missing":report.eligible_missing,"stale":report.eligible_stale,
+        "projection_mismatch":report.projection_mismatch,"source_mismatch":report.source_mismatch,
+        "period_mismatch":report.period_mismatch,"orphaned":report.orphaned,
+        "classification_changes_required":report.classification_change_required,
+        "protected_or_preserved":report.protected_or_preserved,"kept":report.kept,
+        "plan_digest":report.plan_digest}}),
     ))
 }
 
