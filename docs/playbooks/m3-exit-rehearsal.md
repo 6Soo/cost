@@ -4,7 +4,7 @@
 - 실행 주체: 운영 담당 세션(한 세션). 이 절차서 자체는 운영 DB를 열지 않는다. 운영 실행은 [코어 1차 전환 절차](core-cutover.md)의 승인·백업 조건과 함께 별도로 한다.
 - 근거: 설계 `docs/design/m3-core.md` §3.3·§7 U11, `docs/SPEC.md:279-287`. 판정 규칙은 [판정 규칙집](../DECISION_POLICY.md)이 정본이다.
 - 개정 이력: 2026-11-19 · 합성 자료 예행으로 처음 작성. 명령과 출력은 2026-11-19 `3d8e8791` 기준으로 실제 실행해 확인했다.
-- 상태(2026-11-19): **합성 자료 예행 완료.** 아래 1~7단계를 실제로 돌려 성공·실패 출력을 모두 확인했고, 실패했다가 조건을 맞춰 고친 두 지점(⑤ digest 조건 불일치, ⑦ `periods` 누락)을 "실패와 진단"에 적었다.
+- 상태(2026-11-19): **합성 자료 예행 완료.** 아래 자료 준비 1~3단계와 실행 ①~⑤, 저장 보완 1~5단계를 실제로 돌려 성공·실패 출력을 모두 확인했고, 실패했다가 고친 지점들을 "실패와 진단"에 적었다(가장 많이 틀리는 곳은 감사/적용의 digest 조건 불일치다).
 
 ## 왜 이 예행이 필요한가
 
@@ -21,7 +21,7 @@ M3 종료 조건은 "**운영의** 저장 대상 누락 0"이다. 그 숫자를 
 $repo = 'C:/Users/kkokk/.paseo/worktrees/28lt5mey/m3-exit-rehearsal-20261119'
 $a = "$repo/.local-archive/m3-exit-rehearsal-20261119"
 $bin = "$repo/core/target/debug/costcore.exe"   # 배포 예행이면 release 빌드
-$py  = (Get-Command python).Source                # 절대경로여야 한다(아래 "실패와 진단" ①)
+$py  = (Get-Command python).Source                # 절대경로여야 한다(아래 "실패와 진단" 첫 행)
 $host = "$a/host"                                 # 보호 경로가 아닌 임시 루트(운영 판정용 host-root)
 ```
 
@@ -327,8 +327,8 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 | 증상 (출력 코드) | 원인 | 확인·고치기 |
 | --- | --- | --- |
-| `{"error":{"code":"PYTHON_BRIDGE_FAILED:PYTHON_NOT_STARTED"}}` | `--python`에 `python`(맨 이름)을 줬고 코어가 하위 프로세스를 띄울 때 PATH에서 못 찾았다. ① 이 예행에서 처음 걸린 지점 | `(Get-Command python).Source`의 **절대경로**를 `--python`에 준다. `--repo-root`도 절대경로 |
-| `CLASSIFICATION_PREVIEW_STALE` | ②와 ③의 조건이 다르다. ⑤ digest 규칙 네 가지 중 하나가 어긋났다 | ②와 ③에 **같은 `$ctx` 문자열**을 파이프했는지, `reconsider`를 한쪽만 줬는지, `periods`가 양쪽에 있는지, **`transaction_ids`를 apply에만 넣지 않았는지**(audit은 이 키를 무시한다) 확인한다. 고친 뒤 ②부터 다시 한다 |
+| `{"error":{"code":"PYTHON_BRIDGE_FAILED:PYTHON_NOT_STARTED"}}` | `--python`에 `python`(맨 이름)을 줬고 코어가 하위 프로세스를 띄울 때 PATH에서 못 찾았다. 이 예행에서 처음 걸린 지점 | `(Get-Command python).Source`의 **절대경로**를 `--python`에 준다. `--repo-root`도 절대경로 |
+| `CLASSIFICATION_PREVIEW_STALE` | ②와 ③의 조건이 다르다. "digest 규칙" 네 가지 중 하나가 어긋났다 | ②와 ③에 **같은 `$ctx` 문자열**을 파이프했는지, `reconsider`를 한쪽만 줬는지, `periods`가 양쪽에 있는지, **`transaction_ids`를 apply에만 넣지 않았는지**(audit은 이 키를 무시한다) 확인한다. 고친 뒤 ②부터 다시 한다 |
 | `PERIOD_FACTS_REQUIRED` (audit) | `context`에 `periods` 객체가 없다(`main.rs:501-503`) | `$ctx`에 `"periods":{}`를 넣는다. 운영에서는 `app.core_writer.periods_for`의 실제 근거를 넣는다 |
 | `{"error":{"code":"USAGE_INVALID"}}` (apply) | `--digest`를 빠뜨렸다. apply는 digest가 **필수**다(`main.rs:437`) | ②에서 digest를 먼저 얻는다 |
 | `{"error":{"code":"IO_ERROR"}}` (audit/apply, context에 `trips`를 넣었을 때) | context 파일을 Windows 기본 인코딩으로 써서 한글 여행 이름이 깨졌다 | context 파일을 **UTF-8**로 쓴다(`open(path,'w',encoding='utf-8')`). PowerShell 7은 기본이 UTF-8이지만, 리다이렉션(`>`)으로 만든 파일은 확인한다 |
