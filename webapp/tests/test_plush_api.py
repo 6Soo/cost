@@ -325,7 +325,8 @@ def test_ledger_row_does_not_pair_krw_display_amount_with_source_currency():
 def test_viewer_projection_uses_access_allowlist(bound_store, monkeypatch):
     store, access = bound_store
     access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
-    monkeypatch.setattr(access, "visible_tabs", lambda user_id: {"trip-demo-a"})
+    # can_view_tab calls visible_tabs(user_id, now=...); the stub must take it.
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id, now=None: {"trip-demo-a"})
     status, body = call("/api/plush/bootstrap", "syn-viewer", store)
     assert status == 200
     assert body["role"] == "viewer"
@@ -337,7 +338,7 @@ def test_viewer_projection_uses_access_allowlist(bound_store, monkeypatch):
 def test_viewer_ledger_reads_only_the_requested_tab(bound_store, monkeypatch):
     store, access = bound_store
     access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
-    monkeypatch.setattr(access, "visible_tabs", lambda user_id: {"trip-demo-a"})
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id, now=None: {"trip-demo-a"})
 
     def reject_bulk_read(_conn):
         pytest.fail("viewer ledger must not load board rows across tabs")
