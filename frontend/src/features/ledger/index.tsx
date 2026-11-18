@@ -149,7 +149,10 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     setLoadError(null);
     setLoadNotFound(false);
     getJSON<LedgerPayload>(requestUrl, controller.signal)
-      .then((payload) => setData(payload))
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        setData(payload);
+      })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
         setLoadNotFound(reason instanceof ApiError && reason.status === 404);
@@ -163,6 +166,15 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
 
   const trips = bootstrap.trips;
   const loadedTrip = data?.trip.id === tab ? data.trip : undefined;
+  /* The Google income source belongs to the trip response currently on screen.
+     It is only shown to the owner of a normal trip: quarter, refund and
+     protected tabs have no income linkage (the server reports their kind as
+     "quarter"), and this is an operator message. Because loadedTrip is derived
+     from data for the selected tab, a payload left over from the previous tab
+     cannot paint its source here while the new response is still in flight. */
+  const incomeSource = bootstrap.role === 'owner' && loadedTrip?.kind === 'trip'
+    ? data?.income_source
+    : undefined;
   const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
   const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
   const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
@@ -336,12 +348,17 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </InlineNotice>
       )}
 
-      {data?.income_source?.available && !data.income_source.verified && (
+      {incomeSource?.available && !incomeSource.verified && (
         <InlineNotice tone="warning" title="수입 원장 대조 정보">
           Google 수입 원장의 대사가 완료되지 않았습니다. 표시된 수입과 차액은 잠정 금액입니다. 빈 금액은 미확인으로 표시합니다.
         </InlineNotice>
       )}
-      {data?.income_source && !data.income_source.available && data.income_source.reason !== 'NOT_CONNECTED' && (
+      {incomeSource && !incomeSource.available && incomeSource.reason === 'NOT_CONNECTED' && (
+        <InlineNotice tone="info" title="Google 수입 원장 미연결">
+          이 여행에 연결된 Google 수입 원장이 없습니다. Google 수입 행은 이 여행의 수입 탭에 표시되지 않습니다.
+        </InlineNotice>
+      )}
+      {incomeSource && !incomeSource.available && incomeSource.reason !== 'NOT_CONNECTED' && (
         <InlineNotice tone="warning" title="Google 수입 내역을 불러오지 못했습니다">
           현재 표시된 COST 수입 외에 연결된 원장의 수입이 있을 수 있습니다.
         </InlineNotice>
