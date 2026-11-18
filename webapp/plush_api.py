@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
+from . import ledger_google_match
 from . import ledger_periods as period_rows
 from . import plush_projection as projection
 
@@ -127,10 +128,47 @@ def _trip_for_query(board: Any, access: Any, session: Any, owner: bool,
         return trip, list(board.list_tab_rows(None))
     trip = next((item for item in trips if str(item.get("tab_id")) == tab_id), None)
     if trip is None:
+        # SPEC §11.2.1 계약 1·3: the quarter 기타비용 tab and the refund tab are
+        # board destinations the legacy list already serves, so the common
+        # query answers them too instead of reporting an unknown trip.
+        quarter = _quarter_tab_entry(tab_id)
+        if quarter is not None:
+            return quarter, list(board.list_tab_rows(tab_id))
+        if tab_id == "refunds":
+            # The refund tab is owner-only attribution; members come from the
+            # same rule the legacy attribution uses (RFND-022 / ITEM-011).
+            if not owner:
+                raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
+            return _refund_tab_entry(), list(board.list_tab_rows(tab_id))
         raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 여행이에요", 404)
     if not owner:
         access.require_view_tab(session.user_id, tab_id)
     return trip, list(board.list_tab_rows(tab_id))
+
+
+def _refund_tab_entry() -> dict[str, Any]:
+    """The refund tab's own identity, not a trip in the sidebar list."""
+    return {
+        "tab_id": "refunds", "display_key": "refunds", "display_title": "환불",
+        "starts_on": "", "ends_on": "", "tab_kind": "other",
+        "archived": False, "visual_closed": False,
+    }
+
+
+def _quarter_tab_entry(tab_id: str) -> dict[str, Any] | None:
+    """A ``quarter:YYYY:Q`` tab's identity, or None when it is not one."""
+    from app import quarter_tab
+
+    parsed = quarter_tab.parse_tab(tab_id)
+    if not parsed:
+        return None
+    year, quarter = parsed
+    return {
+        "tab_id": tab_id, "display_key": tab_id,
+        "display_title": f"{year}년 {quarter}분기 기타비용",
+        "starts_on": "", "ends_on": "", "tab_kind": "quarter",
+        "archived": False, "visual_closed": False,
+    }
 
 
 def _source_income(board, access, session, owner, tab_id):
@@ -211,10 +249,27 @@ def _home(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str,
     return result
 
 
-def _row_search(row: dict[str, Any], board: Any) -> str:
+def _row_search(row: dict[str, Any], board: Any, *, owner: bool = False) -> str:
     if board is not None and hasattr(board, "projected"):
         row = board.projected(row)
-    return projection.search_text(row)
+    return projection.search_text(row, owner=owner)
+
+
+def _refund_member_ids(board: Any, owner: bool) -> set:
+    """Transactions in a completed net-zero refund group (owner attribution).
+
+    The rule itself lives in ``refund_tab.member_ids``, the same helper the
+    legacy board and the refund tab use, so the two paths cannot disagree about
+    which rows belong to the refund tab.
+    """
+    if not owner or board is None:
+        return set()
+    try:
+        from . import refund_tab
+
+        return set(refund_tab.member_ids(board))
+    except Exception:
+        return set()
 
 
 def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
@@ -225,6 +280,14 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     rows = _with_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
+    # RFND-022 / ITEM-011: a completed net-zero refund group belongs to the
+    # refund tab and is not shown or summed again in the general expenses. This
+    # changes only which rows are displayed — the amounts, signs and the refund
+    # relationship itself are untouched. The refund tab keeps them.
+    if owner and str(trip.get("tab_id") or "") != "refunds":
+        excluded = _refund_member_ids(board, True)
+        if excluded:
+            rows = [row for row in rows if row.get("source_event_id") not in excluded]
     all_rows = list(rows)
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
@@ -235,7 +298,7 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     rows = list(kind_rows)
     text = _first(query, "q").strip().casefold()
     if text:
-        rows = [row for row in rows if text in _row_search(row, None)]
+        rows = [row for row in rows if text in _row_search(row, None, owner=owner)]
     sort = _first(query, "sort", "date_desc")
     if sort not in _SORTS:
         raise _ProjectionError("INVALID_VALUE", "정렬 조건이 올바르지 않아요", 400)
@@ -267,12 +330,18 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     # SPEC §11.2.1 계약 4: the period shown here is the same stored/manual read
     # the legacy screen performs, annotated once for the rows on this page.
     annotated = period_rows.annotate(selected, board)
+    # SPEC §11.2.1 계약 4: the row carries its Google 대사 status, from the same
+    # owner-only rule the legacy board uses. A viewer gets none (the helper
+    # refuses without the owner role).
+    match_status = ledger_google_match.annotations(
+        _board_instance(board), str(trip.get('tab_id') or ''), selected, owner=owner)
     dto_rows = []
     for row in annotated:
         period, period_source = period_rows.period_for_row(row, board)
         dto_rows.append(projection.ledger_row(
             row, read_only=read_only or row.get('google_income', False),
-            period=period, period_source=period_source))
+            period=period, period_source=period_source,
+            google_match=match_status.get(str(row.get('row_id') or ''))))
     return {
         "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
