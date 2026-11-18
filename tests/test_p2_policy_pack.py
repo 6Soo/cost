@@ -26,10 +26,10 @@ def test_compact_rule_packet_preserves_exact_source_and_sensitive_boundaries():
     assert len(json.dumps(short, ensure_ascii=False)) < 0.70 * len(json.dumps(full, ensure_ascii=False))
     for area, required in {
         'process': ('PROC-010', 'PROC-011', 'PROC-014', 'PROC-072'),
-        'trip': ('TRIP-042', 'TRIP-069', 'TRIP-071'),
+        'trip': ('TRIP-042', 'TRIP-045', 'TRIP-048', 'TRIP-049', 'TRIP-069', 'TRIP-071', 'TRIP-099'),
         'item': ('ITEM-080', 'ITEM-024', 'ITEM-082'),
         'date': ('DATE-023', 'DATE-109'),
-        'link': ('LINK-002', 'LINK-003', 'LINK-044'),
+        'link': ('LINK-002', 'LINK-003', 'LINK-024', 'LINK-025', 'LINK-030', 'LINK-044'),
         'refund': ('RFND-004', 'RFND-018', 'RFND-029'),
     }.items():
         for rule in required:
@@ -87,6 +87,9 @@ def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path, monkeypatch):
     ('refund_one_to_many', {'refund': ['RFND-004', 'RFND-018', 'RFND-029']}),
     ('closed_quarter', {'process': ['PROC-072']}),
     ('p2_unmatched_evidence', {'process': ['PROC-010'], 'link': ['LINK-044']}),
+    ('payment_cutoff_owner_decision', {'trip': ['TRIP-099']}),
+    ('discount_exception_proof', {'link': ['LINK-024', 'LINK-025']}),
+    ('cancelled_booking_is_not_a_trip', {'trip': ['TRIP-048', 'TRIP-097']}),
 ])
 def test_synthetic_scenario_rule_coverage(scenario, requirements):
     """Coverage of explicitly identified policy clauses, not model answer parity."""
