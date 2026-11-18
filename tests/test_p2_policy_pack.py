@@ -31,14 +31,15 @@ def test_compact_rule_packet_preserves_exact_source_and_sensitive_boundaries():
     }.items():
         for rule in required:
             assert rule in short[area]
-    # Never regenerate/abstract a clause: the exact selected section must
-    # appear inside its full source-domain packet.
+    # All selected rule IDs must exist in the canonical source file. PROC
+    # safety rules may be selected even if the legacy full packet omitted them.
     for area in set(short) - {'CORE'}:
+        source = (p2_case.ROOT / 'docs/policy' / (area + '.md')).read_text(encoding='utf-8')
         for section in short[area].split('\n\n### '):
             if not section.strip():
                 continue
             fragment = section if section.startswith('### ') else '### ' + section
-            assert fragment.split('\n', 1)[0] in full[area]
+            assert fragment.split('\n', 1)[0] in source
 
 
 def test_compact_assemble_does_not_change_cases_or_evidence(setup):
