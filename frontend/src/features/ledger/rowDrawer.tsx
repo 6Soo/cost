@@ -264,6 +264,7 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
             <span className="cost-ledger__detail-period-key">이용 기간</span>
             <PeriodValue
               period={detail.row.period}
+              label={detail.row.period_label}
               status={detail.row.period_status}
               basis={detail.row.period_basis}
               source={detail.row.period_source}

@@ -42,16 +42,17 @@ function renderPage(rows: LedgerRow[]) {
  */
 describe('stored use period on the React ledger', () => {
   test('verified shows the server value as a confirmed period', async () => {
-    renderPage([row({ id: 'r-verified', period: '2026-11-15~2026-11-16', period_status: 'verified', period_source: 'decision' })]);
-    expect((await screen.findAllByText(/2026-11-15~2026-11-16/)).length).toBeGreaterThan(0);
+    renderPage([row({ id: 'r-verified', period: '2026-11-15~2026-11-16', period_label: '11.15–11.16 · 1박',
+      period_status: 'verified', period_source: 'decision' })]);
+    expect((await screen.findAllByText('11.15–11.16 · 1박')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/확인됨/).length).toBeGreaterThan(0);
     expect(screen.queryAllByText(/추정/)).toHaveLength(0);
   });
 
   test('inferred shows the same value but is labelled as an inference', async () => {
-    renderPage([row({ id: 'r-inferred', period: '2026-11-15~2026-11-16', period_status: 'inferred',
-      period_basis: '예약 자료 연결', period_source: 'decision_inferred' })]);
-    expect((await screen.findAllByText(/2026-11-15~2026-11-16/)).length).toBeGreaterThan(0);
+    renderPage([row({ id: 'r-inferred', period: '2026-11-15~2026-11-16', period_label: '11.15–11.16 · 1박 · 추론',
+      period_status: 'inferred', period_basis: '예약 자료 연결', period_source: 'decision_inferred' })]);
+    expect((await screen.findAllByText('11.15–11.16 · 1박 · 추론')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/추정 · 예약 자료 연결/).length).toBeGreaterThan(0);
     expect(screen.queryAllByText(/확인됨/)).toHaveLength(0);
   });
@@ -68,15 +69,17 @@ describe('stored use period on the React ledger', () => {
   });
 
   test('computed states that the period came from evidence, not a stored decision', async () => {
-    renderPage([row({ id: 'r-computed', period: '2026-11-15~2026-11-16', period_status: 'computed', period_source: 'computed' })]);
-    expect((await screen.findAllByText(/2026-11-15~2026-11-16/)).length).toBeGreaterThan(0);
+    renderPage([row({ id: 'r-computed', period: '2026-11-15~2026-11-16', period_label: '11.15–11.16 · 1박',
+      period_status: 'computed', period_source: 'computed' })]);
+    expect((await screen.findAllByText('11.15–11.16 · 1박')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/증빙 계산/).length).toBeGreaterThan(0);
     expect(screen.queryAllByText(/확인됨/)).toHaveLength(0);
   });
 
   test('a period a person typed is labelled as a manual value', async () => {
-    renderPage([row({ id: 'r-manual', period: '2026-11-14~2026-11-17', period_source: 'manual' })]);
-    expect((await screen.findAllByText(/2026-11-14~2026-11-17/)).length).toBeGreaterThan(0);
+    renderPage([row({ id: 'r-manual', period: '2026-11-14~2026-11-17', period_label: '11.14–11.17 · 3박',
+      period_source: 'manual' })]);
+    expect((await screen.findAllByText('11.14–11.17 · 3박')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/수동 지정/).length).toBeGreaterThan(0);
   });
 
@@ -88,7 +91,11 @@ describe('stored use period on the React ledger', () => {
   test('renders the server value verbatim and never re-derives it', () => {
     // A value the screen could not have computed: reversed order and an unusual
     // separator must survive untouched, because the screen does not parse it.
-    render(<PeriodValue period="2026-11-16~2026-11-15" status="verified" />);
+    render(<PeriodValue period="2026-11-16~2026-11-15" label="서버가 준 임의 문자열" status="verified" />);
+    expect(screen.getByText(/서버가 준 임의 문자열/)).toBeTruthy();
+    // The screen must not reformat or parse: a second, differently-shaped value
+    // reaches the DOM exactly as the server wrote it.
+    render(<PeriodValue period="2026-11-16~2026-11-15" />);
     expect(screen.getByText('2026-11-16~2026-11-15')).toBeTruthy();
   });
 
