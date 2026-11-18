@@ -155,7 +155,13 @@ def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]
                         (isinstance(base, ast.Name) and base.id.endswith("BrowserFixture"))
                         or (isinstance(base, ast.Attribute) and base.attr.endswith("BrowserFixture"))
                         for base in node.bases)
-                    visit(node.body, (*class_path, node.name), inherited_browser or is_browser_fixture)
+                    starts_browser = any(
+                        isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and method.name in {"setUp", "setUpClass", "setup_method", "setup_class"}
+                        and _calls_playwright(method)
+                        for method in node.body)
+                    visit(node.body, (*class_path, node.name),
+                          inherited_browser or is_browser_fixture or starts_browser)
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                     if requested_parts and (requested_parts[-1] != node.name
                             or (len(requested_parts) > 1 and list(class_path) != requested_parts[:-1])):
