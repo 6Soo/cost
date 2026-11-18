@@ -2423,15 +2423,25 @@ def viewer_trips_html(trips) -> str:
     The caller passes trips that have already been filtered by the access store.
     This function only renders them, so there is no path here that could name a
     trip the viewer was not given.
+
+    SPEC §11.2.1 계약 4 / GGL-014: ``income_krw`` and ``balance_krw`` are None
+    when the tab's confirmed income is unknown (no COST income and no verified
+    Google block). That state is a word, not money, so it carries no currency
+    unit — ``미확인`` alone, matching the React summary's unknown state and the
+    legacy board's '—'. An unknown 차액 is never shown as a negative expense.
     """
     if not trips:
         return ("<div class='sect'><h2>담당 여행</h2>"
                 "<p>현재 배정된 여행이 없습니다</p></div>")
+
+    def money(value) -> str:
+        return '미확인' if value is None else f"{int(value):,}원"
+
     items = "".join(
         f"<li><a href='/board?tab={board.esc(t['tab_id'])}'>{board.esc(t['display_key'])}</a>"
         f" — {board.esc(t['starts_on'])}~{board.esc(t['ends_on'])}"
-        f" · 수입 {t['income_krw']:,}원 · 지출 {t['expense_krw']:,}원"
-        f" · 차액 {t['balance_krw']:,}원</li>"
+        f" · 수입 {money(t.get('income_krw'))} · 지출 {money(t.get('expense_krw'))}"
+        f" · 차액 {money(t.get('balance_krw'))}</li>"
         for t in trips)
     return f"<div class='sect'><h2>담당 여행</h2><ul>{items}</ul></div>"
 

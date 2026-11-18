@@ -455,25 +455,41 @@ def access_control_viewer_row_set(session, store, tab_id: str | None):
     return recorded, income, ledger_query.merge_income(recorded, income)
 
 
-def viewer_row_totals(session, store, tab_id: str) -> dict:
-    """A viewer's per-trip totals for the board rail, from the common query.
+def viewer_row_totals(session, store, tab_id: str) -> dict | None:
+    """A viewer's per-trip figures for the board rail, from the common query.
 
-    The figures are the ones the shared projection reports: signed KRW over the
-    display row set with the sources kept apart (GGL-003). A viewer without a
-    Google grant gets no Google rows, so its totals stay the recorded COST
-    figure, exactly as before.
+    SPEC §11.2.1 계약 2·4 with GGL-003·GGL-014: the rail reports the tab-wide
+    confirmed income and 차액 by the same rule the Plush summary uses — recorded
+    COST income first, the verified Google block only as its fallback, and the
+    unknown word (``None``) when neither exists. The Google block never becomes
+    a confirmed figure on its own and never enters a confirmed sum, so a viewer
+    without a Google grant and a viewer with one agree whenever COST income
+    exists.
+
+    ``income_krw``/``balance_krw`` are ``None`` when the income is unknown, so
+    the renderer can print the word instead of a claimed figure. ``expense_krw``
+    and ``row_count`` are always real: they describe the rows, not the income.
+
+    The display amounts come from the store projection (``display_amount_krw``),
+    so a bank correction shows the same figure the legacy list and React show.
     """
     from . import ledger_query
 
-    _recorded, _income, display_rows = access_control_viewer_row_set(session, store, tab_id)
+    if store is None or not tab_id:
+        return None
+    _recorded, income_block, display_rows = access_control_viewer_row_set(
+        session, store, tab_id)
     totals = ledger_query.display_totals(display_rows)
-    income_krw = int(totals["income"])
+    linked = ledger_query.linked_bank_ids(store)
+    income, known = ledger_query.confirmed_income(
+        display_rows, linked=linked,
+        google_verified=bool((income_block or {}).get("verified")))
     expense_krw = int(totals["expense"])
-    return {"income_krw": income_krw, "expense_krw": expense_krw,
-            # The viewer rail keeps its existing contract: 차액 is income minus
-            # expense. (``display_totals['total']`` is the signed 조회 합계, a
-            # different figure — income plus expenses.)
-            "balance_krw": income_krw - expense_krw,
+    return {"income_krw": income if known else None,
+            "expense_krw": expense_krw,
+            # 차액 keeps its existing meaning — income minus expense — and is
+            # unknown whenever the income is (never a claimed -expense).
+            "balance_krw": income - expense_krw if known else None,
             # The count is the display row set's own size, matching the list.
             "row_count": len(display_rows)}
 
@@ -497,6 +513,8 @@ def access_control_render_viewer_board(session, store, tab_id: str) -> str:
         if trip["tab_id"] not in allowed:
             continue
         totals = viewer_row_totals(session, _active_store(), trip["tab_id"])
+        if totals is None:
+            continue
         trips.append({"tab_id": trip["tab_id"],
                       "display_key": trip["display_key"],
                       "starts_on": trip["starts_on"],
@@ -2884,6 +2902,19 @@ class Handler(BaseHTTPRequestHandler):
             allowed = (viewer_visible_tabs(session) if not is_owner_session(session)
                        else {r["display_tab_id"] for r in rows})
             from . import ledger_query
+            # ``totals`` keeps its existing meaning on both roles: the display
+            # row set's own sums, where income_krw is the COST income sum and
+            # balance_krw is income minus expense (the 조회 합계). Existing
+            # callers read only these keys, so nothing there changes.
+            #
+            # ``confirmed`` is the different contract SPEC §11.2.1 계약 2·4
+            # defines: the tab-wide confirmed income — COST income first, the
+            # verified Google block only as its fallback, otherwise unknown
+            # (None, never a claimed zero) — and its 차액. The two are reported
+            # side by side so a caller can pick the one its screen means, and
+            # neither is silently substituted for the other.
+            confirmed = None
+            google_block = None
             if is_owner_session(session):
                 projected = access_control.project_rows_for_viewer(rows, allowed, tab)
                 totals = ledger_query.display_totals(projected)
@@ -2892,20 +2923,32 @@ class Handler(BaseHTTPRequestHandler):
                 # set as the initial board and the Plush API, so its IDs and
                 # counts match. The access store still answers which rows are
                 # visible and the Google block keeps its per-user grant check.
-                _recorded, _income, display_rows = access_control_viewer_row_set(
+                _recorded, google_block, display_rows = access_control_viewer_row_set(
                     session, _active_store(), tab)
                 projected = access_control.project_rows_for_viewer(display_rows, allowed, tab)
                 for item in projected:
                     access_control.assert_no_denied_fields(item)
                 totals = ledger_query.display_totals(display_rows)
-            self._send_json({"tab": tab, "rows": projected,
-                             "totals": {"income_krw": int(totals["income"]),
-                                        "expense_krw": int(totals["expense"]),
-                                        # 차액 keeps its existing meaning:
-                                        # income minus expense.
-                                        "balance_krw": (int(totals["income"])
-                                                        - int(totals["expense"]))},
-                             "row_count": len(projected)})
+                confirmed_income, confirmed_known = ledger_query.confirmed_income(
+                    display_rows, linked=ledger_query.linked_bank_ids(_active_store()),
+                    google_verified=bool((google_block or {}).get("verified")))
+                expense = int(totals["expense"])
+                confirmed = {"income_krw": confirmed_income if confirmed_known else None,
+                             "balance_krw": (confirmed_income - expense
+                                             if confirmed_known else None)}
+            payload = {"tab": tab, "rows": projected,
+                       "totals": {"income_krw": int(totals["income"]),
+                                  "expense_krw": int(totals["expense"]),
+                                  # 차액 keeps its existing meaning:
+                                  # income minus expense.
+                                  "balance_krw": (int(totals["income"])
+                                                  - int(totals["expense"]))},
+                       "row_count": len(projected)}
+            if confirmed is not None:
+                # Extra key only for a viewer: the owner response shape is
+                # untouched, so no owner-side caller can be affected.
+                payload["confirmed"] = confirmed
+            self._send_json(payload)
             return True
         if path.startswith("/evidence/preview/"):
             evidence_id = path.rsplit("/", 1)[-1]

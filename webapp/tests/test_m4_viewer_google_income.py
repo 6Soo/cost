@@ -32,11 +32,23 @@ OWNER = "syn-viewer-owner"
 VIEWER = "syn-viewer-staff"
 OTHER = "syn-viewer-other"
 
-SUPPLY = re.compile(r"수입 (\d[\d,]*|미확인)원 · 지출 (\d[\d,]*|미확인)원 · 차액 ([-−]?\d[\d,]*|미확인)원")
+SUPPLY = re.compile(
+    r"수입 (\d[\d,]*원?|미확인) · 지출 (\d[\d,]*원?|미확인) · 차액 ([-−]?\d[\d,]*원?|미확인)")
 
 
 def _money(text: str) -> int:
+    assert text != "미확인", text
     return int(text.replace("−", "-").replace(",", ""))
+
+
+def _rail(html: str) -> dict:
+    """레일의 수입·지출·차액을 원 단위 정수 또는 None(미확인)으로 읽는다."""
+    match = SUPPLY.search(html)
+    assert match, f"열람자 레일에 합계가 없습니다: {html[:400]}"
+    values = {}
+    for name, raw in zip(("income", "expense", "balance"), match.groups()):
+        values[name] = None if raw == "미확인" else int(raw.replace("−", "-").replace(",", ""))
+    return values
 
 
 @pytest.fixture
@@ -147,7 +159,10 @@ def viewer_board(tmp_path, monkeypatch, google_block):
 
     try:
         yield SimpleNamespace(store=store, access=access, tab=tab, key=key,
-                              request=request, grant=grant, port=port)
+                              request=request, grant=grant, port=port,
+                              # `serve()` opens its own store over the same file;
+                              # a test that patches projection must patch that one.
+                              server_store=server.card_store)
     finally:
         server.shutdown()
         server.server_close()
@@ -159,11 +174,23 @@ def viewer_board(tmp_path, monkeypatch, google_block):
 
 
 def _rail_totals(html: str) -> dict:
+    """레일의 수입·지출·차액을 읽는다. 미확인은 None, 통화 단위 유무도 검사한다."""
     match = SUPPLY.search(html)
     assert match, f"열람자 레일에 합계가 없습니다: {html[:400]}"
-    return {"income": _money(match.group(1)),
-            "expense": _money(match.group(2)),
-            "balance": _money(match.group(3))}
+    values = {}
+    for name, raw in zip(("income", "expense", "balance"), match.groups()):
+        values[name] = None if raw == "미확인" else int(
+            raw.replace("원", "").replace("−", "-").replace(",", ""))
+        # A number keeps its unit; only the unknown word may drop one.
+        assert raw == "미확인" or raw.endswith("원"), f"{name} 금액에 원 단위 없음: {raw}"
+    return values
+
+
+def _assert_unknown_has_no_unit(html: str) -> None:
+    """GGL-014: 미확인은 단어다. '미확인원'이나 '미확인 KRW'가 붙어선 안 된다."""
+    assert "미확인원" not in html
+    assert "미확인 KRW" not in html
+    assert "미확인₩" not in html
 
 
 def _react(env, user=VIEWER, **params):
@@ -274,6 +301,138 @@ def test_viewer_google_rows_keep_the_allowlist_and_read_only_boundary(viewer_boa
     google = next(row for row in react["rows"] if row["id"].startswith("google-income|"))
     assert google["read_only"] is True
     assert all(row["read_only"] for row in react["rows"])
+
+
+def _clear_cost_income(env):
+    """합성 탭에서 COST 수입 행만 제거한다(운영 자료 아님, 임시 저장소)."""
+    env.store.conn.execute("DELETE FROM board_rows WHERE row_id='viewer-cost-income'")
+    env.store.conn.commit()
+
+
+def test_no_cost_income_and_no_google_grant_shows_unknown_not_zero(viewer_board):
+    """§11.2.1 계약 4 / GGL-014: COST 수입 없음 + Google 미부여는 수입·차액 미확인.
+
+    이전 레일은 0원과 -250,000원을 확정으로 그렸는데, React는 미확인/미확인을
+    보여 두 경로가 갈렸다. 확정 규칙(COST 수입 먼저, 없으면 verified Google,
+    둘 다 없으면 미확인)을 레일도 같은 계약으로 읽어야 한다.
+    """
+    env = viewer_board
+    env.grant(None)
+    _clear_cost_income(env)
+
+    board_html = env.request(f"/board?tab={env.tab}", as_json=False)[1]
+    rail = _rail_totals(board_html)
+    assert rail == {"income": None, "expense": 250000, "balance": None}
+    _assert_unknown_has_no_unit(board_html)
+
+    status, listing = env.request(f"/access/rows?tab={env.tab}")
+    assert status == 200
+    # 기존 `totals` 키는 조회 합계 계약 그대로 보존된다(호환).
+    assert listing["totals"] == {"income_krw": 0, "expense_krw": 250000,
+                                 "balance_krw": -250000}
+    # 확정 계약은 별도 키로 구별해 보고한다.
+    assert listing["confirmed"] == {"income_krw": None, "balance_krw": None}
+
+    status, fragment = env.request(f"/api/live/state?tab={env.tab}",
+                                  headers={"X-Part": "live-state"}, as_json=False)
+    assert status == 200
+    assert _rail_totals(fragment) == rail
+    _assert_unknown_has_no_unit(fragment)
+
+    status, react = _react(env)
+    assert status == 200
+    assert react["trip"]["income"] == "미확인"
+    assert react["trip"]["profit"] == "미확인"
+
+
+def test_no_cost_income_with_verified_google_grant_uses_the_google_figure(viewer_board):
+    """확정 규칙의 두 번째 갈래: COST 수입이 없으면 verified Google이 확정 수입이 된다."""
+    env = viewer_board
+    env.grant([VIEWER])
+    _clear_cost_income(env)
+
+    board_html = env.request(f"/board?tab={env.tab}", as_json=False)[1]
+    rail = _rail_totals(board_html)
+    assert rail == {"income": 1000, "expense": 250000, "balance": -249000}
+
+    status, listing = env.request(f"/access/rows?tab={env.tab}")
+    assert status == 200
+    assert listing["confirmed"] == {"income_krw": 1000, "balance_krw": -249000}
+
+    status, fragment = env.request(f"/api/live/state?tab={env.tab}",
+                                   headers={"X-Part": "live-state"}, as_json=False)
+    assert status == 200
+    assert _rail_totals(fragment) == rail
+
+    status, react = _react(env)
+    assert status == 200
+    assert react["trip"]["income"] == "1000"
+    assert react["trip"]["profit"] == "-249000"
+
+
+def test_no_cost_income_with_unverified_google_stays_unknown(viewer_board, monkeypatch):
+    """확정 규칙의 세 번째 갈래: Google 블록이 미검증이면 확정 수입·차액은 미확인."""
+    env = viewer_board
+    env.grant([VIEWER])
+    _clear_cost_income(env)
+    from webapp import google_ledger_page as page
+    from webapp.tests.test_google_ledger_page import rows_doc
+    # The same synthetic block with an unreadable amount: available but unverified.
+    monkeypatch.setattr(page, "owner_rows", lambda *a: {"income": [
+        dict(row=6, date="2026-10-01", name="SYNTHETIC", amount="", deposit=1000)],
+        "expense": []})
+
+    status, listing = env.request(f"/access/rows?tab={env.tab}")
+    assert status == 200
+    assert listing["confirmed"] == {"income_krw": None, "balance_krw": None}
+
+    board_html = env.request(f"/board?tab={env.tab}", as_json=False)[1]
+    assert _rail_totals(board_html) == {"income": None, "expense": 250000, "balance": None}
+    _assert_unknown_has_no_unit(board_html)
+
+    status, react = _react(env)
+    assert status == 200
+    assert react["trip"]["income"] == "미확인"
+    assert react["trip"]["profit"] == "미확인"
+
+
+def test_viewer_bank_correction_matches_the_display_amount(viewer_board, monkeypatch):
+    """§13.2: 열람자가 보는 금액은 저장 raw가 아니라 보정된 표시 금액이어야 한다."""
+    env = viewer_board
+    env.grant([VIEWER])
+    original = env.server_store.projected
+
+    def corrected(row):
+        out = original(row)
+        if row["row_id"] == "viewer-cost-income":
+            out["display_amount_krw"] = 900000      # 저장 raw는 1000000
+        if row["row_id"] == "viewer-cost-expense":
+            out["display_amount_krw"] = 200000      # 저장 raw는 250000
+        return out
+
+    # The HTTP server and the in-process React helper each hold a store over the
+    # same file, so both are patched with the same correction.
+    monkeypatch.setattr(env.server_store, "projected", corrected)
+    monkeypatch.setattr(env.store, "projected", corrected)
+
+    status, listing = env.request(f"/access/rows?tab={env.tab}")
+    assert status == 200
+    by_id = {row["row_id"]: row for row in listing["rows"]}
+    # The viewer allowlist carries the row's own amount_krw, unchanged.
+    assert by_id["viewer-cost-income"]["amount_krw"] == 1000000
+    assert by_id["viewer-cost-expense"]["amount_krw"] == 250000
+    # But the totals and the rail use the corrected display amount.
+    assert listing["totals"]["income_krw"] <= 900000 + 1000
+    assert listing["confirmed"]["income_krw"] == 900000
+    assert listing["confirmed"]["balance_krw"] == 900000 - 200000
+
+    rail = _rail_totals(env.request(f"/board?tab={env.tab}", as_json=False)[1])
+    assert rail == {"income": 900000, "expense": 200000, "balance": 700000}
+
+    status, react = _react(env)
+    assert status == 200
+    assert react["trip"]["income"] == "900000"
+    assert react["trip"]["profit"] == "700000"
 
 
 def test_viewer_out_of_scope_trip_stays_a_404_and_names_nothing(viewer_board):
