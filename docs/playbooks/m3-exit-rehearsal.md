@@ -322,13 +322,13 @@ print(json.dumps({'digest': preview['digest'], 'targets': len(preview['targets']
 | 무엇이 digest를 바꾸는가 | 코드 위치 | 어떻게 맞추는가 |
 | --- | --- | --- |
 | `context`가 `trips`·`nets`·`evidence`를 덮어쓰는지 여부 | `core/crates/core/src/plan/mod.rs:477` `fingerprint`, `pipeline.rs:203` `overlay_context` | **audit과 apply에 같은 JSON 문자열을 준다.** `{"periods":{}}`만 주면 DB에서 읽은 여행 목록을 쓴다. `"trips"` 키를 넣으면 그 값이 이긴다 |
-| `reconsider` | `plan/mod.rs:528`(digest 입력), `main.rs:475`(`--reconsider` 또는 `context.reconsider`), `completeness.rs:66`(audit은 `context.reconsider`만 본다) | **양쪽에 같은 방식으로 준다.** audit은 `--reconsider` 플래그를 받지 않는다(코드 확인) → `context`의 `"reconsider":true`만 쓴다. apply는 **플래그나 context 중 하나만** 준다 |
+| `reconsider` | `plan/mod.rs:528`(digest 입력), `main.rs:475`(apply는 `--reconsider` 또는 `context.reconsider`), `completeness.rs:66`(audit은 `context.reconsider`만 본다) | **`context`의 `"reconsider":true`만 쓴다(양쪽 모두).** audit은 `--reconsider` 플래그를 **받아들이지만 무시**한다(실제 확인: 플래그를 붙여도 audit digest가 `2d808f6e…`로 같고, `context.reconsider`를 넣으면 `22d7ac78…`로 바뀐다). 즉 audit에 플래그만 주면 apply와 조건이 어긋나고, 오류 없이 stale로 실패한다. apply에도 플래그를 쓰지 말고 context로 통일한다 |
 | `context.periods`(이용기간 근거) | `plan/mod.rs:521-529` `evidence`, `apply.rs:144-155` | 양쪽에 같은 `periods` 객체를 준다. **없으면 audit이 `PERIOD_FACTS_REQUIRED`로 거부한다** |
 | `context.transaction_ids`(범위 제한) | `main.rs:449-453`(apply는 `selected`로 넘긴다), `completeness.rs:62-67`(audit은 `overlay_context`에 `None`을 넘긴다) | **audit에 `transaction_ids`를 넣지 않는다.** audit은 이 키를 무시하고 전체를 훑는다(`scanned 3002`). apply에만 넣으면 `selected`가 digest에 들어가 조건이 어긋나 `CLASSIFICATION_PREVIEW_STALE`이 난다(실제로 확인: audit digest가 ids 목록을 바꿔도 `77a0c063…`로 같고, apply에 ids를 넣으면 거부됨) |
 
 핵심: **같은 변수 하나(`$ctx`)를 두 명령에 그대로 파이프한다.** ②와 ③에서 문자열을 손으로 다시 치면 실패한다.
 
-- `--reconsider`를 쓰는 경우: audit은 `context`에 `"reconsider":true`를 넣어 재고, apply는 **플래그 없이** 같은 `context`를 넘긴다. 예행에서 `reconsider:true` 조건으로 `written:2547`, `skipped_mismatch:135`를 실제로 확인했다(이 135건은 `reconsider`의 정상 동작이지 결함이 아니다).
+- `reconsider`가 필요한 경우: **양쪽 모두** `context`에 `"reconsider":true`를 넣는다. apply에 `--reconsider` 플래그를 같이 주면 digest는 같지만(둘 다 true), audit에는 플래그가 닿지 않으므로 **플래그를 쓰지 않는 편이 안전하다**. 예행에서 `reconsider:true` 조건으로 `written:2547`, `skipped_mismatch:135`를 실제로 확인했다(이 135건은 `reconsider`의 정상 동작이지 결함이 아니다).
 
 ## 출력 읽는 법
 
