@@ -27,18 +27,165 @@ $host = "$a/host"                                 # 보호 경로가 아닌 임�
 
 1. **합성 보드 DB.** `transactions` 3,002행(그중 게시된 `ledger_entries`·`board_rows` 40행), 여행 탭 5개(열린 여행 4 + 완료 1). **`quarter:2026:3`(열린 분기)만 쓴다** — `quarter:2026:1|2`는 완료 분기라 `core/crates/core/src/plan/fresh.rs:48`이 Protected로 닫는다. 보호 행(파싱 오류·중복 표시)·완료 기간(2025) 행을 섞어 둔다.
 
+   아래 생성기는 **이 문서에 그대로 들어 있고**, 고객 자료가 없으며 저장소 밖(`.local-archive/`)에만 쓴다. `$a` 폴더에 저장해 실행한다.
+
+   ```python
+"""Self-contained synthetic board builder for the M3 exit rehearsal (no customer data, no production DB).
+
+Usage:
+  python -I make_synthetic_board.py --out DIR --rows 3000 [--pre-classified N]
+
+Writes DIR/board.sqlite with the full board schema, holding:
+  - trip tabs: 4 open trips (2026-10..12) + 1 completed trip (2025-12)
+  - transactions: open-trip purchases, quarter:2026:3 rows, completed-period rows (2025),
+    protected rows (parse_error, duplicate_of), one refund pair
+  - ledger_entries / board_rows for the first 40 already-classified rows
+Never uses quarter:2026:1 or :2 (completed quarters -> Protected, plan/fresh.rs:48).
+"""
+import argparse
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+ARGS = argparse.ArgumentParser()
+ARGS.add_argument('--out', required=True)
+ARGS.add_argument('--rows', type=int, default=3000)
+ARGS.add_argument('--pre-classified', type=int, default=0)
+ARGS.add_argument('--repo-root', required=True, help='레포 루트(절대경로). app·webapp 스키마를 읽으려면 필요하다')
+ARGS = ARGS.parse_args()
+sys.path.insert(0, str(Path(ARGS.repo_root).resolve()))
+
+from app import db as app_db  # noqa: E402
+from webapp import ledger_store_schema as board_schema  # noqa: E402
+
+HASH = 'b' * 64
+TRIPS = [('T-A', '1020_합성도쿄', '도쿄', '2026-10-20', '2026-10-24'),
+         ('T-B', '1105_합성오사카', '오사카', '2026-11-05', '2026-11-08'),
+         ('T-C', '1220_합성삿포로', '삿포로', '2026-12-20', '2026-12-24'),
+         ('T-Q', '1226_합성제주', '제주', '2026-12-26', '2026-12-28')]
+MERCHANTS = [('합성식당', '음식점'), ('합성카페', '음식점'), ('합성호텔', '숙박비'),
+             ('합성항공', '항공료'), ('합성마트', '생필품'), ('합성교통', '교통비')]
+
+
+def insert(conn, table, row):
+    conn.execute(f'INSERT INTO {table}({",".join(row)}) VALUES ({",".join("?" * len(row))})', list(row.values()))
+
+
+def build(out, rows, pre_classified, seed):
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / 'board.sqlite'
+    path.unlink(missing_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(app_db.SCHEMA_SQL)
+    conn.executescript(board_schema.SCHEMA_SQL)
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(trip_tabs)')]
+    for tab, key, dest, start, end in TRIPS + [('T-OLD', '1201_옛여행', '부산', '2025-12-01', '2025-12-03')]:
+        values = {'tab_id': tab, 'display_key': key, 'destination': dest, 'starts_on': start, 'ends_on': end,
+                  'deleted': 0, 'created_at': '2026-09-01', 'updated_at': '2026-09-01'}
+        values = {c: v for c, v in values.items() if c in cols}
+        conn.execute('INSERT INTO trip_tabs(%s) VALUES (%s)' % (','.join(values), ','.join('?' * len(values))),
+                     tuple(values.values()))
+    txn_cols = [r[1] for r in conn.execute('PRAGMA table_info(transactions)')]
+    base = dict(batch_id='syn-batch', issuer='SYN-BANK', card_tail='1111', card_kind='credit',
+                transaction_direction='purchase', transaction_kind='일시불', original_approval_number='',
+                posting_date='', description_raw='', raw_row_json='{}', duplicate_of=None, conflict_reason='',
+                parse_error='', classification_state='needs_review', classification_source='',
+                classification_basis='', item='', description='', display_tab_id='', trip_id='', revision=1,
+                decided_at=None, created_at='2026-10-01', merchant_normalized='', foreign_amount='',
+                foreign_currency='', source_hash=HASH, row_index=1, approval_number='')
+
+    def txn(tid, **over):
+        row = dict(base, transaction_id=tid, merchant_normalized=str(over.get('merchant', '')).lower(), **over)
+        insert(conn, 'transactions', {c: row[c] for c in txn_cols if c in row})
+
+    posted = 0
+    for i in range(1, rows + 1):
+        merchant, item = MERCHANTS[i % len(MERCHANTS)]
+        trip = TRIPS[i % 4]
+        if i % 997 == 0:
+            txn(f'2025-{i:04d}', merchant=merchant, approval_date='2025-06-1%d' % (i % 9),
+                amount_krw=-10000 - i, approval_number=f'AP-{i}')
+            continue
+        day, tab = ('2026-09-1%d' % (i % 9), 'quarter:2026:3') if i % 7 == 0 else (trip[3], trip[0])
+        if i % 149 == 0:
+            txn(f'bad-{i:04d}', merchant=merchant, approval_date=day, amount_krw=-5000, parse_error='SYNTH-PARSE')
+            continue
+        if i % 211 == 0:
+            txn(f'dup-{i:04d}', merchant=merchant, approval_date=day, amount_krw=-7000,
+                duplicate_of=f'2026-{i - 1:04d}')
+            continue
+        state = ('classified' if i <= pre_classified else 'needs_review') if pre_classified else (
+            'needs_review' if i <= rows * 2 // 3 else 'classified')
+        done = state == 'classified'
+        txn(f'2026-{i:04d}', merchant=merchant, approval_date=day, posting_date=day, amount_krw=-10000 - i % 9000,
+            approval_number=f'AP-{i:04d}', classification_state=state,
+            classification_source='inference' if done else '', item=item if done else '',
+            display_tab_id=tab if done else '', trip_id=trip[0] if done else '')
+        if done and posted < 40:
+            posted += 1
+            amount = -10000 - i % 9000
+            insert(conn, 'ledger_entries', dict(transaction_id=f'2026-{i:04d}', batch_id='syn-batch', item=item,
+                                                description='', display_tab_id=tab, trip_id=trip[0], amount_krw=amount,
+                                                merchant=merchant, occurred_on=day, transaction_direction='purchase',
+                                                source_hash=HASH, committed_at='2026-10-05'))
+            payload = json.dumps({'item': item, 'description': '', 'display_tab_id': tab, 'trip_id': trip[0],
+                                  'amount_krw': amount, 'merchant': '', 'service_period': '',
+                                  'revision': 1, 'confirmed_by': 'automatic'}, ensure_ascii=False)
+            conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,1,?)',
+                         ('card-' + f'2026-{i:04d}', 'expense', tab, payload))
+    txn('rfnd-orig-1', merchant='합성호텔', approval_date='2026-10-22', amount_krw=-200000, approval_number='RF-1')
+    txn('rfnd-refund-1', merchant='합성호텔', approval_date='2026-10-23', amount_krw=200000, approval_number='RF-2',
+        transaction_direction='refund', original_approval_number='RF-1', transaction_kind='취소')
+    conn.commit()
+    counts = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]
+              for t in ('transactions', 'trip_tabs', 'ledger_entries', 'board_rows')}
+    conn.close()
+    print(json.dumps({'path': str(path), 'counts': counts}, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    build(Path(ARGS.out), ARGS.rows, ARGS.pre_classified, 20261119)
+   ```
+
    ```powershell
-   python -I "$a/make_synthetic.py" --out "$a/syn" --rows 3000
+   python -I "$a/make_synthetic_board.py" --out "$a/syn" --rows 3000 --repo-root $repo
    # 기대 출력: {"path": "...syn/board.sqlite", "counts": {"transactions": 3002, "trip_tabs": 5,
    #             "ledger_entries": 40, "board_rows": 40}}
    ```
 
-   - `--pre-classified N`: 앞 N행을 이미 `classified`로 채운다(Python 작성자가 이미 판정한 상태를 흉내 낼 때). 0이면 전부 `needs_review`.
+   - `--pre-classified N`: 앞 N행을 이미 `classified`로 채운다(Python 작성자가 이미 판정한 상태를 흉내 낼 때). 0(기본)이면 앞 2/3은 `needs_review`, 뒤 1/3은 `classified`다.
 2. **합성 가맹점 규칙 6개.** 규칙 표가 없으면 항목 추론이 전부 실패해 판정이 `Unattributable`로 닫힌다(그러면 `written`이 0이 된다 — 코어 결함이 아니라 자료 부족이다).
 
+   ```python
+"""Add 6 synthetic merchant rules so item inference succeeds (otherwise every row is Unattributable).
+
+  python -I add_synthetic_rules.py --db board.sqlite --repo-root ROOT
+"""
+import argparse, sqlite3, sys
+from pathlib import Path
+
+ARGS = argparse.ArgumentParser()
+ARGS.add_argument('--db', required=True)
+ARGS.add_argument('--repo-root', required=True)
+ARGS = ARGS.parse_args()
+sys.path.insert(0, str(Path(ARGS.repo_root).resolve()))
+from app import db as app_db, rules  # noqa: E402
+
+store = app_db.Store(sqlite3.connect(Path(ARGS.db).resolve()))
+try:
+    for merchant in ('합성식당', '합성호텔', '합성항공', '합성마트', '합성교통', '합성카페'):
+        rules.save_rule(store, {'conditions': {'merchant_normalized': merchant}, 'effects': {'item': 'x'},
+                                'note': 'synthetic', 'origin': 'synthetic', 'rule_id': 'syn-' + merchant})
+    store.conn.commit()
+finally:
+    store.conn.close()
+print('rules ok')
+   ```
+
    ```powershell
-   cp "$a/syn/board.sqlite" "$a/work/r5.sqlite"
-   python -I "$a/add_rules.py" "$a/work/r5.sqlite"    # 기대 출력: rules ok
+   Copy-Item "$a/syn/board.sqlite" "$a/work/r5.sqlite"
+   python -I "$a/add_synthetic_rules.py" --db "$a/work/r5.sqlite" --repo-root $repo   # 기대 출력: rules ok
    ```
 
 3. **빈 core.sqlite.** 이관은 멱등이고, 없으면 만든다.
@@ -185,9 +332,9 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 | `PERIOD_FACTS_REQUIRED` (audit) | `context`에 `periods` 객체가 없다(`main.rs:501-503`) | `$ctx`에 `"periods":{}`를 넣는다. 운영에서는 `app.core_writer.periods_for`의 실제 근거를 넣는다 |
 | `{"error":{"code":"USAGE_INVALID"}}` (apply) | `--digest`를 빠뜨렸다. apply는 digest가 **필수**다(`main.rs:437`) | ②에서 digest를 먼저 얻는다 |
 | `{"error":{"code":"IO_ERROR"}}` (audit/apply, context에 `trips`를 넣었을 때) | context 파일을 Windows 기본 인코딩으로 써서 한글 여행 이름이 깨졌다 | context 파일을 **UTF-8**로 쓴다(`open(path,'w',encoding='utf-8')`). PowerShell 7은 기본이 UTF-8이지만, 리다이렉션(`>`)으로 만든 파일은 확인한다 |
-| `written:0`인데 `skipped_unjudged`가 거의 전부 | 가맹점 규칙 표가 없어 항목이 추론되지 않았다 → 판정이 `Unattributable` | 2단계 `add_rules.py`를 먼저 돌린다. 규칙 6개로 `written`이 0 → 1,695로 바뀐다 |
+| `written:0`인데 `skipped_unjudged`가 거의 전부 | 가맹점 규칙 표가 없어 항목이 추론되지 않았다 → 판정이 `Unattributable` | 2단계 `add_synthetic_rules.py`를 먼저 돌린다. 규칙 6개로 `written`이 0 → 1,695로 바뀐다 |
 | `written:0`이고 `to_classify:0` | `context`에 `"trips":[]`를 넣어 여행 목록이 비었다 | `trips` 키를 넣지 않거나 DB에서 읽은 값을 넣는다 |
-| 감사 digest가 `quarter:2026:9` 같은 값으로 나옴 | 합성 자료의 분기 표기가 틀렸다(열린 분기는 `3`만) | `make_synthetic.py`는 2026 Q3만 쓴다. 손으로 만든 자료면 `fresh.rs:48`의 허용 목록을 본다 |
+| 감사 digest가 `quarter:2026:9` 같은 값으로 나옴 | 합성 자료의 분기 표기가 틀렸다(열린 분기는 `3`만) | 이 문서의 `make_synthetic_board.py`는 2026 Q3만 쓴다. 손으로 만든 자료면 `fresh.rs:48`의 허용 목록을 본다 |
 | `DB_IS_LIVE` | `--db`가 `--host-root`의 `data/board.sqlite`와 같은 파일이다 | 예행은 `--host-root`에 **보호 경로가 아닌 임시 루트**를 준다. 운영에서는 사본을 SQLite backup API로 만든다(`robocopy /COPY:DAT` 사본은 거부된다) |
 
 ## 보호 (이 절차가 지키는 것)
@@ -210,5 +357,5 @@ $ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sql
 
 ## 이 절차서가 확인한 것과 확인하지 않은 것
 
-- 확인(2026-11-19, `3d8e8791`, debug 빌드): 3,002행 합성 보드에서 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 세 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`, `USAGE_INVALID`)와 `PYTHON_NOT_STARTED`·`IO_ERROR` 진단. `transaction_ids`가 audit digest에 영향을 주지 않으나 apply에는 주는 것도 실제 실행으로 확인했다.
+- 확인(2026-11-19, `3d8e8791`, debug 빌드): 이 문서에 든 생성기 두 개를 문서에서 그대로 꺼내 실행해 3,002행 합성 보드를 만들고(감사 digest `77a0c063…` 재현), 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 세 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`, `USAGE_INVALID`)와 `PYTHON_NOT_STARTED`·`IO_ERROR` 진단. `transaction_ids`가 audit digest에 영향을 주지 않으나 apply에는 주는 것도 실제 실행으로 확인했다.
 - 하지 않음: 운영 DB 접근, `release` 빌드 실행, 실제 OTA 이용기간 근거 생성(운영 자료 필요), 대규모(1만 행 이상) 성능 측정.
