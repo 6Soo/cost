@@ -264,6 +264,9 @@ def close_runtime(server):
     from webapp import ledger_board, ota_payment_review
 
     actions = []
+    counter = getattr(server, 'http_request_counts', None)
+    if counter is not None:
+        actions.append(counter.close)
     worker = getattr(server, 'card_worker', None)
     if worker is not None:
         actions.append(lambda: worker.stop(timeout=5))
@@ -346,6 +349,8 @@ def main(argv=None) -> int:
         print('refused [SERVER_START]: 서버 초기화에 실패했습니다.', file=sys.stderr)
         return 2
     try:
+        from webapp import http_counting
+        http_counting.attach(server, config.data_root, port)
         bind_runtime_access(server)
         oidc = connect_runtime_oidc(server, args)
     except ops.OpsError as exc:

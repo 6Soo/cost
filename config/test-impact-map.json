@@ -9,6 +9,12 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "m5-content-free-request-metrics",
+      "paths": ["app/http_request_counts.py", "webapp/http_counting.py", "tools/http_request_metrics_summary.py", "tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py"],
+      "tests": ["tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "webapp/tests/test_http_counting.py"],
+      "reason": "Persisted request counters without request contents or customer identifiers"
+    },
+    {
       "name": "m5-standalone-backup",
       "paths": ["tools/m5_backup.py", "tests/test_m5_backup.py"],
       "tests": ["tests/test_m5_backup.py"],
