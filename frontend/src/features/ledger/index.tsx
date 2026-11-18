@@ -18,7 +18,7 @@ type LedgerPayload = {
   filtered_total: string;
   total: string;
   closed: boolean;
-  income_source?: { available: boolean; verified: boolean; reason: string };
+  income_source?: { available: boolean; verified: boolean; reason: string; total?: string | null };
 };
 type CopyPayload = { tsv: string; row_count: number; total_krw: string; message?: string };
 type ExportJob = { job_id?: string; id?: string; status?: string; message?: string };
@@ -175,6 +175,10 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   const incomeSource = bootstrap.role === 'owner' && loadedTrip?.kind === 'trip'
     ? data?.income_source
     : undefined;
+  /* §11.2.1 계약 4 + GGL-014: an unverified Google block does not enter the
+     confirmed figure, so the summary 수입/차액 are marked provisional while the
+     server figure itself is shown unchanged. This is a label only. */
+  const incomeProvisional = incomeSource?.available === true && incomeSource.verified === false;
   const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
   const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
   const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
@@ -277,10 +281,11 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
           </div>
         </div>
         {currentTrip && (
-          <dl className="cost-ledger__summary" aria-label="여행 손익">
-            <div><dt>수입</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
+          <dl className={`cost-ledger__summary${incomeProvisional ? ' cost-ledger__summary--provisional' : ''}`}
+            aria-label="여행 손익">
+            <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
             <div><dt>지출</dt><dd><Amount value={currentTrip.expense} currency="KRW" /></dd></div>
-            <div><dt>차액</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
+            <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
           </dl>
         )}
       </header>
@@ -362,6 +367,23 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         <InlineNotice tone="warning" title="Google 수입 내역을 불러오지 못했습니다">
           현재 표시된 COST 수입 외에 연결된 원장의 수입이 있을 수 있습니다.
         </InlineNotice>
+      )}
+      {incomeSource?.available && (
+        /* GGL-003·GGL-014: the Google block is separate evidence. It is shown
+           here on its own and is never added to the summary 수입·차액 above,
+           which stay exactly the server's trip.income/trip.profit. */
+        <section className="cost-ledger__google-income" aria-label="Google 수입 별도 증거">
+          <span>연결된 Google 수입 합계</span>
+          {incomeSource.total ? (
+            <Amount value={incomeSource.total} currency="KRW" />
+          ) : (
+            <span className="cost-ledger__google-income-missing">금액 미확인</span>
+          )}
+          <span className={`cost-ledger__match cost-ledger__match--${incomeSource.verified ? 'ok' : 'warn'}`}>
+            {incomeSource.verified ? '검증됨' : '미검증'}
+          </span>
+          <small>이 금액은 위 수입·차액에 더하지 않습니다.</small>
+        </section>
       )}
       {loading && <Loading label="장부 조회 중" />}
       {!loading && !loadError && data && (

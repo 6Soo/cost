@@ -95,6 +95,67 @@ test('the read-failure notice keeps its existing meaning for a trip owner', asyn
   expect(screen.queryByText('Google 수입 원장 미연결')).toBeNull();
 });
 
+/* (e) §11.2.1 계약 1: the summary is computed by the server. The screen shows
+   the server's trip.income/trip.profit verbatim and never re-adds the Google
+   amount, not even when the Google block is unverified. */
+test('an unverified Google block is never re-added to the summary on screen', async () => {
+  const summary: TripSummary = { ...trip, income: '1000000', expense: '100000', profit: '900000' };
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, {
+    income_source: { available: true, verified: false, reason: 'INCOME_UNVERIFIED', total: '1000' },
+  }));
+  renderTab(summary);
+  expect(await screen.findByText('수입 원장 대조 정보')).toBeTruthy();
+  // Exactly the server figures: no 항목 shows 1001000 or 1001000-derived 차액.
+  expect(screen.getAllByText(/1,000,000/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/900,000/).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/1,001,000/)).toBeNull();
+  expect(screen.queryByText(/901,000/)).toBeNull();
+  // The label is added, the figure is not: both 수입 and 차액 are labelled 잠정
+  // so an unverified state is never read as a confirmed number.
+  expect(screen.getAllByText('잠정')).toHaveLength(2);
+});
+
+test('a verified Google block leaves the summary unmarked', async () => {
+  const summary: TripSummary = { ...trip, income: '1000000', expense: '100000', profit: '900000' };
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, {
+    income_source: { available: true, verified: true, reason: '', total: '1000' },
+  }));
+  renderTab(summary);
+  await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
+  expect(screen.queryByText('잠정')).toBeNull();
+  expect(screen.getByText('검증됨')).toBeTruthy();
+});
+
+/* (f) COST-only and COST+Google are distinguishable only by the Google evidence
+   line: the summary stays the COST figure in both, and the Google amount shows
+   up as separate evidence, never inside the 수입/차액. */
+test('COST-only and COST+Google differ by the Google evidence line, not the summary', async () => {
+  const summary: TripSummary = { ...trip, income: '1000000', expense: '100000', profit: '900000' };
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, { income_source: noSource }));
+  renderTab(summary);
+  await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
+  const costOnly = {
+    income: screen.getAllByText(/1,000,000/).length,
+    profit: screen.getAllByText(/900,000/).length,
+    googleEvidence: screen.queryByText('연결된 Google 수입 합계') !== null,
+  };
+
+  cleanup();
+  vi.mocked(getJSON).mockResolvedValue(payload(summary, {
+    income_source: { available: true, verified: true, reason: '', total: '1000' },
+  }));
+  renderTab(summary);
+  await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
+  // The summary figures are unchanged by the verified Google block (GGL-003).
+  expect(screen.getAllByText(/1,000,000/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/900,000/).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/1,001,000/)).toBeNull();
+  // The difference is that Google income is now shown as separate evidence.
+  expect(screen.getByText('연결된 Google 수입 합계')).toBeTruthy();
+  expect(screen.getByText('검증됨')).toBeTruthy();
+  expect(costOnly.googleEvidence).toBe(false);
+});
+
 test('a payload left over from the previous tab does not paint its income source on the new tab', async () => {
   /* The operator switches from trip-a to trip-b. Until trip-b answers, the
      previous payload is still in component state (the list keeps the old rows
