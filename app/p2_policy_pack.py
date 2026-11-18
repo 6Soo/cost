@@ -7,6 +7,7 @@ This is opt-in while classification and finance regression review is pending.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -35,6 +36,35 @@ CATALOG_FINGERPRINTS = {
     'link': frozenset({'8b20f0b9', '9be56e17'}),
     'refund': frozenset({'ebb80d90', '8b7ff394'}),
 }
+# Exact reviewed Git blob hashes. A changed rule *body* may introduce a new
+# requirement without changing its ID/type, so an ID-only signature is not
+# enough to authorize compact omission. Any unreviewed snapshot uses full P2.
+APPROVED_POLICY_REVISIONS = {
+    'main-20261119': {
+        'CORE': '79819f0c9882abedd651a6266f5d330fb31170e4',
+        'process': '6d87bfa9a424aa851772e705acc93054ae73c349',
+        'trip': 'bd94778bdff021f4f51094e59ee38886d4e159f0',
+        'item': 'ad494c89208101de6c9da1d52e4baa14d6242c2d',
+        'date': '78eb22eeb41b14bdefb4caba49021fe0cbe119bf',
+        'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
+        'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
+    },
+    'wave3-20261119': {
+        'CORE': 'c166163512f3199b146fd16aed145c651f335850',
+        'process': '99ceeadd15a7ef1cf6b5b87f81cd8cd76d74e551',
+        'trip': '07b6fec9282cde62cb9474d4bf3cf719fa13170b',
+        'item': '6022765b2a479c695d571c9ca3c1c14d45082aca',
+        'date': '3b00e0de8705f6a55778148b574296daa2c482d6',
+        'link': '88071cd9022e84cd1ab8c08d4e6e70fc82c5cb1d',
+        'refund': '1b66c222180f1bd4dcb49ed04df5b34874065af4',
+    },
+}
+
+
+def _git_blob_sha(raw: bytes) -> str:
+    return hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
+
+
 HEAD = re.compile(r'(?m)^### ([A-Z]{3,6}-\d{3}) · ([^\n]+)$')
 KIND = re.compile(r'(?m)^\*([^*\n]+)\*$')
 
@@ -69,12 +99,18 @@ def compact_policy_context(root: Path, areas=()):
     if area_set - set(PINNED):
         raise ValueError('P2_POLICY_AREA_INVALID')
     enabled = sorted(area_set | {'process', 'trip', 'item', 'date'})
+    canonical = root / 'docs/DECISION_POLICY.md'
+    if not canonical.is_file():
+        return None
+    approved_paths = {'CORE': _git_blob_sha(canonical.read_bytes())}
     catalogs = {}
     for area in enabled:
         path = root / 'docs/policy' / (area + '.md')
         if not path.is_file():
             return None
-        parts = _sections(path.read_text(encoding='utf-8'))
+        raw = path.read_bytes()
+        approved_paths[area] = _git_blob_sha(raw)
+        parts = _sections(raw.decode('utf-8'))
         signature = '|'.join(f'{identity}:{category}' for identity, category, _ in parts)
         if not parts or _fingerprint(signature) not in CATALOG_FINGERPRINTS[area]:
             return None
@@ -91,8 +127,8 @@ def compact_policy_context(root: Path, areas=()):
             rules.append(re.sub(r'\n\s*\n', '\n', current))
         catalogs[area] = '\n\n'.join(rules)
 
-    canonical = root / 'docs/DECISION_POLICY.md'
-    if not canonical.is_file():
+    if not any(all(revision.get(area) == stamp for area, stamp in approved_paths.items())
+               for revision in APPROVED_POLICY_REVISIONS.values()):
         return None
     text = canonical.read_text(encoding='utf-8')
     try:
