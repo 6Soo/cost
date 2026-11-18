@@ -374,3 +374,93 @@ def test_a_restart_keeps_the_earlier_abrupt_stop_visible(tmp_path):
     report = summarize([path])
     assert report["complete"] is False
     assert report["possible_loss_window_count"] == 1
+
+
+def _generation(path, moment, requests, *, clean=True):
+    """Run one process lifetime against `path` and return the saved state."""
+    counter = RequestCounts(path, start_flusher=False, wall_clock=lambda: moment)
+    for _ in range(requests):
+        counter.observe_finish(counter.observe_begin("/api/customer-314", "GET"), 200)
+    if clean:
+        counter.begin_shutdown()
+        assert counter.close()
+    else:
+        assert counter.flush()  # abrupt: flushed but never stopped deliberately
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _started(state):
+    return sum(values["started"] for routes in state["buckets"].values()
+               for methods in routes.values() for values in methods.values())
+
+
+def test_each_generation_reports_its_own_stop_time(tmp_path):
+    """A previous clean stop must not be reused as this generation's stop."""
+    path = tmp_path / "http-8751.json"
+    first_at = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+    second_at = datetime(2026, 11, 18, 1, 5, tzinfo=timezone.utc)
+    first = _generation(path, first_at, 1)
+    assert first["stopped_utc"] == "2026-11-18T01:00:00Z"
+
+    second = _generation(path, second_at, 1)
+    assert second["restart_count"] == 1
+    assert second["clean_shutdown"] is True
+    assert second["stopped_utc"] == "2026-11-18T01:05:00Z"
+    assert second["shutdown_utc"] == "2026-11-18T01:05:00Z"
+    assert second["saved_at_utc"] == "2026-11-18T01:05:00Z"
+
+
+def test_clean_a_then_b_then_c_accumulates_without_undercounting(tmp_path):
+    path = tmp_path / "http-8751.json"
+    base = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+    for generation in range(3):
+        state = _generation(path, base + timedelta(minutes=5 * generation), 1)
+        assert _started(state) == generation + 1
+        assert state["stopped_utc"] == (
+            base + timedelta(minutes=5 * generation)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    report = summarize([path])
+    assert report["rejected_snapshots"] == []
+    assert report["complete"] is True
+    assert report["total_started"] == 3
+
+
+def test_an_abrupt_generation_then_a_clean_one_still_reports_loss(tmp_path):
+    path = tmp_path / "http-8751.json"
+    base = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+    _generation(path, base, 1, clean=False)
+    state = _generation(path, base + timedelta(minutes=5), 1)
+    assert state["clean_shutdown"] is True
+    assert state["stopped_utc"] == "2026-11-18T01:05:00Z"
+    assert state["possible_loss"]["window_count"] == 1
+    assert state["possible_loss"]["latest_window"]["reason"] == "unclean_stop"
+    report = summarize([path])
+    assert report["complete"] is False   # the earlier loss is still visible
+    assert report["total_started"] == 2  # and the counts are still summed
+
+
+def test_a_stop_timestamp_is_the_form_the_reader_accepts(tmp_path):
+    """Producer -> reader: the stored stop time must parse and pass the checks."""
+    path = tmp_path / "http-8751.json"
+    state = _generation(path, STAMP, 1)
+    assert state["stopped_utc"].endswith("Z")
+    assert len(state["stopped_utc"]) == len("2026-11-18T01:00:00Z")
+    report = summarize([path])
+    assert report["rejected_snapshots"] == []
+    assert report["complete"] is True
+
+
+def test_a_second_clean_port_adds_to_a_clean_first_port(tmp_path):
+    base = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+    one = _generation(tmp_path / "http-8751.json", base, 2)
+    report_one = summarize([tmp_path / "http-8751.json"])
+    assert report_one["complete"] is True and report_one["total_started"] == 2
+
+    other = RequestCounts(tmp_path / "http-8752.json", start_flusher=False,
+                          wall_clock=lambda: base)
+    other.observe_finish(other.observe_begin("/receipts", "POST"), 201)
+    other.begin_shutdown()
+    assert other.close()
+    report = summarize([tmp_path / "http-8751.json", tmp_path / "http-8752.json"])
+    assert report["process_count"] == 2
+    assert report["complete"] is True
+    assert report["total_started"] == 3

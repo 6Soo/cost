@@ -196,6 +196,10 @@ class RequestCounts:
         self._counts_reset_at = None
         self._counts_reset_reason = None
         self._clean_shutdown_at = None
+        # The previous generation's clean stop, kept only so a restart can tell
+        # a clean handover from an abrupt one. It is never this generation's
+        # stop time.
+        self._previous_stop_at = None
         self._unfinished_at_shutdown = 0
         self._unrecorded_after_save = False
         self._shutdown_declared = False
@@ -374,7 +378,12 @@ class RequestCounts:
             # The earlier process stopped itself after a successful final
             # snapshot taken with nothing in flight: the idle window that
             # follows is not evidence of loss.
-            self._clean_shutdown_at = _parse_stamp(data.get("shutdown_utc"))
+            #
+            # That stop time belongs to the earlier process and is kept
+            # separate from this one. Copying it into `_clean_shutdown_at`
+            # would make this generation's own clean stop report the previous
+            # generation's time, which is before this process even started.
+            self._previous_stop_at = _parse_stamp(data.get("shutdown_utc"))
             self._latest_possible_loss_window = previous_window
             self._unfinished_at_shutdown = 0
         elif stopped is not None:
@@ -451,6 +460,10 @@ class RequestCounts:
     def _header_locked(self, saved_at: datetime) -> dict:
         elapsed = max(0.0, self._monotonic_clock() - self._process_started_monotonic)
         in_flight = self._in_flight_locked()
+        # The stop time is this generation's own: either the snapshot taken at
+        # the stop, or the moment of the stop this snapshot is being written
+        # for. A previous generation's stop is never substituted in.
+        stop_at = self._clean_shutdown_at if self._clean_shutdown_at is not None else saved_at
         return {
             "schema_version": SCHEMA_VERSION,
             "saved_at_utc": _stamp(saved_at),
@@ -464,13 +477,12 @@ class RequestCounts:
             # A deliberate stop is recorded whenever it happens; whether it was
             # clean is a separate fact, because a stop can happen while a
             # request is still open and its outcome is then not saved.
-            "stopped_utc": _stamp(self._clean_shutdown_at or saved_at)
-                            if self._closing else None,
+            "stopped_utc": _stamp(stop_at) if self._closing else None,
             "clean_shutdown": bool(self._closing and self._shutdown_declared
                                    and in_flight == 0
                                    and not self._shutdown_was_unclean),
             # Kept as the single "this file may be treated as final" marker.
-            "shutdown_utc": (_stamp(self._clean_shutdown_at or saved_at)
+            "shutdown_utc": (_stamp(stop_at)
                              if self._closing and self._shutdown_declared
                              and in_flight == 0
                              and not self._shutdown_was_unclean else None),
