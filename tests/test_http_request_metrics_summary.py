@@ -13,8 +13,16 @@ def _clock():
 
 
 def _clean_snapshot(tmp_path, name):
+    """A snapshot that carries real evidence of a clean stop.
+
+    `begin_shutdown()` is what the launcher calls after the socket is closed,
+    so this fixture exercises the same contract the product uses. A close
+    without it would produce an unclean snapshot, which is not what a test
+    named "clean" should be handed.
+    """
     counter = RequestCounts(tmp_path / name, start_flusher=False, wall_clock=_clock)
     counter.observe_finish(counter.observe_begin("/api/customer-314", "GET"), 200)
+    counter.begin_shutdown()
     assert counter.flush()
     assert counter.close()
     return tmp_path / name
@@ -28,6 +36,7 @@ def test_two_ports_sum_totals_and_mark_the_live_one_as_not_final(tmp_path):
 
     stopped = RequestCounts(tmp_path / "http-8752.json", start_flusher=False, wall_clock=_clock)
     stopped.observe_finish(stopped.observe_begin("/receipts", "POST"), 201)
+    stopped.begin_shutdown()
     assert stopped.close()
 
     report = summarize([tmp_path / "http-8751.json", tmp_path / "http-8752.json"])
@@ -36,8 +45,10 @@ def test_two_ports_sum_totals_and_mark_the_live_one_as_not_final(tmp_path):
     assert report["routes"]["api"]["GET"]["started"] == 3
     assert report["routes"]["receipts"]["POST"]["started"] == 1
     assert report["last_saved_utc"] == "2026-11-17T03:15:00Z"
-    # The 8751 process never stopped, so its snapshot is not a final figure.
+    # The 8751 process never stopped, so its snapshot is not a final figure;
+    # 8752 stopped cleanly and contributes its counts to the sum regardless.
     assert report["live_process_snapshot_count"] == 1
+    assert report["unclean_stop_snapshot_count"] == 1
     assert report["complete"] is False
 
 
@@ -224,3 +235,142 @@ def test_unhashable_reset_reason_is_rejected_not_raised(tmp_path):
     assert report["rejected_snapshots"] == [
         {"file": "http-8790.json", "rule": "counts_reset_reason"}]
     assert report["complete"] is False
+
+
+def _state(**overrides):
+    """A minimal, internally consistent snapshot for contract testing."""
+    row = {
+        "started": 2,
+        "completed": {"1xx": 0, "2xx": 2, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0},
+        "aborted": 0,
+        "aborted_by_status_class": {k: 0 for k in
+                                    ("1xx", "2xx", "3xx", "4xx", "5xx", "other")},
+        "request_body_bytes": 0, "response_body_bytes": 0, "unfinished": 0,
+    }
+    state = {
+        "schema_version": "http-request-counts-v1",
+        "saved_at_utc": "2026-11-17T03:00:00Z",
+        "process_started_at_utc": "2026-11-17T02:00:00Z",
+        "retention_hours": 9600,
+        "possible_loss": {"window_count": 0, "latest_window": None},
+        "counts_reset": {"count": 0, "last_reset_utc": None, "reason": None},
+        "persistence_failure_count": 0,
+        "in_flight_count": 0,
+        "unrecorded_open_requests": False,
+        "is_open_process": False,
+        "clean_shutdown": True,
+        "stopped_utc": "2026-11-17T02:30:00Z",
+        "shutdown_utc": "2026-11-17T02:30:00Z",
+        "uptime_seconds": 3600,
+        "buckets": {"2026-11-17T02:00:00Z": {"api": {"GET": row}}},
+    }
+    state.update(overrides)
+    return state
+
+
+def _write(tmp_path, name, state):
+    path = tmp_path / name
+    path.write_text(json.dumps(state), encoding="utf-8")
+    return path
+
+
+def test_a_clean_stop_needs_positive_evidence_before_anything_is_complete(tmp_path):
+    report = summarize([_write(tmp_path, "http-8751.json", _state())])
+    assert report["complete"] is True
+    assert report["unclean_stop_snapshot_count"] == 0
+    assert report["total_started"] == 2
+
+
+def test_an_undeclared_stop_is_not_complete(tmp_path):
+    """This is what a startup failure produces: no begin_shutdown, no stop time."""
+    path = _write(tmp_path, "http-8751.json", _state(
+        clean_shutdown=False, shutdown_utc=None, stopped_utc=None))
+    report = summarize([path])
+    assert report["complete"] is False
+    assert report["unclean_stop_snapshot_count"] == 1
+
+
+def test_a_false_clean_flag_with_a_stop_time_still_is_not_complete(tmp_path):
+    path = _write(tmp_path, "http-8751.json", _state(
+        clean_shutdown=False, stopped_utc="2026-11-17T02:30:00Z", shutdown_utc=None))
+    report = summarize([path])
+    assert report["complete"] is False
+    assert report["rejected_snapshots"] == []
+
+
+def test_a_missing_clean_flag_is_not_read_as_clean(tmp_path):
+    """An older or foreign file with a stop time but no flag is not trusted."""
+    state = _state()
+    del state["clean_shutdown"]
+    path = _write(tmp_path, "http-8751.json", state)
+    report = summarize([path])
+    assert report["complete"] is False
+    assert report["rejected_snapshots"] == [
+        {"file": "http-8751.json", "rule": "stop_time_without_clean"}]
+
+
+def test_clean_without_a_stop_time_is_rejected(tmp_path):
+    path = _write(tmp_path, "http-8751.json", _state(
+        clean_shutdown=True, shutdown_utc=None, stopped_utc=None))
+    assert summarize([path])["rejected_snapshots"] == [
+        {"file": "http-8751.json", "rule": "clean_without_stop_time"}]
+
+
+def test_a_stop_time_after_the_snapshot_is_rejected(tmp_path):
+    path = _write(tmp_path, "http-8751.json", _state(
+        stopped_utc="2026-11-17T04:00:00Z", shutdown_utc="2026-11-17T04:00:00Z"))
+    assert summarize([path])["rejected_snapshots"] == [
+        {"file": "http-8751.json", "rule": "stop_after_save"}]
+
+
+def test_a_stop_time_before_the_process_start_is_rejected(tmp_path):
+    path = _write(tmp_path, "http-8751.json", _state(
+        stopped_utc="2026-11-17T01:00:00Z", shutdown_utc="2026-11-17T01:00:00Z"))
+    assert summarize([path])["rejected_snapshots"] == [
+        {"file": "http-8751.json", "rule": "stop_before_start"}]
+
+
+def test_a_stop_time_without_the_clean_flag_is_rejected(tmp_path):
+    state = _state(clean_shutdown=None, stopped_utc="2026-11-17T02:30:00Z")
+    path = _write(tmp_path, "http-8751.json", state)
+    assert summarize([path])["rejected_snapshots"] == [
+        {"file": "http-8751.json", "rule": "stop_time_without_clean"}]
+
+
+def test_clean_is_revoked_when_a_request_begins_after_close(tmp_path):
+    counter = RequestCounts(tmp_path / "http-8751.json", start_flusher=False, wall_clock=_clock)
+    counter.observe_finish(counter.observe_begin("/api/customer-314", "GET"), 200)
+    counter.begin_shutdown()
+    assert counter.close()
+    assert summarize([tmp_path / "http-8751.json"])["complete"] is True
+    # A connection kept alive delivers one more request in the stop gap.
+    counter.observe_begin("/api/customer-315", "GET")
+    report = summarize([tmp_path / "http-8751.json"])
+    assert report["complete"] is False
+    assert report["unclean_stop_snapshot_count"] == 1
+    assert report["total_started"] == 2
+
+
+def test_every_port_must_stop_cleanly_for_the_sum_to_be_complete(tmp_path):
+    one = _clean_snapshot(tmp_path, "http-8751.json")
+    two = _write(tmp_path, "http-8752.json", _state(
+        clean_shutdown=False, shutdown_utc=None, stopped_utc=None))
+    report = summarize([one, two])
+    assert report["process_count"] == 2
+    assert report["complete"] is False
+    assert report["unclean_stop_snapshot_count"] == 1
+
+
+def test_a_restart_keeps_the_earlier_abrupt_stop_visible(tmp_path):
+    """The clean second generation does not erase the first one's loss window."""
+    path = tmp_path / "http-8751.json"
+    first = RequestCounts(path, start_flusher=False, wall_clock=_clock)
+    first.observe_finish(first.observe_begin("/api/customer-314", "GET"), 200)
+    assert first.flush()  # abrupt: never closed
+    second = RequestCounts(path, start_flusher=False,
+                           wall_clock=lambda: STAMP + timedelta(minutes=5))
+    second.begin_shutdown()
+    assert second.close()
+    report = summarize([path])
+    assert report["complete"] is False
+    assert report["possible_loss_window_count"] == 1

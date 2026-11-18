@@ -87,6 +87,10 @@ def _stamp(value: object, rule: str) -> str | None:
     return value
 
 
+def _parse_utc(value: str) -> datetime:
+    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(timezone.utc)
+
+
 def validate(data: object, label: str) -> dict:
     """Validate one snapshot strictly, or raise with a fixed reason.
 
@@ -149,9 +153,28 @@ def validate(data: object, label: str) -> dict:
         raise SnapshotError(label, "rejected", "is_open_process")
     _stamp(data.get("shutdown_utc"), "shutdown")
     _stamp(data.get("stopped_utc"), "stopped")
-    if data.get("clean_shutdown") is not None and not isinstance(
-            data.get("clean_shutdown"), bool):
+    clean_shutdown = data.get("clean_shutdown")
+    if clean_shutdown is not None and not isinstance(clean_shutdown, bool):
         raise SnapshotError(label, "rejected", "clean_shutdown")
+    stopped_at = data.get("stopped_utc")
+    shutdown_at = data.get("shutdown_utc")
+    # A snapshot may only call itself clean if the stop is positively recorded:
+    # the flag is true, the stop time exists, and it is not after the snapshot
+    # that reports it. Anything less is no evidence of a clean stop.
+    if clean_shutdown is True:
+        if shutdown_at is None or stopped_at is None:
+            raise SnapshotError(label, "rejected", "clean_without_stop_time")
+        if _parse_utc(shutdown_at) > _parse_utc(saved_at) or \
+                _parse_utc(stopped_at) > _parse_utc(saved_at):
+            raise SnapshotError(label, "rejected", "stop_after_save")
+        process_started_at = data.get("process_started_at_utc")
+        if process_started_at is not None:
+            _stamp(process_started_at, "process_started")
+            if _parse_utc(stopped_at) < _parse_utc(process_started_at):
+                raise SnapshotError(label, "rejected", "stop_before_start")
+    elif shutdown_at is not None:
+        # A stop time without the clean flag contradicts itself.
+        raise SnapshotError(label, "rejected", "stop_time_without_clean")
     uptime = _count(data.get("uptime_seconds"), "uptime_seconds")
 
     buckets = data.get("buckets")
@@ -233,7 +256,11 @@ def validate(data: object, label: str) -> dict:
         # live: missing information is never read as "finished".
         "is_open_process": is_open_process is not False,
         "unrecorded_open_requests": bool(unrecorded_open),
-        "shutdown_utc": data.get("shutdown_utc"),
+        # Only an explicitly true flag counts. A missing flag is not evidence
+        # either way, and a false one is a recorded abnormal stop.
+        "clean_stop": clean_shutdown is True,
+        "stop_recorded": shutdown_at is not None,
+        "shutdown_utc": shutdown_at,
         "rows": rows,
     }
 
@@ -269,6 +296,7 @@ def summarize(snapshots) -> dict:
     in_flight = 0
     open_processes = 0
     unrecorded_open = 0
+    unclean_processes = 0
     process_count = 0
     uptime_seconds = 0
     last_saved_at: str | None = None
@@ -296,6 +324,8 @@ def summarize(snapshots) -> dict:
             open_processes += 1
         if snap["unrecorded_open_requests"]:
             unrecorded_open += 1
+        if not snap["clean_stop"]:
+            unclean_processes += 1
         uptime_seconds = max(uptime_seconds, snap["uptime_seconds"])
         if last_saved_at is None or snap["saved_at_utc"] > last_saved_at:
             last_saved_at = snap["saved_at_utc"]
@@ -330,13 +360,17 @@ def summarize(snapshots) -> dict:
         "stale_snapshots": older_than_newest,
     }
     # `complete` is the narrow claim "this sum is the whole, final story".
-    # Everything that can make it short is listed above as its own reason.
+    # The counts can only be final if every process that wrote a snapshot is
+    # positively known to have stopped cleanly; a live process, an undeclared
+    # stop or a stop that admitted an open request all leave the sum short,
+    # so each is its own named reason rather than folded into one flag.
     complete = (
         process_count > 0
         and not unreadable and not corrupt and not rejected
         and loss_windows == 0 and reset_count == 0
         and persistence_failures == 0 and in_flight == 0
         and open_processes == 0 and unrecorded_open == 0
+        and unclean_processes == 0
     )
     return {
         "schema": SUMMARY_SCHEMA,
@@ -357,6 +391,10 @@ def summarize(snapshots) -> dict:
         # writer admitted a request was open after the last save.
         "live_process_snapshot_count": open_processes,
         "unrecorded_open_snapshot_count": unrecorded_open,
+        # Snapshots that do not carry positive evidence of a clean stop. Read
+        # together with `last_saved_utc`, these say how much of the run is
+        # still unknown rather than final.
+        "unclean_stop_snapshot_count": unclean_processes,
         "possible_loss_window_count": loss_windows,
         "counts_reset_count": reset_count,
         "counts_reset_reasons": reset_reasons,
