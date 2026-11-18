@@ -116,9 +116,11 @@ def validate(data: object, label: str) -> dict:
     if latest_window is not None:
         if not isinstance(latest_window, dict):
             raise SnapshotError(label, "rejected", "latest_window")
-        if latest_window.get("reason") is not None and (
-                latest_window.get("reason") not in LOSS_REASONS):
-            raise SnapshotError(label, "rejected", "latest_window_reason")
+        window_reason = latest_window.get("reason")
+        if window_reason is not None:
+            # Type first: an unhashable value must reject, not raise.
+            if not isinstance(window_reason, str) or window_reason not in LOSS_REASONS:
+                raise SnapshotError(label, "rejected", "latest_window_reason")
         _stamp(latest_window.get("from_utc"), "latest_window_from")
         _stamp(latest_window.get("to_utc"), "latest_window_to")
         seconds = latest_window.get("seconds")
@@ -129,8 +131,12 @@ def validate(data: object, label: str) -> dict:
     if not isinstance(reset, dict):
         raise SnapshotError(label, "rejected", "counts_reset")
     reset_count = _count(reset.get("count"), "counts_reset")
-    if reset.get("reason") is not None and reset.get("reason") not in RESET_REASONS:
-        raise SnapshotError(label, "rejected", "counts_reset_reason")
+    reset_reason = reset.get("reason")
+    # Type first, then membership. A list or dict here used to reach the set
+    # test and raise TypeError out of the tool instead of rejecting the file.
+    if reset_reason is not None:
+        if not isinstance(reset_reason, str) or reset_reason not in RESET_REASONS:
+            raise SnapshotError(label, "rejected", "counts_reset_reason")
     _stamp(reset.get("last_reset_utc"), "last_reset")
     persistence_failures = _count(data.get("persistence_failure_count"),
                                   "persistence_failure_count")
@@ -152,6 +158,7 @@ def validate(data: object, label: str) -> dict:
     if not isinstance(buckets, dict):
         raise SnapshotError(label, "rejected", "buckets")
     rows: list[tuple[str, str, dict]] = []
+    totals_balance = {"outcomes": 0, "started": 0}
     for bucket, routes in buckets.items():
         if not isinstance(bucket, str):
             raise SnapshotError(label, "rejected", "bucket_key")
@@ -161,12 +168,13 @@ def validate(data: object, label: str) -> dict:
         if not isinstance(routes, dict):
             raise SnapshotError(label, "rejected", "bucket_routes")
         for route_id, methods in routes.items():
-            if route_id not in ROUTE_IDS:
+            # Type first: an unhashable key must reject, not raise.
+            if not isinstance(route_id, str) or route_id not in ROUTE_IDS:
                 raise SnapshotError(label, "rejected", "route_id")
             if not isinstance(methods, dict):
                 raise SnapshotError(label, "rejected", "route_methods")
             for method, values in methods.items():
-                if method not in HTTP_METHODS:
+                if not isinstance(method, str) or method not in HTTP_METHODS:
                     raise SnapshotError(label, "rejected", "method")
                 if not isinstance(values, dict):
                     raise SnapshotError(label, "rejected", "method_values")
@@ -190,7 +198,27 @@ def validate(data: object, label: str) -> dict:
                         status: int(values["aborted_by_status_class"][status])
                         for status in STATUS_CLASSES},
                 }
+                # The counter writes one row per finished request, so these
+                # three numbers have to agree. A row claiming more outcomes
+                # than starts (or a different unfinished count than the
+                # remainder) was not written by this counter, and summing it
+                # would produce a total that cannot be true.
+                outcomes = (sum(row["completed"].values()) + row["aborted"]
+                            + row["unfinished"])
+                if outcomes != row["started"]:
+                    raise SnapshotError(label, "rejected", "row_balance")
+                if row["aborted"] != sum(row["aborted_by_status_class"].values()):
+                    raise SnapshotError(label, "rejected", "aborted_balance")
                 rows.append((route_id, method, row))
+                totals_balance["outcomes"] += outcomes
+                totals_balance["started"] += row["started"]
+    # The snapshot's own in-flight figure has to match what the rows say is
+    # unfinished, or the two descriptions of the same file disagree.
+    unfinished_total = sum(row["unfinished"] for _, _, row in rows)
+    if totals_balance["outcomes"] != totals_balance["started"]:
+        raise SnapshotError(label, "rejected", "snapshot_balance")
+    if in_flight != unfinished_total:
+        raise SnapshotError(label, "rejected", "snapshot_in_flight")
     return {
         "saved_at_utc": saved_at,
         "uptime_seconds": uptime,

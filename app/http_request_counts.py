@@ -198,6 +198,8 @@ class RequestCounts:
         self._clean_shutdown_at = None
         self._unfinished_at_shutdown = 0
         self._unrecorded_after_save = False
+        self._shutdown_declared = False
+        self._shutdown_was_unclean = False
         self._closing = False
         self._process_started_at = _as_utc(self._wall_clock())
         self._process_started_monotonic = self._monotonic_clock()
@@ -221,6 +223,15 @@ class RequestCounts:
             counts["started"] += 1
             self._touch_locked(bucket)
             self._trim_locked(_as_utc(self._wall_clock()))
+            # A request that starts after the final snapshot -- a connection
+            # kept alive across shutdown -- would otherwise be counted in
+            # memory only. The stop can no longer be called clean once that
+            # happens, even if this request never finishes.
+            if self._closing:
+                self._unrecorded_after_save = True
+                self._clean_shutdown_at = None
+        if self._closing:
+            self.flush()
         return observation
 
     def observe_request_read(self, observation: RequestObservation, byte_count: int) -> bool:
@@ -408,7 +419,12 @@ class RequestCounts:
                 self._last_saved_at = saved_at
                 # Only a flush taken while nothing was in flight may claim a
                 # clean stop; a snapshot that skipped live requests cannot.
-                self._clean_shutdown_at = saved_at if clean else None
+                # Once a stop has been recorded as unclean it never becomes
+                # clean again: the evidence of that stop is already on disk.
+                if clean:
+                    self._clean_shutdown_at = saved_at
+                elif self._closing and not self._clean_shutdown_at:
+                    self._shutdown_was_unclean = True
                 # `clean` is None unless this flush is taking the final
                 # snapshot of a deliberate stop. Anything else that leaves a
                 # request open means its outcome is not on disk.
@@ -450,10 +466,14 @@ class RequestCounts:
             # request is still open and its outcome is then not saved.
             "stopped_utc": _stamp(self._clean_shutdown_at or saved_at)
                             if self._closing else None,
-            "clean_shutdown": bool(self._closing and in_flight == 0),
+            "clean_shutdown": bool(self._closing and self._shutdown_declared
+                                   and in_flight == 0
+                                   and not self._shutdown_was_unclean),
             # Kept as the single "this file may be treated as final" marker.
             "shutdown_utc": (_stamp(self._clean_shutdown_at or saved_at)
-                             if self._closing and in_flight == 0 else None),
+                             if self._closing and self._shutdown_declared
+                             and in_flight == 0
+                             and not self._shutdown_was_unclean else None),
             # True when a request was still open after the last save: its
             # outcome is not in the totals above.
             "unrecorded_open_requests": bool(self._unrecorded_after_save
@@ -531,14 +551,25 @@ class RequestCounts:
                 pass
             raise
 
+    def begin_shutdown(self) -> None:
+        """Declare that no new request can start, before the final snapshot.
+
+        The launcher must call this only after the server stops accepting and
+        no connection can still deliver another request: `server.shutdown()`
+        followed by `server.server_close()` is what proves that, and a plain
+        ordering swap around `close()` does not. Until this is called, a later
+        `observe_begin` keeps marking the process live.
+        """
+        self._shutdown_declared = True
+
     def close(self) -> bool:
         """Stop the periodic writer and persist whatever is still unsaved.
 
-        The snapshot is marked clean only when no request was in flight when it
-        was written. The launcher closes this before the socket stops serving,
-        so an in-flight request can still finish afterwards; in that case the
-        snapshot honestly says a stop happened with requests open, and the next
-        start counts it as a loss window instead of a clean stop.
+        The snapshot is marked clean only when the launcher has declared that
+        nothing more can arrive (`begin_shutdown`) and nothing is in flight. If
+        either is unknown, the snapshot says a stop happened with requests
+        possibly open, and the next start counts it as a loss window rather
+        than claiming the totals were final.
         """
         self._closing = True
         self._stop_event.set()

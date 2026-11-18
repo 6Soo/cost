@@ -62,6 +62,7 @@ def test_close_with_a_request_in_flight_is_not_a_clean_stop(tmp_path):
     path = tmp_path / "http-8751.json"
     counter = RequestCounts(path, start_flusher=False, wall_clock=_clock)
     observation = counter.observe_begin("/api/customer-314", "GET")
+    counter.begin_shutdown()
     assert counter.close()
     state = json.loads(path.read_text(encoding="utf-8"))
     assert state["clean_shutdown"] is False
@@ -75,13 +76,16 @@ def test_close_with_a_request_in_flight_is_not_a_clean_stop(tmp_path):
     assert counter.observe_finish(observation, 200)
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["in_flight_count"] == 0
-    assert saved["clean_shutdown"] is True
+    # The file already said a request was open at the stop, so it stays honest
+    # about that rather than retroactively calling the run clean.
+    assert saved["clean_shutdown"] is False
 
 
 def test_restart_after_stop_with_in_flight_records_a_window(tmp_path):
     path = tmp_path / "http-8751.json"
     counter = RequestCounts(path, start_flusher=False, wall_clock=_clock)
     counter.observe_begin("/api/customer-314", "GET")
+    counter.begin_shutdown()
     assert counter.close()
     restarted = RequestCounts(path, start_flusher=False,
                              wall_clock=lambda: STAMP + timedelta(hours=1))
@@ -167,3 +171,56 @@ def test_cli_exits_zero_for_a_clean_total_and_echoes_no_request_contents(tmp_pat
     # Nothing identifying the caller's path or the request is echoed.
     assert "/api/customer-314" not in out
     assert "customer-314" not in out
+
+def test_inconsistent_row_balances_reject_the_snapshot(tmp_path):
+    """A row claiming more outcomes than starts cannot be summed honestly."""
+    state = {
+        "schema_version": "http-request-counts-v1",
+        "saved_at_utc": "2026-11-17T03:00:00Z",
+        "retention_hours": 10,
+        "possible_loss": {"window_count": 0, "latest_window": None},
+        "counts_reset": {"count": 0, "last_reset_utc": None, "reason": None},
+        "persistence_failure_count": 0,
+        "in_flight_count": 0,
+        "stopped_utc": "2026-11-17T03:00:00Z",
+        "clean_shutdown": True,
+        "shutdown_utc": "2026-11-17T03:00:00Z",
+        "unrecorded_open_requests": False,
+        "is_open_process": False,
+        "uptime_seconds": 5,
+        "buckets": {"2026-11-17T03:00:00Z": {"api": {"GET": {
+            "started": 2,
+            "completed": {"1xx": 0, "2xx": 99, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0},
+            "aborted": 0,
+            "aborted_by_status_class": {k: 0 for k in
+                                       ("1xx", "2xx", "3xx", "4xx", "5xx", "other")},
+            "request_body_bytes": 0, "response_body_bytes": 0, "unfinished": 0,
+        }}}},
+    }
+    path = tmp_path / "http-8751.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    report = summarize([path])
+    assert report["rejected_snapshots"] == [{"file": "http-8751.json", "rule": "row_balance"}]
+    assert report["complete"] is False
+    assert report["total_started"] == 0
+
+
+def test_unhashable_reset_reason_is_rejected_not_raised(tmp_path):
+    """A list where a reason string belongs used to raise TypeError."""
+    state = {
+        "schema_version": "http-request-counts-v1",
+        "saved_at_utc": "2026-11-17T03:00:00Z",
+        "retention_hours": 10,
+        "possible_loss": {"window_count": 0, "latest_window": None},
+        "counts_reset": {"count": 0, "last_reset_utc": None, "reason": ["corrupt"]},
+        "persistence_failure_count": 0,
+        "in_flight_count": 0,
+        "uptime_seconds": 5,
+        "buckets": {},
+    }
+    path = tmp_path / "http-8790.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    report = summarize([path])
+    assert report["rejected_snapshots"] == [
+        {"file": "http-8790.json", "rule": "counts_reset_reason"}]
+    assert report["complete"] is False
