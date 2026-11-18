@@ -307,7 +307,7 @@ def test_pull_state_write_failures_remove_only_new_generation(tmp_path, monkeypa
     user_file = destination / "keep-user-file.txt"
     user_file.write_bytes(b"user-owned synthetic note")
 
-    def fail_state_write(_path: Path, _now: datetime, _snapshot_id: str):
+    def fail_state_write(_path: Path, _now: datetime, _snapshot_id: str, **_kwargs):
         raise m5_backup.BackupError("PULL_STATE_WRITE_FAILED")
 
     monkeypatch.setattr(m5_backup, "_write_pull_state", fail_state_write)
@@ -520,3 +520,155 @@ def test_corrupt_pull_state_is_replaced_without_touching_generations(tmp_path):
     assert m5_backup.verify_snapshot(existing_generation) == created
     state = json.loads((destination / "pull-state.json").read_text(encoding="utf-8"))
     assert state["last_success_at_utc"] == "2026-11-17T03:30:00Z"
+
+
+def _pull_state(destination: Path) -> dict:
+    return json.loads((destination / "pull-state.json").read_text(encoding="utf-8"))
+
+
+def test_consecutive_daily_pulls_record_no_gap_and_stay_complete(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    for offset in range(4):
+        result = m5_backup.pull_snapshot(
+            _SyntheticDownloadClient(snapshot), destination,
+            now=day + timedelta(days=offset),
+        )
+        assert result["ok"] is True
+        assert result["gap_days"] == 0
+        assert result["missed_days_total"] == 0
+        assert result["complete"] is True
+        state = _pull_state(destination)
+        assert state["gap_days"] == 0
+        assert state["gap_from_utc"] is None
+        assert state["missed_days_total"] == 0
+        assert state["complete"] is True
+        assert state["state_reset_count"] == 0
+        assert state["state_reset_reason"] is None
+        # Legacy fields are preserved unchanged.
+        assert state["schema"] == m5_backup.STATE_SCHEMA
+        assert state["snapshot_id"] == created["snapshot_id"]
+        assert state["last_success_at_utc"] == (
+            day + timedelta(days=offset)).isoformat().replace("+00:00", "Z")
+
+
+def test_pc_off_days_are_reported_as_gap_and_clear_after_catch_up(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)
+    first = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)
+    assert first["ok"] is True and first["complete"] is True
+
+    after_pc_off = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=4))
+    assert after_pc_off["ok"] is True
+    assert after_pc_off["skipped"] is False
+    assert after_pc_off["gap_days"] == 3
+    assert after_pc_off["gap_from_utc"] == "2026-11-20T00:00:00Z"
+    assert after_pc_off["missed_days_total"] == 3
+    assert after_pc_off["complete"] is False
+    state = _pull_state(destination)
+    assert state["gap_days"] == 3
+    assert state["gap_from_utc"] == "2026-11-20T00:00:00Z"
+    assert state["missed_days_total"] == 3
+    assert state["complete"] is False
+    assert state["state_reset_count"] == 0
+
+    # The following day's pull has no empty interval immediately before it, so
+    # gap_days returns to 0, but the unrepaired 3 days stay counted.
+    catch_up = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=5))
+    assert catch_up["skipped"] is False
+    assert catch_up["gap_days"] == 0
+    assert catch_up["gap_from_utc"] is None
+    assert catch_up["missed_days_total"] == 3
+    assert catch_up["complete"] is False
+    state = _pull_state(destination)
+    assert state["gap_days"] == 0
+    assert state["gap_from_utc"] is None
+    assert state["missed_days_total"] == 3
+    assert state["complete"] is False
+    # Skipped attempts keep the accumulated judgement visible.
+    skipped = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=5, hours=2))
+    assert skipped["skipped"] is True
+    assert skipped["code"] == "NOT_DUE"
+    assert skipped["missed_days_total"] == 3
+    assert skipped["complete"] is False
+
+
+def test_failed_daily_attempts_surface_as_missed_days(tmp_path, monkeypatch):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    m5_backup.pull_snapshot(_SyntheticDownloadClient(snapshot), destination, now=day)
+
+    actual_publish = m5_backup._publish
+
+    def fail_publish(stage: Path, target: Path):
+        if target.name.startswith(".restore-check-"):
+            raise m5_backup.BackupError("PUBLISH_FAILED")
+        actual_publish(stage, target)
+
+    monkeypatch.setattr(m5_backup, "_publish", fail_publish)
+    failed = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=1))
+    assert failed == {"ok": False, "code": "PUBLISH_FAILED"}
+    assert _pull_state(destination)["missed_days_total"] == 0
+    monkeypatch.setattr(m5_backup, "_publish", actual_publish)
+
+    recovered = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=2))
+    assert recovered["ok"] is True
+    assert recovered["gap_days"] == 1
+    assert _pull_state(destination)["missed_days_total"] == 1
+
+
+def test_corrupt_or_invalid_state_is_not_read_as_recent_success(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    m5_backup.pull_snapshot(_SyntheticDownloadClient(snapshot), destination, now=day)
+
+    for payload, reason in ((b"{not-json", "corrupt"),
+                            (b'{"schema":"wrong"}', "rejected")):
+        (destination / "pull-state.json").write_bytes(payload)
+        result = m5_backup.pull_snapshot(
+            _SyntheticDownloadClient(snapshot), destination,
+            now=day + timedelta(days=1))
+        assert result["ok"] is True
+        assert result["skipped"] is False
+        assert result["state_reset_count"] == 1
+        assert result["state_reset_reason"] == reason
+        assert result["complete"] is False
+        state = _pull_state(destination)
+        assert state["state_reset_count"] == 1
+        assert state["state_reset_reason"] == reason
+        assert state["complete"] is False
+        assert state["gap_days"] == 0
+
+
+def test_legacy_state_without_gap_fields_stays_readable(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    m5_backup.pull_snapshot(_SyntheticDownloadClient(snapshot), destination, now=day)
+    legacy = _pull_state(destination)
+    legacy = {key: legacy[key] for key in ("schema", "last_success_at_utc", "snapshot_id")}
+    (destination / "pull-state.json").write_text(
+        json.dumps(legacy), encoding="utf-8")
+
+    not_due = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(hours=12))
+    assert not_due["skipped"] is True
+    assert not_due["code"] == "NOT_DUE"
+    next_day = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination,
+        now=day + timedelta(days=1))
+    assert next_day["gap_days"] == 0
+    state = _pull_state(destination)
+    assert state["state_reset_count"] == 0
+    assert state["missed_days_total"] == 0
+    assert state["complete"] is True
