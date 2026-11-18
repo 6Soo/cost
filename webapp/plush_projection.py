@@ -31,9 +31,38 @@ def is_previous(trip: dict[str, Any]) -> bool:
 
 
 def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """The trip's three figures, with COST and Google income kept apart.
+
+    GGL-003 (보호): internal COST income and Google income are never summed.
+    The summary's ``income`` is the COST figure — the same number the legacy
+    KPI shows — and the Google block is separate evidence reported through
+    ``income_source``. GGL-014: an unverified Google amount never enters the
+    confirmed 수입 or 차액.
+
+    The legacy rule this mirrors (``ledger_design._trip_kpi_html``): COST income
+    wins whenever any recorded income row exists; a *verified* Google block
+    substitutes only when the tab has no COST income at all; otherwise the
+    figure is unknown, which is not the same as zero.
+    """
     rows = list(rows)
-    income = sum(_display_amount(row) for row in rows if row.get("row_kind") == "income")
+    cost_income = [row for row in rows
+                   if row.get("row_kind") == "income" and not row.get("google_income")]
+    google_rows = [row for row in rows
+                   if row.get("row_kind") == "income" and row.get("google_income")]
     expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")
+    if cost_income:
+        income = sum(_display_amount(row) for row in cost_income)
+    elif google_rows and trip.get("google_verified"):
+        # Only a verified block may stand in for a missing COST figure, and only
+        # when every row it relies on has a readable amount (GGL-014).
+        if any(row.get("amount_missing") for row in google_rows):
+            income = None
+        else:
+            income = sum(_display_amount(row) for row in google_rows)
+    else:
+        # No COST income and no verified Google block: unknown, never a
+        # confirmed zero (SPEC §11.2.1 계약 4).
+        income = None
     return {
         "id": str(trip.get("tab_id") or ""),
         "title": str(trip.get("display_title") or trip.get("display_key") or trip.get("destination") or ""),
@@ -42,9 +71,10 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
         "previous": is_previous(trip),
         "starts_on": str(trip.get("starts_on") or ""),
         "ends_on": str(trip.get("ends_on") or ""),
-        "income": money(income),
+        "income": money(income) if income is not None else "미확인",
         "expense": money(expense),
-        "profit": money(income - expense),
+        # The 차액 is only computable when the income figure is known.
+        "profit": money(income - expense) if income is not None else "미확인",
         "closed": bool(trip.get("visual_closed") or trip.get("archived")),
         "archived": bool(trip.get("archived")),
     }
@@ -62,8 +92,15 @@ def _display_date(row: dict[str, Any]) -> str:
     return str(row.get("display_occurred_on") or row.get("occurred_on") or "")
 
 
-def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any]:
-    """Project a board row into the stable Plush table shape."""
+def ledger_row(row: dict[str, Any], *, read_only: bool = False,
+               period: str | None = None,
+               period_source: str | None = None) -> dict[str, Any]:
+    """Project a board row into the stable Plush table shape.
+
+    ``period``/``period_source`` come from the shared stored/manual read
+    (``ledger_periods``). A caller that does not resolve them keeps the stored
+    ``service_period`` exactly as before.
+    """
     kind = str(row.get("row_kind") or "expense")
     merchant = (row.get("source_merchant") if kind != "income" else row.get("customer_name"))
     merchant = merchant or row.get("item") or row.get("income_kind") or ""
@@ -84,11 +121,19 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False) -> dict[str, Any
         # currency must never relabel the KRW amount (e.g. 135000 USD).
         "currency": "KRW",
         "payment": str(payment or ""),
-        "period": str(row.get("service_period") or ""),
+        "period": str(period if period is not None else row.get("service_period") or ""),
+        "period_source": str(period_source or ""),
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
         "read_only": bool(read_only),
     }
+    status = row.get("_plush_period_status")
+    if status in {"verified", "inferred", "unknown", "stale", "computed"}:
+        result["period_status"] = status
+    if row.get("_plush_period_basis"):
+        result["period_basis"] = str(row["_plush_period_basis"])
+    if row.get("_plush_period_manual_blank") is True:
+        result["period_manual_blank"] = True
     source_amount = row.get("foreign_amount", row.get("amount"))
     if row.get('google_income') and row.get('amount_missing'):
         result['amount'] = '미확인'

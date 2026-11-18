@@ -421,9 +421,21 @@
       "tests": ["tests/test_board_http_shapes.py", "tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py", "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_owner_metadata.py", "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"]
     },
     {
+      "name": "m4-income-source-separation",
+      "paths": ["webapp/plush_projection.py", "webapp/plush_api.py", "webapp/plush_income.py", "webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_m4_income_paths_by_role.py", "webapp/tests/test_plush_google_income.py"],
+      "tests": ["webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_m4_income_paths_by_role.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_ledger_design.py"],
+      "reason": "GGL-003·GGL-014: COST income and Google income are never summed in the trip summary; a verified block only substitutes"
+    },
+    {
+      "name": "ledger-period-parity",
+      "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "webapp/tests/test_m4_period_parity_contract.py"],
+      "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py"],
+      "reason": "SPEC 11.2.1 계약 4 / DATE-017: the same stored/manual use-period on both the React and legacy read paths, incl. old-schema cores and a changed source"
+    },
+    {
       "name": "ledger-design-assets",
-      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"],
-      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"]
+      "paths": ["webapp/ledger_design*.py", "webapp/ledger_periods.py", "webapp/plush_periods.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_m4_period_parity_contract.py", "webapp/tests/test_ledger_assets*.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"],
+      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_m4_period_parity_contract.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"]
     },
     {
       "name": "card-catalog-assets",

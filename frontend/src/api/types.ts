@@ -60,6 +60,12 @@ export interface LedgerRow {
   currency: string;
   payment: string;
   period: string;
+  /** Stored/manual period state: the same value the legacy screen shows. */
+  period_status?: "verified" | "inferred" | "unknown" | "stale" | "computed";
+  period_basis?: string;
+  period_manual_blank?: boolean;
+  /** Provenance: row | manual | decision | decision_inferred | computed. */
+  period_source?: string;
   evidence_summary: string;
   revision?: string | number;
   read_only: boolean;

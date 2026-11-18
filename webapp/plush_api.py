@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
+from . import ledger_periods as period_rows
 from . import plush_projection as projection
 
 
@@ -143,12 +144,16 @@ def _with_income(rows, source):
     return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
 
 
-def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
+                  income_source: dict[str, Any] | None = None) -> dict[str, Any]:
     # The store's displayed amount/date projection is authoritative.  This
     # fallback is only for test doubles that expose plain rows.
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
-    summary = projection.trip_summary(trip, rows)
+    # GGL-003: the summary keeps COST and Google income apart. The verified flag
+    # the source block reports is the only thing that lets Google stand in.
+    verified_trip = dict(trip, google_verified=bool((income_source or {}).get("verified")))
+    summary = projection.trip_summary(verified_trip, rows)
     from . import ledger_board
 
     summary["title"] = ledger_board.trip_display_label(trip)
@@ -165,7 +170,7 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
         rows = list(board.list_tab_rows(trip["tab_id"]))
         income = _source_income(board, access, session, owner, trip['tab_id'])
         rows = _with_income(rows, income)
-        summary = _trip_summary(board, trip, rows)
+        summary = _trip_summary(board, trip, rows, income_source=income)
         summary['income_source'] = {key: value for key, value in income.items() if key != 'rows'}
         summaries.append(summary)
     capabilities = ["ledger.read", "row.read", "transactions.read"]
@@ -259,10 +264,19 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     selected = rows[start:start + page_size]
     closed = bool(trip.get("visual_closed") or trip.get("archived"))
     read_only = (not owner) or closed
+    # SPEC §11.2.1 계약 4: the period shown here is the same stored/manual read
+    # the legacy screen performs, annotated once for the rows on this page.
+    annotated = period_rows.annotate(selected, board)
+    dto_rows = []
+    for row in annotated:
+        period, period_source = period_rows.period_for_row(row, board)
+        dto_rows.append(projection.ledger_row(
+            row, read_only=read_only or row.get('google_income', False),
+            period=period, period_source=period_source))
     return {
-        "trip": _trip_summary(board, trip, all_rows),
+        "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
-        "rows": [projection.ledger_row(row, read_only=read_only or row.get('google_income', False)) for row in selected],
+        "rows": dto_rows,
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
@@ -329,8 +343,12 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         })
     # Keep source detail unprojected for provenance, but make the row shown to
     # the user follow the exact same correction projection as the ledger list.
+    # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
+    display_row = period_rows.annotate([display_row], board)[0]
+    period, period_source = period_rows.period_for_row(display_row, board)
     return {
-        "row": projection.ledger_row(display_row, read_only=read_only),
+        "row": projection.ledger_row(display_row, read_only=read_only,
+                                     period=period, period_source=period_source),
         "source": projection.safe_source(row) if owner else None,
         "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,
