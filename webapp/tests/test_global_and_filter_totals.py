@@ -9,6 +9,13 @@
 
 Proven over the served response, and the leave-confirm over a real browser,
 because a string in the HTML is not a dialog that actually appears.
+
+The script half of the unsaved warning is no longer inlined: 955308c1 moved the
+shared CSS/JS to content-hashed ``/static/js/*.js`` bundles. The markup assertions
+therefore read the page AND the bundle bytes that the page names, fetched from the
+same server (``acce40bf`` established that reading form). Reading the served bundle
+rather than a hardcoded copy keeps the tie between the id the markup declares and
+the id the script looks up, which is the whole point of that pair.
 """
 
 import json
@@ -70,6 +77,21 @@ class _Server:
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8", "replace")
 
+    def _open_without_following(self, path):
+        """Return status, Location header and body without following a redirect."""
+        import http.client
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(f"http://127.0.0.1:{self.port}{path}")
+        connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=10)
+        try:
+            connection.request("GET", parts.path + ("?" + parts.query if parts.query else ""))
+            response = connection.getresponse()
+            return (response.status, response.getheader("Location"),
+                    response.read().decode("utf-8", "replace"))
+        finally:
+            connection.close()
+
     def _json(self, path, payload=None, method="GET"):
         status, body = self._open(path, payload, method)
         try:
@@ -79,6 +101,30 @@ class _Server:
 
     def _revision(self):
         return (self.store.get_row(ROW) or {}).get("revision")
+
+    def _page_with_scripts(self, page):
+        """Return the served page plus the bytes of every /static bundle it names.
+
+        The script half of the unsaved warning ships as a content-hashed asset
+        (955308c1), so a string assertion against the page alone would test a
+        page that no longer exists. Fetching the named URLs from the same server
+        keeps the assertion honest: the bytes asserted are exactly the bytes a
+        browser receives for this page.
+
+        ``page`` is either a request path or an already-fetched page body.
+        """
+        if page.lstrip().startswith("<"):
+            status, body = 200, page
+        else:
+            status, body = self._open(page)
+        urls = re.findall(r'src="(/static/[^"]+\.js)"', body)
+        self.assertTrue(urls, "the page must reference its script bundle")
+        joined = body
+        for url in urls:
+            asset_status, asset = self._open(url)
+            self.assertEqual(asset_status, 200, url)
+            joined += "\n" + asset
+        return status, joined
 
 
 class GlobalTopAreaTests(_Server, unittest.TestCase):
@@ -93,9 +139,13 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
     def test_global_area_reserves_unsaved_warning_without_routine_save_timestamp(self):
         status, page = self._open(f"/board?tab={TAB}")
         self.assertEqual(status, 200)
-        self.assertIn("저장되지 않은 변경 없음", page)
-        self.assertNotIn("최근 저장", page)
-        self.assertIn("id='unsaved-count' hidden", page)
+        # The empty-state wording lives in the bundle now, and it is reached
+        # through the same id the markup declares (asserted below).
+        status, served = self._page_with_scripts(f"/board?tab={TAB}")
+        self.assertEqual(status, 200)
+        self.assertIn("저장되지 않은 변경 없음", served)
+        self.assertNotIn("최근 저장", served)
+        self.assertIn("id='unsaved-count' hidden", served)
 
     def test_the_last_save_time_comes_from_the_change_ledger(self):
         self._open(f"/api/rows/{ROW}/save",
@@ -117,22 +167,30 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
     def test_the_shared_screens_carry_the_same_global_line(self):
         for path in ("/import", "/export", "/trips"):
             with self.subTest(path=path):
+                if path == "/import":
+                    # /import became a 302 to the card upload workspace when uploads
+                    # were integrated into card history (042f6b05; asserted in
+                    # test_autonomous_workflows.py). It is not a screen any more, so
+                    # the shared global line is not owed there. What is still owed:
+                    # the route must keep redirecting to the upload workspace, and
+                    # the screens that do render the line must still carry it.
+                    status, location, _ = self._open_without_following(path)
+                    self.assertEqual(status, 302)
+                    self.assertEqual(location, "/cards/all?panel=upload")
+                    continue
                 status, page = self._open(path)
                 self.assertEqual(status, 200)
-                if path == '/import' and 'expense-tabs' in page:
-                    self.assertIn('id="status"', page)
-                else:
-                    self.assertIn("id='global-state'", page)
-                    self.assertIn("id='unsaved-count'", page)
+                self.assertIn("id='global-state'", page)
+                self.assertIn("id='unsaved-count'", page)
                 self.assertNotIn('최근 저장', page)
 
     def test_the_script_keeps_the_count_in_step_with_the_dirty_marks(self):
-        _, page = self._open(f"/board?tab={TAB}")
-        self.assertIn("function reportUnsaved()", page)
-        self.assertIn("form[data-dirty=\"1\"]", page)
+        _, served = self._page_with_scripts(f"/board?tab={TAB}")
+        self.assertIn("function reportUnsaved()", served)
+        self.assertIn("form[data-dirty=\"1\"]", served)
         # the count is derived from the same marks the Escape guard uses
-        self.assertIn("markDirty", page)
-        self.assertIn("clearDirty", page)
+        self.assertIn("markDirty", served)
+        self.assertIn("clearDirty", served)
 
     def test_the_element_the_markup_carries_is_the_one_the_script_writes_to(self):
         """Tie the two halves together.
@@ -140,20 +198,25 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
         The markup declares the id and the script looks it up by name, so a
         rename on either side alone would leave the count silently frozen at
         its initial text. This is what catches a change to one side only.
+
+        After 955308c1 the script is a separate bundle, so the two halves are
+        read from two different responses. The bundle read here is the one the
+        page itself names, which is the only version a browser would receive.
         """
         _, page = self._open(f"/board?tab={TAB}")
         declared = re.findall(r"id=['\"]([^'\"]*unsaved[^'\"]*)['\"]", page)
         self.assertTrue(declared, "the unsaved element must be in the markup")
+        _, served = self._page_with_scripts(page)
         looked_up = re.findall(
-            r"getElementById\(['\"]([^'\"]+)['\"]\)", page)
+            r"getElementById\(['\"]([^'\"]+)['\"]\)", served)
         self.assertIn(declared[0], looked_up)
         self.assertEqual(len(set(declared)), 1,
                          "one element, one id, on every screen that has it")
 
     def test_leaving_with_an_unsaved_edit_raises_the_leave_confirm(self):
-        _, page = self._open(f"/board?tab={TAB}")
-        self.assertIn("beforeunload", page)
-        self.assertIn("ev.preventDefault()", page)
+        _, served = self._page_with_scripts(f"/board?tab={TAB}")
+        self.assertIn("beforeunload", served)
+        self.assertIn("ev.preventDefault()", served)
 
     def test_an_owner_does_not_see_the_read_only_note(self):
         _, page = self._open(f"/board?tab={TAB}")
