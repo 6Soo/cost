@@ -8,8 +8,15 @@
 .cost-ledger__trip-select { width: min(320px, 100%); }
 .cost-ledger__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
 .cost-ledger__summary > div { display: grid; gap: 8px; min-width: 0; padding: 16px 20px; border: 1px solid var(--cost-border); border-radius: 18px; background: var(--cost-panel); }
-.cost-ledger__summary dt { color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__summary dt { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-ledger__summary dd { margin: 0; text-align: right; font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* GGL-014: an unverified Google block does not enter the confirmed figure, so
+   the summary figure is still shown but labelled provisional. The number is
+   the server's; only the label is added. */
+.cost-ledger__provisional { padding: 1px 6px; border: 1px solid var(--cost-border); border-radius: 999px; color: var(--cost-text-secondary); font-size: .6875rem; font-weight: 600; }
+.cost-ledger__google-income { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border: 1px solid var(--cost-border); border-radius: 14px; background: var(--cost-panel); color: var(--cost-text-secondary); font-size: .875rem; }
+.cost-ledger__google-income > span:first-child { color: var(--cost-text); }
+.cost-ledger__google-income small { flex-basis: 100%; color: var(--cost-text-secondary); }
 .cost-ledger__toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; gap: 12px; min-width: 0; }
 .cost-ledger__search { display: flex; align-items: end; gap: 8px; min-width: 0; }
 .cost-ledger__search > :first-child { flex: 1; min-width: 140px; }

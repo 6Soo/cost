@@ -18,7 +18,7 @@ type LedgerPayload = {
   filtered_total: string;
   total: string;
   closed: boolean;
-  income_source?: { available: boolean; verified: boolean; reason: string };
+  income_source?: { available: boolean; verified: boolean; reason: string; total?: string | null };
 };
 type CopyPayload = { tsv: string; row_count: number; total_krw: string; message?: string };
 type ExportJob = { job_id?: string; id?: string; status?: string; message?: string };
@@ -149,7 +149,10 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     setLoadError(null);
     setLoadNotFound(false);
     getJSON<LedgerPayload>(requestUrl, controller.signal)
-      .then((payload) => setData(payload))
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        setData(payload);
+      })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
         setLoadNotFound(reason instanceof ApiError && reason.status === 404);
@@ -163,6 +166,19 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
 
   const trips = bootstrap.trips;
   const loadedTrip = data?.trip.id === tab ? data.trip : undefined;
+  /* The Google income source belongs to the trip response currently on screen.
+     It is only shown to the owner of a normal trip: quarter, refund and
+     protected tabs have no income linkage (the server reports their kind as
+     "quarter"), and this is an operator message. Because loadedTrip is derived
+     from data for the selected tab, a payload left over from the previous tab
+     cannot paint its source here while the new response is still in flight. */
+  const incomeSource = bootstrap.role === 'owner' && loadedTrip?.kind === 'trip'
+    ? data?.income_source
+    : undefined;
+  /* §11.2.1 계약 4 + GGL-014: an unverified Google block does not enter the
+     confirmed figure, so the summary 수입/차액 are marked provisional while the
+     server figure itself is shown unchanged. This is a label only. */
+  const incomeProvisional = incomeSource?.available === true && incomeSource.verified === false;
   const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
   const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
   const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
@@ -265,10 +281,11 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
           </div>
         </div>
         {currentTrip && (
-          <dl className="cost-ledger__summary" aria-label="여행 손익">
-            <div><dt>수입</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
+          <dl className={`cost-ledger__summary${incomeProvisional ? ' cost-ledger__summary--provisional' : ''}`}
+            aria-label="여행 손익">
+            <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
             <div><dt>지출</dt><dd><Amount value={currentTrip.expense} currency="KRW" /></dd></div>
-            <div><dt>차액</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
+            <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
           </dl>
         )}
       </header>
@@ -336,15 +353,37 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </InlineNotice>
       )}
 
-      {data?.income_source?.available && !data.income_source.verified && (
+      {incomeSource?.available && !incomeSource.verified && (
         <InlineNotice tone="warning" title="수입 원장 대조 정보">
           Google 수입 원장의 대사가 완료되지 않았습니다. 표시된 수입과 차액은 잠정 금액입니다. 빈 금액은 미확인으로 표시합니다.
         </InlineNotice>
       )}
-      {data?.income_source && !data.income_source.available && data.income_source.reason !== 'NOT_CONNECTED' && (
+      {incomeSource && !incomeSource.available && incomeSource.reason === 'NOT_CONNECTED' && (
+        <InlineNotice tone="info" title="Google 수입 원장 미연결">
+          이 여행에 연결된 Google 수입 원장이 없습니다. Google 수입 행은 이 여행의 수입 탭에 표시되지 않습니다.
+        </InlineNotice>
+      )}
+      {incomeSource && !incomeSource.available && incomeSource.reason !== 'NOT_CONNECTED' && (
         <InlineNotice tone="warning" title="Google 수입 내역을 불러오지 못했습니다">
           현재 표시된 COST 수입 외에 연결된 원장의 수입이 있을 수 있습니다.
         </InlineNotice>
+      )}
+      {incomeSource?.available && (
+        /* GGL-003·GGL-014: the Google block is separate evidence. It is shown
+           here on its own and is never added to the summary 수입·차액 above,
+           which stay exactly the server's trip.income/trip.profit. */
+        <section className="cost-ledger__google-income" aria-label="Google 수입 별도 증거">
+          <span>연결된 Google 수입 합계</span>
+          {incomeSource.total ? (
+            <Amount value={incomeSource.total} currency="KRW" />
+          ) : (
+            <span className="cost-ledger__google-income-missing">금액 미확인</span>
+          )}
+          <span className={`cost-ledger__match cost-ledger__match--${incomeSource.verified ? 'ok' : 'warn'}`}>
+            {incomeSource.verified ? '검증됨' : '미검증'}
+          </span>
+          <small>이 금액은 위 수입·차액에 더하지 않습니다.</small>
+        </section>
       )}
       {loading && <Loading label="장부 조회 중" />}
       {!loading && !loadError && data && (
