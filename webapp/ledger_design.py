@@ -2077,8 +2077,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         incomes = []
     whole_income, whole_expense = list(incomes), list(expenses)
     if board.current_role() == 'owner':
-        from .refund_tab import member_ids
-        paired = member_ids(board._active_store())
+        paired = _quarter_excluded_ids(board._active_store())
         expenses = [r for r in expenses if r.get('source_event_id') not in paired]
         whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
