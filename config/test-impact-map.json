@@ -10,8 +10,8 @@
   "groups": [
     {
       "name": "m4-query-contract-parity",
-      "paths": ["webapp/plush_api.py", "webapp/plush_projection.py", "webapp/ledger_design.py", "webapp/ledger_google_match.py", "webapp/refund_tab.py", "webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py"],
-      "tests": ["webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_google_income.py"],
+      "paths": ["webapp/plush_api.py", "webapp/plush_projection.py", "webapp/ledger_design.py", "webapp/ledger_google_match.py", "webapp/refund_tab.py", "webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_m4_ledger_row_set_contract.py"],
+      "tests": ["webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_m4_ledger_row_set_contract.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_google_income.py"],
       "reason": "SPEC 11.2.1 계약 1·3·4: quarter/refund tabs, RFND-022 refund exclusion, case-insensitive owner search, and the row's Google matching status on the common query"
     },
     {
