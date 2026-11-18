@@ -8,6 +8,7 @@ pub mod domain;
 pub mod guard;
 pub mod known_diffs;
 pub mod links;
+pub mod p2;
 pub mod period;
 pub mod pipeline;
 pub mod plan;
