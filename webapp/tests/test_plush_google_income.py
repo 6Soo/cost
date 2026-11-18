@@ -149,15 +149,19 @@ def test_a_verified_google_block_stands_in_only_when_there_is_no_cost_income():
 
 
 def test_an_unverified_google_block_never_becomes_a_confirmed_income():
-    """GGL-014: unverified Google is not a confirmed 수입 or 차액; it is unknown."""
+    """GGL-014: unverified Google is not a confirmed 수입 or 차액; it is unknown.
+
+    소유자 결정 2026-11-19 ②: an income this ledger cannot confirm is shown as
+    one em dash, not a word, because the board has no income rows to change it.
+    """
     from webapp import plush_projection
 
     google_only = [{"row_id": "google-income|t|main|9", "row_kind": "income",
                     "google_income": True, "display_amount_krw": 1000}]
     summary = plush_projection.trip_summary(dict(tab_id="t", google_verified=False),
                                             google_only)
-    assert summary["income"] == "미확인", summary
-    assert summary["profit"] == "미확인", summary
+    assert summary["income"] == "—", summary
+    assert summary["profit"] == "—", summary
 
 
 def test_a_google_row_with_no_amount_keeps_the_verified_figure_unknown():
@@ -168,4 +172,4 @@ def test_a_google_row_with_no_amount_keeps_the_verified_figure_unknown():
                     "google_income": True, "amount_missing": True, "amount_krw": None}]
     summary = plush_projection.trip_summary(dict(tab_id="t", google_verified=True),
                                             google_only)
-    assert summary["income"] == "미확인", summary
+    assert summary["income"] == "—", summary

@@ -112,7 +112,8 @@ def test_screen_labels_read_the_decision_and_never_build_the_evidence_index(core
                                         ledger_design._export_period(card('known'))))()
     assert labels[0][0].startswith('10.01–10.03')
     assert '추론' not in labels[0][0]
-    assert labels[1][0] == '이용일 확인 필요'
+    # 소유자 결정 2026-11-19: a decision that says 'unknown' shows a blank cell.
+    assert labels[1][0] == ''
     assert labels[2] == '2026-10-01~2026-10-03'
 
 

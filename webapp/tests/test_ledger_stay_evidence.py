@@ -98,8 +98,9 @@ def test_verified_rental_pickup_return_reach_existing_card_views_without_stay_ni
 @pytest.mark.parametrize('period', ['', '2026-07-07~2026-07-05', '2026-02-30~2026-03-01',
                                    '2026-01-01~2028-01-01'])
 def test_rental_period_display_rejects_invalid_explicit_period(context, period):
+    # 소유자 결정 2026-11-19: an unreadable rental period is an empty cell.
     assert design._service_date_labels(dict(card(), item='렌터카', row_id='manual',
-                                             service_period=period))[0] == '이용일 미확인'
+                                             service_period=period))[0] == ''
 
 
 @pytest.mark.parametrize('field,value', [('ota_review_held', True), ('reservation_refund_blocked', True),
@@ -785,7 +786,7 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     assert onsite(item='렌터카', merchant='SYNTH RENT A CAR') == (
         '07.08 현장 결제', '현장 결제한 카드 이용일 2026-07-08 기준 · 인수·반납일은 원문에 없음')
     # A rental broker charge is a booking, not a pickup at the counter.
-    assert onsite(item='렌터카', merchant='DISCOVERCARS*COM') == ('이용일 미확인', '렌터카 인수·반납일 미확인')
+    assert onsite(item='렌터카', merchant='DISCOVERCARS*COM') == ('', '')
 
 
 @pytest.mark.parametrize('values', [
@@ -796,7 +797,8 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     dict(day='2026-07-03'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
     dict(reservation_no='R1')])
 def test_a_booking_or_a_charge_outside_its_trip_keeps_the_unknown_date(onsite, values):
-    assert onsite(**values) == ('이용일 확인 필요', '이용일 확인 필요')
+    # 소유자 결정 2026-11-19: no date means an empty period cell, not a word.
+    assert onsite(**values) == ('', '')
 
 
 def _charge_without_stay(data, *periods, status='observed'):
@@ -856,10 +858,14 @@ def test_a_cancelled_revision_of_the_booking_withholds_the_period(context):
 
 @pytest.mark.parametrize('item', ['숙박비', '항공료', '렌터카'])
 def test_a_refund_without_a_known_date_reads_as_a_refund(onsite, item):
-    assert onsite(item=item, amount_krw=-90000, merchant='AGODA.COM') == (
-        '취소·환불', '취소·환불 거래라 별도 이용일이 없음')
-    # A purchase with the same missing evidence still asks for its date.
-    assert onsite(item=item, merchant='AGODA.COM')[0] in ('이용일 확인 필요', '이용일 미확인')
+    """소유자 결정 2026-11-19 ①: a cancelled/refunded row's period cell is blank.
+
+    The 131 rows this condition selects used to print '취소·환불'; the cell now
+    carries a real date or nothing. A purchase with the same missing evidence
+    lands on the same blank, because it has no date either.
+    """
+    assert onsite(item=item, amount_krw=-90000, merchant='AGODA.COM') == ('', '')
+    assert onsite(item=item, merchant='AGODA.COM') == ('', '')
 
 
 def identical_rooms(data, rooms=3, cards=3):

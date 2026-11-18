@@ -39,7 +39,7 @@ def display_label(row: dict[str, Any]) -> tuple[str, str]:
     from . import ledger_design
 
     try:
-        compact, full = ledger_design._service_date_labels_for(row)
+        compact, full = ledger_design._service_date_labels(row)
     except Exception:
         # A row shape the legacy formatter cannot describe keeps the stored value
         # (the DTO still carries it); the difference is never an invented label.

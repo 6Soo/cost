@@ -10,6 +10,11 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any, Iterable
 
+# 소유자 결정 2026-11-19: an income this ledger cannot confirm shows one em dash.
+# The board has no income rows at all (54 of 54 trips), so a word like "미확인"
+# would be a permanent sentence rather than a state that can change.
+UNKNOWN_INCOME = "—"
+
 
 def money(value: Any) -> str:
     """Return a stable integer KRW string without locale formatting."""
@@ -78,10 +83,10 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
         "previous": is_previous(trip),
         "starts_on": str(trip.get("starts_on") or ""),
         "ends_on": str(trip.get("ends_on") or ""),
-        "income": money(income) if income is not None else "미확인",
+        "income": money(income) if income is not None else UNKNOWN_INCOME,
         "expense": money(expense),
         # The 차액 is only computable when the income figure is known.
-        "profit": money(income - expense) if income is not None else "미확인",
+        "profit": money(income - expense) if income is not None else UNKNOWN_INCOME,
         "closed": bool(trip.get("visual_closed") or trip.get("archived")),
         "archived": bool(trip.get("archived")),
     }
@@ -120,6 +125,15 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
     category = row.get("item") if kind != "income" else row.get("income_kind")
     payment = row.get("pay_method") or row.get("card_kind") or row.get("source_kind") or ""
     evidence = row.get("evidence_type") or row.get("source_kind") or ""
+    label = str(period_label if period_label is not None
+                else row.get("_plush_period_label") or "")
+    stored_period = str(period if period is not None else row.get("service_period") or "")
+    # 소유자 결정 2026-11-19: a blank period cell means "no date", never "the raw
+    # stored range". The screen falls back to `period` when it has no label, so
+    # the two must agree at the source: when the label is blank the row carries
+    # no period value either. A real date still travels in both fields.
+    if not label:
+        stored_period = ""
     result = {
         "id": str(row.get("row_id") or ""),
         "date": _display_date(row),
@@ -131,13 +145,13 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
         # currency must never relabel the KRW amount (e.g. 135000 USD).
         "currency": "KRW",
         "payment": str(payment or ""),
-        "period": str(period if period is not None else row.get("service_period") or ""),
+        "period": stored_period,
         "period_source": str(period_source or ""),
         # The compact and full labels the legacy cell already prints, so both
         # entry paths show the same wording (SPEC §11.2.1 계약 4). Empty when the
-        # formatter could not describe this row; the raw `period` still travels.
-        "period_label": str(period_label if period_label is not None
-                            else row.get("_plush_period_label") or ""),
+        # formatter could not describe this row, which is also when `period` is
+        # emptied above, so a blank cell cannot be refilled by the other field.
+        "period_label": label,
         "period_label_full": str(period_label_full if period_label_full is not None
                                  else row.get("_plush_period_label_full") or ""),
         "google_match": google_match,
