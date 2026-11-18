@@ -27,6 +27,7 @@
 | OTA 근거 기존 중복 압축 | [OTA 근거 압축](ota-evidence-compaction.md) | 도구·사본 예행까지. 운영 반영은 운영 담당이 배포 창에서 |
 | 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 및 Windows OCR→로컬 Paseo Qwen4 경로. #966의 Qwen4 경로는 병합·합성 검증까지이며 운영 배포 전 |
 | Paseo 작업공간 종료·정리 | [작업공간 종료·정리](workspace-closeout.md) | 완료 알림·결과 보존·통합 검수 뒤 agent/workspace archive와 잔여 자원 재확인 |
+| M5 보조 노드 사전조건 | [보조 노드 사전조건](m5-node-prereq.md)·[백업 상태 해석](m5-backup-status.md) | 실제 `costcore`로 서버+노드 2프로세스 합성 예행(임대·만료·조회·1회 반영·백업 복원). 실제 클라우드·PC 전원 차단은 제공자 결정 뒤 |
 
 새 절차서는 이 폴더에 `<작업이름>.md`로 만든다. 검증한 범위와 운영 실행 여부를 각 문서에 구분해 적는다.
 
