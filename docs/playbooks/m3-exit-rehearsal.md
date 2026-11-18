@@ -1,0 +1,213 @@
+# M3 종료 조건 예행 — 합성 자료로 저장 판정 누락 보완·재실행 0을 확인하는 절차
+
+- 목적: [통합 명세 §11.5 M3 종료 조건](../SPEC.md#m3--저장-판정-완결성)의 세 가지 — **저장 대상 누락 0**, **같은 입력 재실행 시 추가 보완 0**, **설명되지 않은 원천·투영·기간 차이 0** — 을 실제 운영에서 실행하기 전에 **합성 자료로 예행**하고, 그때 실제로 성공한 명령 순서를 그대로 적는다.
+- 실행 주체: 운영 담당 세션(한 세션). 이 절차서 자체는 운영 DB를 열지 않는다. 운영 실행은 [코어 1차 전환 절차](core-cutover.md)의 승인·백업 조건과 함께 별도로 한다.
+- 근거: 설계 `docs/design/m3-core.md` §3.3·§7 U11, `docs/SPEC.md:279-287`. 판정 규칙은 [판정 규칙집](../DECISION_POLICY.md)이 정본이다.
+- 개정 이력: 2026-11-19 · 합성 자료 예행으로 처음 작성. 명령과 출력은 2026-11-19 `3d8e8791` 기준으로 실제 실행해 확인했다.
+- 상태(2026-11-19): **합성 자료 예행 완료.** 아래 1~7단계를 실제로 돌려 성공·실패 출력을 모두 확인했고, 실패했다가 조건을 맞춰 고친 두 지점(⑤ digest 조건 불일치, ⑦ `periods` 누락)을 "실패와 진단"에 적었다.
+
+## 왜 이 예행이 필요한가
+
+M3 종료 조건은 "**운영의** 저장 대상 누락 0"이다. 그 숫자를 운영에서 처음 재면, 실패했을 때 원인이 (1) 자료 문제, (2) 명령 조건 불일치, (3) 코어 결함 중 무엇인지 구분되지 않는다. 합성 자료로 먼저 돌리면 **명령 자체가 맞는지**를 코어 결함과 분리해 확인할 수 있고, 운영에서는 숫자만 보면 된다.
+
+**운영 DB·`D:/WebLedgerHost`는 이 예행에서 읽지도 쓰지도 않는다.** 경로 위장도 하지 않는다: 코어는 `--host-root`로 "운영 DB면 거부"를 판단하므로(아래 "보호 경로"), 예행에서는 **보호 경로와 다른 임시 루트**를 `--host-root`로 준다.
+
+## 예행 자료(합성)를 만드는 법
+
+세 가지를 만든다: (가) 합성 보드 DB, (나) 합성 가맹점 규칙, (다) 빈 `core.sqlite`. 모두 저장소 밖 `.local-archive/`(Git 무시)에 둔다.
+
+```powershell
+# 레포 루트에서. $repo는 이 작업 폴더의 절대 경로다.
+$repo = 'C:/Users/kkokk/.paseo/worktrees/28lt5mey/m3-exit-rehearsal-20261119'
+$a = "$repo/.local-archive/m3-exit-rehearsal-20261119"
+$bin = "$repo/core/target/debug/costcore.exe"   # 배포 예행이면 release 빌드
+$py  = (Get-Command python).Source                # 절대경로여야 한다(아래 "실패와 진단" ①)
+$host = "$a/host"                                 # 보호 경로가 아닌 임시 루트(운영 판정용 host-root)
+```
+
+1. **합성 보드 DB.** `transactions` 3,002행(그중 게시된 `ledger_entries`·`board_rows` 40행), 여행 탭 5개(열린 여행 4 + 완료 1). **`quarter:2026:3`(열린 분기)만 쓴다** — `quarter:2026:1|2`는 완료 분기라 `core/crates/core/src/plan/fresh.rs:48`이 Protected로 닫는다. 보호 행(파싱 오류·중복 표시)·완료 기간(2025) 행을 섞어 둔다.
+
+   ```powershell
+   python -I "$a/make_synthetic.py" --out "$a/syn" --rows 3000
+   # 기대 출력: {"path": "...syn/board.sqlite", "counts": {"transactions": 3002, "trip_tabs": 5,
+   #             "ledger_entries": 40, "board_rows": 40}}
+   ```
+
+   - `--pre-classified N`: 앞 N행을 이미 `classified`로 채운다(Python 작성자가 이미 판정한 상태를 흉내 낼 때). 0이면 전부 `needs_review`.
+2. **합성 가맹점 규칙 6개.** 규칙 표가 없으면 항목 추론이 전부 실패해 판정이 `Unattributable`로 닫힌다(그러면 `written`이 0이 된다 — 코어 결함이 아니라 자료 부족이다).
+
+   ```powershell
+   cp "$a/syn/board.sqlite" "$a/work/r5.sqlite"
+   python -I "$a/add_rules.py" "$a/work/r5.sqlite"    # 기대 출력: rules ok
+   ```
+
+3. **빈 core.sqlite.** 이관은 멱등이고, 없으면 만든다.
+
+   ```powershell
+   & $bin migrate --core "$a/work/core5.sqlite"
+   # 기대 출력: {"created":true,"from_version":0,"ok":true,"to_version":3}
+   ```
+
+## 실행 순서 (복사해서 그대로 쓰는 명령)
+
+아래는 **실제로 성공한 그대로의 순서**다. ①②는 미리보기(쓰기 없음), ③은 쓰기 1회, ④는 같은 입력 재실행(쓰기 0이어야 함), ⑤는 사후 감사다.
+
+```powershell
+$ctx = '{"periods":{}}'      # ①과 ③이 반드시 같은 문자열이어야 한다(아래 "digest 규칙")
+```
+
+① **쓰기 전 감사(미리보기).** 저장 대상 누락·변경 필요·보호·불일치를 센다. 쓰지 않는다.
+
+```powershell
+$ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" `
+        --host-root $host --python $py --repo-root $repo
+```
+
+성공 기준: `ok`는 false여도 되고(아직 decisions가 비어 있으므로), **`coverage.missing` = 저장 대상 누락**이 눈에 보여야 한다. 실제 출력(예행):
+
+```json
+{"coverage":{"classification_changes_required":2682,"eligible":0,"kept":0,"missing":0,"orphaned":0,
+ "period_mismatch":0,"plan_digest":"77a0c063...","projection_mismatch":0,
+ "protected_or_preserved":320,"scanned":3002,"source_mismatch":0,"stale":0,"stored":0},"ok":false}
+```
+
+② **같은 `$ctx`로 digest 확보.** `plan_digest`를 꺼낸다. **다른 조건으로 다시 재면 안 된다**(아래 "digest 규칙").
+
+```powershell
+$digest = ($ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" `
+            --host-root $host --python $py --repo-root $repo |
+            ConvertFrom-Json).coverage.plan_digest
+```
+
+③ **적용(첫 쓰기).** `$ctx`를 표준 입력으로 그대로 넘기고 `--digest`에 ②의 값을 준다.
+
+```powershell
+$ctx | & $bin apply --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" --digest $digest `
+        --host-root $host --python $py --repo-root $repo
+```
+
+성공 기준(예행 실제 출력): `ok:true`, `skipped_mismatch:0`, `written` > 0.
+
+```json
+{"backfilled":0,"ok":true,"result":{"policy":"complete-card-inference-v1","protected":37,
+ "reconsider":false,"reviewed":2965,"scanned":3002,"to_classify":1978,"valid_trips":5},
+ "skipped_mismatch":0,"skipped_unjudged":283,"written":1695}
+```
+
+④ **같은 입력 재실행 → 쓰기 0.** ②를 **다시 만들어**(입력이 바뀌었으므로 digest도 바뀐다) ③을 한 번 더 돌린다.
+
+```powershell
+$digest2 = ($ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" `
+             --host-root $host --python $py --repo-root $repo |
+             ConvertFrom-Json).coverage.plan_digest
+$ctx | & $bin apply --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" --digest $digest2 `
+        --host-root $host --python $py --repo-root $repo
+```
+
+성공 기준(예행 실제 출력): `"written":0`, `"backfilled":0`, `"skipped_mismatch":0`. 이것이 M3 종료 조건 "같은 입력 재실행 시 추가 보완 0"의 예행 근거다.
+
+```json
+{"backfilled":0,"ok":true,"result":{"policy":"complete-card-inference-v1","protected":37,
+ "reconsider":false,"reviewed":2965,"scanned":3002,"to_classify":283,"valid_trips":5},
+ "skipped_mismatch":0,"skipped_unjudged":283,"written":0}
+```
+
+⑤ **쓰기 후 감사.** `stored`가 ③의 `written`과 같아야 하고, `orphaned`·`source_mismatch`·`period_mismatch`가 0이어야 한다.
+
+```powershell
+$ctx | & $bin audit-decisions --db "$a/work/r5.sqlite" --core "$a/work/core5.sqlite" `
+        --host-root $host --python $py --repo-root $repo
+```
+
+예행 실제 출력: `"stored":1695`, `"missing":0`, `"orphaned":0`, `"source_mismatch":0`, `"period_mismatch":0`. `ok`는 false이고 `classification_changes_required`가 남는 것이 **정상**이다(아래 "읽는 법").
+
+## 이미 Python이 판정한 보드의 저장 보완(종료 조건 2번) 예행
+
+운영 M3 종료 조건의 2번("같은 입력 재실행 시 추가 보완 0")은 실제로는 **이미 `classified`인데 `decisions`가 비어 있는 보드**를 채우는 경로다. 이 경우는 일반 `apply`가 아니라 **decisions-only 보완**을 쓴다.
+
+1. Python 작성자로 먼저 판정해 둔 상태를 만든다(예행에서는 `--pre-classified 0`으로 만든 뒤 Python `apply`를 돌려 만들었다 — 실제 운영은 이미 그 상태다).
+2. 감사로 누락을 센다. `missing`이 크고 `classification_changes_required`가 **0**인 것이 보완 대상의 표지다.
+
+   예행 실제 출력: `"eligible":2541,"missing":2541,"classification_changes_required":0`.
+
+3. **보완 모드 적용.** `context`에 `decisions_only: true`를 넣고 `--backfill-decisions`를 함께 준다. 둘 중 하나라도 빠지면 코어는 **core를 열기 전에** `CORE_REPAIR_REQUIRES_BACKFILL_AND_PERIOD_FACTS`로 거부한다(`core/crates/cli/src/main.rs:455-459`, `core/crates/core/src/apply.rs:131-134`).
+
+   ```powershell
+   $ctxR = '{"periods":{},"decisions_only":true}'
+   $dR = ($ctxR | & $bin audit-decisions --db "$a/work/b2.sqlite" --core "$a/work/coreb.sqlite" `
+           --host-root $host --python $py --repo-root $repo | ConvertFrom-Json).coverage.plan_digest
+   $ctxR | & $bin apply --db "$a/work/b2.sqlite" --core "$a/work/coreb.sqlite" --digest $dR `
+           --backfill-decisions --host-root $host --python $py --repo-root $repo
+   ```
+
+   예행 실제 출력: `{"backfilled":2541,"ok":true,...,"written":0,...}` — 화면 열은 건드리지 않고 `decisions`만 채운다.
+
+4. **재실행 0 확인.** 같은 `$ctxR`로 digest를 다시 만들어 한 번 더 돌린다. 예행 실제 출력: `"backfilled":0`.
+5. **감사 통과.** `periods`만 넣은 `$ctx`로 감사하면 `ok:true`, `missing:0`, `stored:2541`.
+
+## digest 규칙 — 이 예행에서 가장 많이 틀리는 곳
+
+`apply`는 계획을 **다시 만들어** digest를 대조하고, 다르면 `CLASSIFICATION_PREVIEW_STALE`로 아무것도 쓰지 않는다(`core/crates/core/src/apply.rs:167-169`). digest는 다음 세 가지에 따라 달라진다. **audit과 apply에서 이 셋을 똑같이 맞춰야 한다.**
+
+| 무엇이 digest를 바꾸는가 | 코드 위치 | 어떻게 맞추는가 |
+| --- | --- | --- |
+| `context`가 `trips`·`nets`·`evidence`를 덮어쓰는지 여부 | `core/crates/core/src/plan/mod.rs:477` `fingerprint`, `pipeline.rs:203` `overlay_context` | **audit과 apply에 같은 JSON 문자열을 준다.** `{"periods":{}}`만 주면 DB에서 읽은 여행 목록을 쓴다. `"trips"` 키를 넣으면 그 값이 이긴다 |
+| `reconsider` | `plan/mod.rs:528`(digest 입력), `main.rs:475`(`--reconsider` 또는 `context.reconsider`), `completeness.rs:66`(audit은 `context.reconsider`만 본다) | **양쪽에 같은 방식으로 준다.** audit은 `--reconsider` 플래그를 받지 않는다(코드 확인) → `context`의 `"reconsider":true`만 쓴다. apply는 **플래그나 context 중 하나만** 준다 |
+| `context.periods`(이용기간 근거) | `plan/mod.rs:521-529` `evidence`, `apply.rs:144-155` | 양쪽에 같은 `periods` 객체를 준다. **없으면 audit이 `PERIOD_FACTS_REQUIRED`로 거부한다** |
+
+핵심: **같은 변수 하나(`$ctx`)를 두 명령에 그대로 파이프한다.** ②와 ③에서 문자열을 손으로 다시 치면 실패한다.
+
+- `--reconsider`를 쓰는 경우: audit은 `context`에 `"reconsider":true`를 넣어 재고, apply는 **플래그 없이** 같은 `context`를 넘긴다. 예행에서 `reconsider:true` 조건으로 `written:2547`, `skipped_mismatch:135`를 실제로 확인했다(이 135건은 `reconsider`의 정상 동작이지 결함이 아니다).
+
+## 출력 읽는 법
+
+| 칸 | 뜻 | 종료 조건에서 |
+| --- | --- | --- |
+| `scanned` | 훑은 거래 수 | 기준값 |
+| `stored` | `decisions`에 있는 판정 수 | ⑤에서 ③의 `written`과 같아야 한다 |
+| `eligible` | 다시 계산한 판정이 **화면 열과 이미 같아서**, 저장만 하면 되는 건 | — |
+| `missing` | `eligible`인데 `decisions`가 없는 건 | **1차 종료 조건: 0** |
+| `stale` | 저장된 근거 digest·판정 함수 버전이 현재와 다른 건 | 0 (다르면 재판정 대상) |
+| `classification_changes_required` | 다시 계산한 판정이 화면 열과 **달라** 자동으로 저장할 수 없는 건 | 정책 근거를 남기고 별도 처리. 감사 `ok`가 false인 정상 이유 |
+| `projection_mismatch` / `source_mismatch` / `period_mismatch` | 저장 판정·원천·기간이 어긋난 건 | **2차 종료 조건: 모두 0** |
+| `orphaned` | `decisions`에 있으나 원천 행이 없는 건 | 0 |
+| `protected_or_preserved` / `kept` | 보호·보존·기존 판정 유지 | 0일 필요 없음 |
+
+**감사 `ok`가 false인 것은 실패가 아니다.** `ok`는 `missing`·`stale`·`projection_mismatch`·`source_mismatch`·`period_mismatch`·`classification_changes_required`·`orphaned`가 **모두 0일 때만** true다(`core/crates/cli/src/main.rs:514-520`). 쓰기 전에는 `classification_changes_required`가 반드시 남으므로, 쓰기 전 감사는 `ok:false`가 정상이다. 판단 기준은 **칸별 숫자**다. 종료 코드도 같다: 통과 0, 차이가 있으면 1(`main.rs:522`).
+
+## 실패와 진단 (예행에서 실제로 걸린 것)
+
+| 증상 (출력 코드) | 원인 | 확인·고치기 |
+| --- | --- | --- |
+| `{"error":{"code":"PYTHON_BRIDGE_FAILED:PYTHON_NOT_STARTED"}}` | `--python`에 `python`(맨 이름)을 줬고 코어가 하위 프로세스를 띄울 때 PATH에서 못 찾았다. ① 이 예행에서 처음 걸린 지점 | `(Get-Command python).Source`의 **절대경로**를 `--python`에 준다. `--repo-root`도 절대경로 |
+| `CLASSIFICATION_PREVIEW_STALE` | ②와 ③의 조건이 다르다. ⑤ digest 규칙 세 가지 중 하나가 어긋났다 | ②와 ③에 **같은 `$ctx` 문자열**을 파이프했는지, `reconsider`를 한쪽만 줬는지, `periods`가 양쪽에 있는지 확인한다. 고친 뒤 ②부터 다시 한다 |
+| `PERIOD_FACTS_REQUIRED` (audit) | `context`에 `periods` 객체가 없다(`main.rs:501-503`) | `$ctx`에 `"periods":{}`를 넣는다. 운영에서는 `app.core_writer.periods_for`의 실제 근거를 넣는다 |
+| `{"error":{"code":"USAGE_INVALID"}}` (apply) | `--digest`를 빠뜨렸다. apply는 digest가 **필수**다(`main.rs:437`) | ②에서 digest를 먼저 얻는다 |
+| `{"error":{"code":"IO_ERROR"}}` (audit/apply, context에 `trips`를 넣었을 때) | context 파일을 Windows 기본 인코딩으로 써서 한글 여행 이름이 깨졌다 | context 파일을 **UTF-8**로 쓴다(`open(path,'w',encoding='utf-8')`). PowerShell 7은 기본이 UTF-8이지만, 리다이렉션(`>`)으로 만든 파일은 확인한다 |
+| `written:0`인데 `skipped_unjudged`가 거의 전부 | 가맹점 규칙 표가 없어 항목이 추론되지 않았다 → 판정이 `Unattributable` | 2단계 `add_rules.py`를 먼저 돌린다. 규칙 6개로 `written`이 0 → 1,695로 바뀐다 |
+| `written:0`이고 `to_classify:0` | `context`에 `"trips":[]`를 넣어 여행 목록이 비었다 | `trips` 키를 넣지 않거나 DB에서 읽은 값을 넣는다 |
+| 감사 digest가 `quarter:2026:9` 같은 값으로 나옴 | 합성 자료의 분기 표기가 틀렸다(열린 분기는 `3`만) | `make_synthetic.py`는 2026 Q3만 쓴다. 손으로 만든 자료면 `fresh.rs:48`의 허용 목록을 본다 |
+| `DB_IS_LIVE` | `--db`가 `--host-root`의 `data/board.sqlite`와 같은 파일이다 | 예행은 `--host-root`에 **보호 경로가 아닌 임시 루트**를 준다. 운영에서는 사본을 SQLite backup API로 만든다(`robocopy /COPY:DAT` 사본은 거부된다) |
+
+## 보호 (이 절차가 지키는 것)
+
+- 운영 DB·`D:/WebLedgerHost`의 **읽기·쓰기 모두** 예행에서 하지 않는다. `--allow-live`를 주지 않는다.
+- `apply`는 `--allow-live` 없이는 `--host-root/data/board.sqlite` 경로를 거부한다(`core/crates/core/src/pipeline.rs:69-76`). 예행은 `--host-root`를 임시 루트로 두어 이 검사를 통과시킨다 — **운영 경로로 우회하지 않는다**.
+- `--private-out` 같은 비공개 파일 경로는 예행에서 쓰지 않는다. 쓰면 `<host-root>/data/backups` 아래여야 한다(`guard.rs:34`).
+- 예행 자료는 `.local-archive/`(Git 무시)에만 두고 커밋하지 않는다. 합성 자료에는 고객 원문이 없다.
+- 운영 포트 8751·8752·8790을 쓰지 않는다. 운영 프로세스를 건드리지 않는다.
+
+## 운영에서 같은 순서로 할 때의 차이
+
+| 예행(합성) | 운영 |
+| --- | --- |
+| `.local-archive/...` 사본 | 신선 백업·복원 확인 사본(`D:/WebLedgerHost/data/backups/`, [core-cutover.md](core-cutover.md) 2단계) |
+| `--host-root`=임시 루트 | `--host-root D:/WebLedgerHost`, `--db`=사본, `--allow-live`는 사본에서는 불필요(사본 경로가 운영 경로와 다르므로) |
+| `"periods":{}` | `app.core_writer.periods_for(...)`가 만든 실제 이용기간 근거(없으면 `PERIOD_FACTS_REQUIRED`) |
+| `written` 수천 건이 정상 | 운영 첫 실행은 `backfill` 건수가 매우 클 수 있다(정상) |
+| 운영 반영 없음 | decisions-only 보완은 **승인된 창에서만**. [core-cutover.md](core-cutover.md) "실패와 복구"·"판정 함수 버전 변경 배포 뒤 전체 재판정"을 따른다 |
+
+## 이 절차서가 확인한 것과 확인하지 않은 것
+
+- 확인(2026-11-19, `3d8e8791`, debug 빌드): 3,002행 합성 보드에서 감사 → digest → 적용(`written:1695`, `skipped_mismatch:0`) → 재실행(`written:0`) → 사후 감사(`stored:1695`·`missing:0`·불일치 0). decisions-only 보완(`backfilled:2541` → 재실행 `0` → 감사 `ok:true`). 실패 출력 두 가지(`CLASSIFICATION_PREVIEW_STALE`, `PERIOD_FACTS_REQUIRED`)와 `PYTHON_NOT_STARTED` 진단.
+- 하지 않음: 운영 DB 접근, `release` 빌드 실행, 실제 OTA 이용기간 근거 생성(운영 자료 필요), 대규모(1만 행 이상) 성능 측정.
