@@ -1,0 +1,71 @@
+"""Opt-in P2 context packet tests; no live AI, payments or Google writes."""
+import json
+
+from app import p2_case, p2_policy_pack
+from webapp.tests.test_autonomous_cleanup import setup, receive, make_weak_rows, create_trip
+from app import ai_classification
+
+
+def _prepared(board):
+    trip = create_trip(board)
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, trip)
+    trips = [dict(trip_id=trip, starts_on='2026-10-01', ends_on='2026-10-05',
+                  destination='합성 여행')]
+    return ai_classification.prepare(board.conn, trips, ids), trips
+
+
+def test_compact_rule_packet_preserves_exact_source_and_sensitive_boundaries():
+    full = p2_case.policy_context(('link', 'refund'))
+    short = p2_case.policy_context(('link', 'refund'), compact=True)
+    assert set(short) == set(full) == {'CORE', 'process', 'trip', 'item', 'date', 'link', 'refund'}
+    assert short['CORE'] == full['CORE']
+    assert len(json.dumps(short, ensure_ascii=False)) < 0.70 * len(json.dumps(full, ensure_ascii=False))
+    for area, required in {
+        'process': ('PROC-010', 'PROC-011', 'PROC-014', 'PROC-072'),
+        'trip': ('TRIP-042', 'TRIP-069', 'TRIP-071'),
+        'item': ('ITEM-080', 'ITEM-024', 'ITEM-082'),
+        'date': ('DATE-023', 'DATE-109'),
+        'link': ('LINK-002', 'LINK-003', 'LINK-044'),
+        'refund': ('RFND-004', 'RFND-018', 'RFND-029'),
+    }.items():
+        for rule in required:
+            assert rule in short[area]
+    # Never regenerate/abstract a clause: the exact selected section must
+    # appear inside its full source-domain packet.
+    for area in set(short) - {'CORE'}:
+        for section in short[area].split('\n\n### '):
+            if not section.strip():
+                continue
+            fragment = section if section.startswith('### ') else '### ' + section
+            assert fragment.split('\n', 1)[0] in full[area]
+
+
+def test_compact_assemble_does_not_change_cases_or_evidence(setup):
+    request, trips = _prepared(setup)
+    full = p2_case.assemble(setup.conn, trips, request)
+    short = p2_case.assemble(setup.conn, trips, request, compact_policy=True)
+    assert short['cases'] == full['cases']
+    assert short['evidence'] == full['evidence']
+    assert short['policy']['CORE'] == full['policy']['CORE']
+    assert short['policy_digest'] == p2_case.digest(short['policy'])
+    assert short['request_digest'] == full['request_digest']
+    assert len(p2_case.prompt(short).encode('utf-8')) < len(p2_case.prompt(full).encode('utf-8'))
+
+
+def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path):
+    source = p2_case.ROOT
+    policy_dir = tmp_path / 'docs/policy'
+    policy_dir.mkdir(parents=True)
+    (tmp_path / 'docs/DECISION_POLICY.md').write_text(
+        (source / 'docs/DECISION_POLICY.md').read_text(encoding='utf-8'),
+        encoding='utf-8')
+    for area in ('process', 'trip', 'item', 'date'):
+        (policy_dir / (area + '.md')).write_text(
+            (source / 'docs/policy' / (area + '.md')).read_text(encoding='utf-8'),
+            encoding='utf-8')
+    trip = policy_dir / 'trip.md'
+    trip.write_text(trip.read_text(encoding='utf-8')
+                    + '\n### TRIP-999 · 정책이 추가된 미검수 사례\n\n*보호*\n\n정본 미검수.\n',
+                    encoding='utf-8')
+    assert p2_policy_pack.compact_policy_context(tmp_path) is None
