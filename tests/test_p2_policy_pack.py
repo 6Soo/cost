@@ -206,9 +206,9 @@ def test_consolidated_686_catalog_has_exact_retired_id_coverage():
     active = []
     for area in areas:
         source = (root / (area + '.md')).read_text(encoding='utf-8')
-        active += re.findall(r'(?m)^### ([A-Z]{3,6}-\\d{3}) · ', source)
+        active += re.findall(r'(?m)^### ([A-Z]{3,6}-\d{3}) · ', source)
     retired = re.findall(
-        r'(?m)^\\| `([A-Z]{3,6}-\\d{3})` \\|',
+        r'(?m)^\| `([A-Z]{3,6}-\d{3})` \|',
         (root / 'RETIRED_IDS.md').read_text(encoding='utf-8'))
     assert len(active) == len(set(active)) == 686
     assert len(retired) == len(set(retired)) == 81
@@ -234,7 +234,7 @@ def test_unreviewed_core_policy_change_forces_full_fallback(tmp_path, monkeypatc
     catalog.mkdir(parents=True)
     original = (source / 'docs/DECISION_POLICY.md').read_text(encoding='utf-8')
     (tmp_path / 'docs/DECISION_POLICY.md').write_text(
-        original + '\\n<!-- Unreviewed top-level policy revision -->\\n',
+        original + '\n<!-- Unreviewed top-level policy revision -->\n',
         encoding='utf-8')
     for area in ('process', 'trip', 'item', 'date'):
         (catalog / (area + '.md')).write_bytes(
