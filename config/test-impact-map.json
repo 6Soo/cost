@@ -9,6 +9,12 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "m4-query-contract-parity",
+      "paths": ["webapp/plush_api.py", "webapp/plush_projection.py", "webapp/ledger_design.py", "webapp/ledger_google_match.py", "webapp/refund_tab.py", "webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py"],
+      "tests": ["webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_google_income.py"],
+      "reason": "SPEC 11.2.1 계약 1·3·4: quarter/refund tabs, RFND-022 refund exclusion, case-insensitive owner search, and the row's Google matching status on the common query"
+    },
+    {
       "name": "m5-content-free-request-metrics",
       "paths": ["app/http_request_counts.py", "webapp/http_counting.py", "tools/http_request_metrics_summary.py", "tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py"],
       "tests": ["tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "webapp/tests/test_http_counting.py"],
