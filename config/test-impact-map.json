@@ -422,8 +422,8 @@
     },
     {
       "name": "m4-income-source-separation",
-      "paths": ["webapp/plush_projection.py", "webapp/plush_api.py", "webapp/plush_income.py", "webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_plush_google_income.py"],
-      "tests": ["webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_ledger_design.py"],
+      "paths": ["webapp/plush_projection.py", "webapp/plush_api.py", "webapp/plush_income.py", "webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_m4_income_paths_by_role.py", "webapp/tests/test_plush_google_income.py"],
+      "tests": ["webapp/tests/test_m4_income_source_parity.py", "webapp/tests/test_m4_income_paths_by_role.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_ledger_design.py"],
       "reason": "GGL-003·GGL-014: COST income and Google income are never summed in the trip summary; a verified block only substitutes"
     },
     {
