@@ -172,10 +172,18 @@ def _tab_is_not_a_trip(tab) -> bool:
 
 
 def _board_override_exists(store, row_id: str, field: str) -> bool:
-    """A real manual override of `field`, or False when the file has no board tables (a card-only file)."""
+    """A real manual override of `field`, or False when the file cannot name one.
+
+    False when there is no board file (a card-only file) and when the table is an old row-id-only shape with no
+    `field` column — that shape cannot say which field a person corrected, and `exists_sql` would raise
+    `no such column` on it.
+    """
     from .manual_overrides import exists_sql as manual_exists_sql
     if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='board_manual_overrides'").fetchone():
+        return False
+    if 'field' not in {r[1] for r in store.conn.execute(
+            'PRAGMA table_info(board_manual_overrides)')}:
         return False
     return bool(store.conn.execute(
         'SELECT ' + manual_exists_sql(store.conn, '?', field), (row_id,)).fetchone()[0])

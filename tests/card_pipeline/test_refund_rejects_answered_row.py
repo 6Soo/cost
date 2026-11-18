@@ -76,3 +76,27 @@ def test_an_unanswered_row_still_takes_the_refund_tab(batch):
         assert row[0] == 'refunds' and row[1] == '' and row[2] == 'refund_original', row
     finally:
         store.close()
+
+
+def test_an_old_row_id_only_override_table_does_not_break_the_guard(batch):
+    """`exists_sql` names `mo.field`; a table without that column must read as "no override", not raise.
+
+    An old board file's `board_manual_overrides` has only `row_id`, so no field can be named. The guard must
+    decide on the timestamps alone and let the ordinary verified full refund go through.
+    """
+    path, board, decisions = batch
+    store = Store.open(str(path))
+    try:
+        tid = decisions[0]['transaction_id']
+        _set(store, tid, display_tab_id='trip-syn', trip_id='trip-syn',
+             classification_source='inference', decided_at=None)
+        board.conn.execute('DROP TABLE board_manual_overrides')
+        board.conn.execute('CREATE TABLE board_manual_overrides (row_id TEXT NOT NULL)')
+        board.conn.execute('INSERT INTO board_manual_overrides VALUES (?)', ('card-' + tid,))
+        board.conn.commit()
+        from app.ledger import _persist_verified_refund_classification
+        _persist_verified_refund_classification(store, _entry(tid, tid), tid)
+        row = _read(store, tid)
+        assert row[0] == 'refunds' and row[1] == '' and row[2] == 'refund_original', row
+    finally:
+        store.close()
