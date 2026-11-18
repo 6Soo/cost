@@ -2058,6 +2058,41 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     )
 
 
+def _google_income_rows(tab_id: str, cost_income: list) -> list:
+    """The connected Google income rows this tab shows, for the owner path only.
+
+    SPEC §11.2.1 계약 1: both entry paths show the same rows. The legacy board
+    already renders the Google block beside its own income, but the row lists
+    only carried COST records, so React (which merges the block into the row
+    set) and legacy disagreed on row IDs and counts.
+
+    The read reuses the request's existing session and grant checks —
+    ``plush_income.load`` denies a viewer without a grant and an ambiguous
+    mapping, and this returns nothing for a viewer — so no new permission path
+    is opened. Rows are returned even when the block is unverified, because
+    SPEC §11.2.1 계약 4 asks both paths to show the state rather than hide the
+    rows; what an unverified block must never do is count toward confirmed
+    income, and the totals already keep it out. The rows are display-only and
+    read-only.
+    """
+    if not tab_id or tab_id in ("unclassified", "refunds") or not _is_trip_tab(tab_id):
+        return []
+    from . import ledger_board, plush_income
+
+    if ledger_board.current_role() != "owner":
+        return []
+    session = ledger_board.current_request_session()
+    try:
+        block = plush_income.load(tab_id, owner=True, session=session, visible_tabs=set())
+    except Exception:
+        return []
+    if not block.get("available"):
+        return []
+    cost_ids = {str(row.get("row_id") or "") for row in cost_income}
+    return [dict(row, read_only=True) for row in block.get("rows", [])
+            if str(row.get("row_id") or "") not in cost_ids]
+
+
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     """The rows this tab and filter show, and the unfiltered totals beside them.
 
@@ -2083,6 +2118,10 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     else:
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
         expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
+        # SPEC §11.2.1 계약 1: the row lists carry the connected Google income
+        # rows React already merges, so both paths agree on row IDs and counts.
+        # Owner-only; the Google read keeps its own grant check.
+        incomes = incomes + _google_income_rows(tab_id, incomes)
     if kind == "in":
         expenses = []
     elif kind == "ex":
