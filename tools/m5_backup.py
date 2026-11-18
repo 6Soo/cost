@@ -6,7 +6,7 @@ Source paths and file contents are kept out of errors and return summaries.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -662,22 +662,144 @@ def restore_snapshot(folder: str | os.PathLike, destination: str | os.PathLike) 
         )
 
 
-def _read_pull_state(path: Path) -> tuple[datetime, str] | None:
-    if os.path.lexists(path):
-        _reject_reparse_components(path)
-        if not path.is_file():
-            _fail("PULL_STATE_INVALID")
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(value, dict) or set(value) != {
-                    "schema", "last_success_at_utc", "snapshot_id"}:
-                return None
-            if value["schema"] != STATE_SCHEMA or not _SHA256.fullmatch(value["snapshot_id"]):
-                return None
-            return _parse_stamp(value["last_success_at_utc"]), value["snapshot_id"]
-        except Exception:
-            return None
-    return None
+STATE_REQUIRED_KEYS = frozenset({"schema", "last_success_at_utc", "snapshot_id"})
+STATE_OPTIONAL_KEYS = frozenset({
+    "gap_days", "gap_from_utc", "missed_days_total",
+    "state_reset_count", "state_reset_reason", "complete",
+})
+# Fixed reason vocabulary, matching the #1001 request-count summary so both
+# tools name the same failure the same way.
+STATE_RESET_REASONS = frozenset({"corrupt", "unreadable", "rejected"})
+# A state file may only claim a success this close to "now". Anything further
+# ahead is a corrupt or restored-old reading, not evidence that a pull ran.
+STATE_FUTURE_TOLERANCE = timedelta(minutes=5)
+
+
+def _read_pull_state(path: Path, now: datetime | None = None) -> dict | None:
+    """Read the pull state, accepting both current and legacy (3-key) files.
+
+    The key set is checked as "required keys present, only known keys allowed"
+    rather than exact equality: the previous exact-match rule made any added
+    field look corrupt, which silently turned every run into a new backup.
+
+    A recorded success in the future is refused (``rejected``). Without that
+    check ``current - last_success`` is negative, so ``NOT_DUE`` stays true
+    forever and every day is reported ``complete`` while no backup runs.
+    """
+    if not os.path.lexists(path):
+        return None
+    _reject_reparse_components(path)
+    if not path.is_file():
+        _fail("PULL_STATE_INVALID")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:
+        return {"reset_reason": "unreadable"}
+    try:
+        value = json.loads(raw)
+    except Exception:
+        return {"reset_reason": "corrupt"}
+    try:
+        if not isinstance(value, dict) or not STATE_REQUIRED_KEYS <= set(value):
+            return {"reset_reason": "rejected"}
+        unknown = set(value) - STATE_REQUIRED_KEYS - STATE_OPTIONAL_KEYS
+        if unknown or value["schema"] != STATE_SCHEMA:
+            return {"reset_reason": "rejected"}
+        if not isinstance(value["snapshot_id"], str) or \
+                not _SHA256.fullmatch(value["snapshot_id"]):
+            return {"reset_reason": "rejected"}
+        last_success = _parse_stamp(value["last_success_at_utc"])
+        if now is not None and last_success - _utc(now) > STATE_FUTURE_TOLERANCE:
+            return {"reset_reason": "rejected"}
+        missed = value.get("missed_days_total", 0)
+        if type(missed) is not int or missed < 0:
+            return {"reset_reason": "rejected"}
+        resets = value.get("state_reset_count", 0)
+        if type(resets) is not int or resets < 0:
+            return {"reset_reason": "rejected"}
+        gap_from = value.get("gap_from_utc")
+        if gap_from is not None:
+            _parse_stamp(gap_from)
+        return {
+            "last_success": last_success,
+            "snapshot_id": value["snapshot_id"],
+            "missed_days_total": missed,
+            "state_reset_count": resets,
+            "state_reset_reason": None,
+        }
+    except BackupError:
+        return {"reset_reason": "rejected"}
+    except Exception:
+        return {"reset_reason": "rejected"}
+
+
+def _generation_date(name: str) -> date:
+    """Parse the date a generation directory name claims.
+
+    ``_GENERATION`` only bounds the shape (``\\d{8}``), so an impossible day
+    such as ``20261332`` reaches the calendar parser. A ``ValueError`` there
+    would escape as a bare exception and be reported as ``PULL_FAILED``,
+    hiding the cause; this is promoted to a named code instead. Skipping the
+    entry would be worse: a directory that cannot be dated could hold the
+    backup for a day, and silently ignoring it would also hide a gap.
+    """
+    try:
+        return datetime.strptime(name[9:17], "%Y%m%d").date()
+    except ValueError:
+        _fail("GENERATION_DATE_INVALID")
+
+
+def _generation_dates(root: Path, current: datetime) -> list[date]:
+    """Dates from published generation directory names under the pull root.
+
+    The state file keeps only the last success, so a multi-day outage is only
+    observable by comparing consecutive generation dates. Dates after
+    ``current`` are refused for the same reason as an impossible date: they
+    invert every interval and would report no gap.
+    """
+    try:
+        entries = sorted(os.scandir(root), key=lambda entry: entry.name)
+    except OSError:
+        _fail("DESTINATION_INVALID")
+    dates: list[date] = []
+    for entry in entries:
+        match = _GENERATION.fullmatch(entry.name)
+        if match is None or not entry.is_dir(follow_symlinks=False):
+            continue
+        if _is_reparse(Path(entry.path)):
+            continue
+        parsed = _generation_date(entry.name)
+        if parsed > current.date():
+            _fail("GENERATION_DATE_INVALID")
+        dates.append(parsed)
+    return dates
+
+
+def _gap_judgement(root: Path, current: datetime) -> dict:
+    """Judge missing daily generations from what is actually on disk.
+
+    ``gap_days`` is the empty interval immediately before this pull, so a
+    catch-up after an outage reports 0 while ``missed_days_total`` still counts
+    the unrepaired holes in the stored history.
+    """
+    dates = _generation_dates(root, current)
+    today = current.date()
+    previous = max(dates) if dates else None
+    # The hole immediately before this generation: 0 when yesterday's backup
+    # exists, 3 when the PC was off for three days.
+    gap_days = 0 if previous is None else max(0, (today - previous).days - 1)
+    gap_from = (previous + timedelta(days=1)) if gap_days else None
+    # Every hole still present in the stored history, including this one.
+    missed = 0
+    for before, after in zip([*dates, today], [*dates, today][1:]):
+        missed += max(0, (after - before).days - 1)
+    return {
+        "gap_days": gap_days,
+        "gap_from_utc": (None if gap_from is None else
+                         f"{gap_from.isoformat()}T00:00:00Z"),
+        "missed_days_total": missed,
+        "previous_generation_date": (None if previous is None else previous.isoformat()),
+    }
 
 
 def _remove_owned_state_temporary(path: Path) -> None:
@@ -689,9 +811,29 @@ def _remove_owned_state_temporary(path: Path) -> None:
         return
 
 
-def _write_pull_state(path: Path, now: datetime, snapshot_id: str) -> None:
-    value = {"schema": STATE_SCHEMA, "last_success_at_utc": _stamp(now),
-             "snapshot_id": snapshot_id}
+def _write_pull_state(path: Path, now: datetime, snapshot_id: str, *,
+                      gap: dict | None = None, state_resets: int = 0,
+                      state_reset_reason: str | None = None) -> None:
+    """Write the pull state. The original three keys keep their meaning."""
+    if state_reset_reason is not None and state_reset_reason not in STATE_RESET_REASONS:
+        _fail("PULL_STATE_INVALID")
+    gap = gap or {"gap_days": 0, "gap_from_utc": None, "missed_days_total": 0}
+    missed = gap["missed_days_total"]
+    value = {
+        # Existing keys, unchanged: readers that only know these still work.
+        "schema": STATE_SCHEMA,
+        "last_success_at_utc": _stamp(now),
+        "snapshot_id": snapshot_id,
+        # Added judgement. `complete=false` means some daily generations are
+        # missing, using the same name as the #1001 request-count summary.
+        "gap_days": gap["gap_days"],
+        "gap_from_utc": gap["gap_from_utc"],
+        "missed_days_total": missed,
+        "state_reset_count": state_resets,
+        "state_reset_reason": state_reset_reason,
+        "complete": (state_resets == 0 and missed == 0
+                     and state_reset_reason is None),
+    }
     _reject_reparse_components(path.parent)
     if os.path.lexists(path):
         _reject_reparse_components(path)
@@ -814,10 +956,20 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
             _fail("DESTINATION_INVALID")
         current = _utc(now)
         state_path = root / "pull-state.json"
-        previous = _read_pull_state(state_path)
-        if previous is not None and current - previous[0] < timedelta(hours=24):
-            return {"ok": True, "skipped": True, "code": "NOT_DUE",
-                    "last_success_at_utc": _stamp(previous[0])}
+        previous = _read_pull_state(state_path, current)
+        reset_reason = (previous["reset_reason"] if previous is not None
+                        and "reset_reason" in previous else None)
+        prior_resets = (previous["state_reset_count"] if previous is not None
+                        and "reset_reason" not in previous else 0)
+        if previous is not None and "reset_reason" not in previous and \
+                current - previous["last_success"] < timedelta(hours=24):
+            skipped = _gap_judgement(root, current)
+            skipped["skipped"] = True
+            skipped["complete"] = prior_resets == 0 and skipped["missed_days_total"] == 0
+            return {"ok": True, **skipped, "code": "NOT_DUE",
+                    "state_reset_count": prior_resets,
+                    "state_reset_reason": None,
+                    "last_success_at_utc": _stamp(previous["last_success"])}
 
         manifest = _pull_manifest(client)
         stage = _new_stage(root, "incoming")
@@ -833,13 +985,23 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
             f"snapshot-{current.strftime('%Y%m%dT%H%M%SZ')}-"
             f"{verified['snapshot_id'][:16]}-{uuid.uuid4().hex[:8]}"
         )
+        # Judge gaps from the generation names already on disk, before this
+        # generation is published; the previous state file alone cannot show
+        # a multi-day outage.
+        gap = _gap_judgement(root, current)
         _publish(stage, generation)
         stage = None
         published_generation = generation
         published_snapshot_id = verified["snapshot_id"]
-        _write_pull_state(state_path, current, verified["snapshot_id"])
+        resets = prior_resets + (1 if reset_reason is not None else 0)
+        _write_pull_state(state_path, current, verified["snapshot_id"],
+                          gap=gap, state_resets=resets,
+                          state_reset_reason=reset_reason)
         state_written = True
-        return {**verified, "skipped": False, "generation": generation.name,
+        return {**verified, **gap, "skipped": False, "generation": generation.name,
+                "state_reset_count": resets,
+                "state_reset_reason": reset_reason,
+                "complete": gap["missed_days_total"] == 0 and resets == 0,
                 "last_success_at_utc": _stamp(current)}
     except BackupError as exc:
         return {"ok": False, "code": exc.code}
