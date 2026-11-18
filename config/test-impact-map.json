@@ -21,6 +21,12 @@
       "reason": "Standalone M5 snapshot create/verify/restore and scheduled pull, including owned-artifact cleanup and restore overlap guards"
     },
     {
+      "name": "m5-queue-lease-p2-adapter",
+      "paths": ["core/crates/core/src/jobs/mod.rs", "core/crates/core/src/store/schema.rs", "core/crates/cli/src/remote.rs", "core/crates/cli/src/p2_cli.rs", "core/crates/core/src/p2.rs", "core/crates/cli/src/main.rs", "core/crates/cli/Cargo.toml", "core/crates/core/tests/jobs_queue.rs", "core/crates/core/tests/p2_binding.rs", "tools/m5_runtime.py", "tools/m5_p2_adapter.py", "tests/test_m5_runtime.py", "tests/test_m5_runtime_integration.py", "tests/test_m5_p2_adapter.py"],
+      "tests": ["tests/test_m5_runtime.py", "tests/test_m5_runtime_integration.py", "tests/test_m5_p2_adapter.py"],
+      "reason": "Provider-neutral durable queue, lease fencing, retry, budget, HTTP node boundary and the bounded subscription adapter. Rust queue checks run with cargo test; Python integration tests require COSTCORE_TEST_BIN"
+    },
+    {
       "name": "card-trip-payment-cutoff",
       "paths": ["tests/test_card_trip_cutoff.py", "app/trip_selection.py", "app/ledger.py", "app/classification_correction.py", "app/manual_google_evidence.py", "app/source_recheck.py", "app/ai_classification.py", "app/ai_review_repair.py", "webapp/ledger_store.py", "core/crates/core/src/trips/select.rs", "core/crates/core/src/plan/mod.rs"],
       "tests": ["tests/test_card_trip_cutoff.py", "tests/test_source_recheck.py", "tests/test_manual_google_evidence.py", "tests/test_ai_review_repair.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_jeju_trip_card_scope.py", "webapp/tests/test_automatic_classification_completion.py"],
