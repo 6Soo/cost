@@ -16,11 +16,11 @@ from pathlib import Path
 # selected by p2_case's existing evidence-driven routing.
 PINNED = {
     'process': '001 004 006 008 010 011 014 015 016 021 023 024 025 072',
-    'trip': '001 003 021 024 029 030 036 038 039 040 041 042 044 047 051 053 062 063 071 081',
+    'trip': '001 003 021 024 029 030 036 038 039 040 041 042 044 045 047 048 049 051 053 062 063 071 081 089 097 099',
     'item': '001 002 004 005 007 010 017 018 022 023 024 026 027 029 031 033 034 035 040 042 044 046 050 080 082',
-    'date': '001 011 014 017 021 023 029 033 038 041 048 049 054 060 079 100 109',
-    'link': '001 002 003 004 005 006 007 010 011 012 013 015 017 018 019 021 028 038 044 058 061 068 090 092 108 109 110 111',
-    'refund': '001 003 004 007 011 012 013 014 015 017 018 021 022 023 025 027 029 050 055 061',
+    'date': '001 011 014 017 021 023 029 033 038 041 048 049 054 060 079 100 108 109',
+    'link': '001 002 003 004 005 006 007 010 011 012 013 015 017 018 019 021 024 025 028 030 035 038 043 044 058 061 068 090 092 108 109 110 111',
+    'refund': '001 003 004 007 011 012 013 014 015 017 018 021 022 023 025 027 029 050 054 055 061 062',
 }
 PREFIX = {'process': 'PROC', 'trip': 'TRIP', 'item': 'ITEM',
           'date': 'DATE', 'link': 'LINK', 'refund': 'RFND'}
@@ -115,7 +115,8 @@ def compact_policy_context(root: Path, areas=()):
         if not parts or _fingerprint(signature) not in CATALOG_FINGERPRINTS[area]:
             return None
         selected = {f'{PREFIX[area]}-{n}' for n in PINNED[area].split()}
-        selected.update(identity for identity, category, _ in parts if category == '사용자 예외')
+        selected.update(identity for identity, category, _ in parts
+                        if category in ('사용자 예외', '사용자 결정'))
         if not selected <= {identity for identity, _, _ in parts}:
             return None
         rules = []
