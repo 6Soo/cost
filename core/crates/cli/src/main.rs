@@ -2,6 +2,8 @@
 //! 출력은 JSON 한 줄이며 고객 원문·거래 ID는 담지 않는다(비공개 상세는 보호 경로 파일에만).
 
 mod links_ota;
+mod p2_cli;
+mod remote;
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -31,6 +33,7 @@ const DEFAULT_HOST: &str = "D:/WebLedgerHost";
 /// CLI 오류. 운영 명령(plan·apply)은 `ShadowError`를 거치지 않고, 비교·보호 경로 도우미의 오류만 `Shadow`로 담는다.
 #[derive(Debug)]
 enum CliError {
+    Remote(&'static str),
     UsageInvalid,
     PlanResponseInvalid,
     Stdin,
@@ -50,6 +53,7 @@ impl CliError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     fn code(&self) -> String {
         match self {
+            Self::Remote(code) => (*code).to_owned(),
             Self::UsageInvalid => "USAGE_INVALID".to_owned(),
             Self::PlanResponseInvalid => "PLAN_RESPONSE_INVALID".to_owned(),
             Self::Stdin => "INPUT_INVALID".to_owned(),
@@ -149,6 +153,10 @@ fn python_bridge(flags: &Flags) -> PythonBridge {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("server") => remote::runtime("server", &args[1..]),
+        Some("node") => remote::runtime("node", &args[1..]),
+        Some("queue") => finish(remote::queue(&args[1..]).map_err(CliError::Remote), "ok"),
+        Some("p2") => finish(p2_cli::run(&args[1..]).map_err(CliError::Remote), "ok"),
         None | Some("--version") => {
             println!("costcore {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -167,7 +175,7 @@ fn main() -> ExitCode {
         Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
         Some(_) => {
             eprintln!(
-                "usage: costcore <shadow|shadow-links|links|plan|apply|audit-decisions|rejudge|periods|migrate> ..."
+                "usage: costcore <shadow|shadow-links|links|plan|apply|audit-decisions|rejudge|periods|migrate|queue|p2|server|node> ..."
             );
             ExitCode::from(2)
         }

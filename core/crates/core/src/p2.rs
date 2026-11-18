@@ -1,7 +1,12 @@
-//! Deterministic request binding, validation, and replay for P2.
+//! Deterministic request binding, validation, and provider adapters for P2.
 
 use std::collections::HashSet;
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::LazyLock;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde_json::{Map, Value, json};
@@ -14,9 +19,14 @@ const ERR_RESULT: &str = "BATCH_RESULT_INVALID";
 const ERR_ITEM: &str = "BATCH_ITEM_INVALID";
 const ERR_BASIS: &str = "BATCH_BASIS_INVALID";
 const ERR_PRIVATE_BASIS: &str = "BATCH_BASIS_PRIVATE_IDENTIFIER";
+const ERR_RESPONSE: &str = "AGENT_RESPONSE_INVALID";
+const ERR_EXECUTION: &str = "AGENT_EXECUTION_FAILED";
+const ERR_TIMEOUT: &str = "AGENT_TIMEOUT";
+const ADAPTER_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_MERCHANTS: usize = 50;
 const MAX_MERCHANT_ID_BYTES: usize = 128;
 const MAX_POLICY_BYTES: usize = 128 * 1024;
+const MAX_REQUEST_BYTES: usize = 512 * 1024;
 
 static PRIVATE_NUMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\d(?:[ -]?\d){4,}").expect("static number regex"));
@@ -125,6 +135,98 @@ impl P2Runner for Replay {
     }
 }
 
+/// Subscription-backed Codex CLI adapter through the bounded Python provider shim.
+pub struct CodexExec {
+    pub python: String,
+    pub repo_root: PathBuf,
+}
+
+impl P2Runner for CodexExec {
+    fn run(&self, request: &Value) -> Result<Value, &'static str> {
+        validate_request_shape(request, true)?;
+        let request_bytes = serde_json::to_vec(request).map_err(|_| ERR_REQUEST)?;
+        if request_bytes.len() > MAX_REQUEST_BYTES {
+            return Err(ERR_REQUEST);
+        }
+        let script = self.repo_root.join("tools").join("m5_p2_adapter.py");
+        let mut child = Command::new(&self.python)
+            .arg("-I")
+            .arg(script)
+            .current_dir(&self.repo_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| ERR_EXECUTION)?;
+        let mut stdout = child.stdout.take().ok_or(ERR_EXECUTION)?;
+        let reader = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).map(|_| bytes)
+        });
+
+        let write_result = child
+            .stdin
+            .take()
+            .ok_or(ERR_EXECUTION)?
+            .write_all(&request_bytes);
+        if write_result.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err(ERR_EXECUTION);
+        }
+
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < ADAPTER_TIMEOUT => {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    return Err(ERR_TIMEOUT);
+                }
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    return Err(ERR_EXECUTION);
+                }
+            }
+        };
+        let output = reader
+            .join()
+            .map_err(|_| ERR_RESPONSE)?
+            .map_err(|_| ERR_RESPONSE)?;
+        if output.len() > MAX_REQUEST_BYTES {
+            return Err(ERR_EXECUTION);
+        }
+        let envelope: Value = serde_json::from_slice(&output).map_err(|_| ERR_RESPONSE)?;
+        let envelope = envelope.as_object().ok_or(ERR_RESPONSE)?;
+        match envelope.get("ok").and_then(Value::as_bool) {
+            Some(true) if status.success() && exact_keys(envelope, &["ok", "result"]) => {
+                let answer = envelope.get("result").ok_or(ERR_RESPONSE)?;
+                validate(request, answer)
+            }
+            Some(false) if exact_keys(envelope, &["ok", "error"]) => {
+                let code = envelope
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .ok_or(ERR_RESPONSE)?;
+                // Do not return a reference into the short-lived JSON envelope.
+                // Map only the documented, safe adapter codes back to their
+                // static constants; all unknown/provider-specific text is
+                // collapsed to the stable execution error.
+                Err(safe_adapter_error_code(code))
+            }
+            _ => Err(ERR_RESPONSE),
+        }
+    }
+}
+
 fn validate_request_shape(request: &Value, has_digest: bool) -> Result<(), &'static str> {
     let object = request.as_object().ok_or(ERR_REQUEST)?;
     let fields: &[&str] = if has_digest {
@@ -219,4 +321,29 @@ fn exact_keys(object: &Map<String, Value>, expected: &[&str]) -> bool {
 
 fn is_hex(value: &str) -> bool {
     value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn safe_adapter_error_code(code: &str) -> &'static str {
+    match code {
+        "BATCH_REQUEST_INVALID" => ERR_REQUEST,
+        "BATCH_BINDING_INVALID" => ERR_BINDING,
+        "BATCH_COVERAGE_INVALID" => ERR_COVERAGE,
+        "BATCH_RESULT_INVALID" => ERR_RESULT,
+        "BATCH_ITEM_INVALID" => ERR_ITEM,
+        "BATCH_BASIS_INVALID" => ERR_BASIS,
+        "BATCH_BASIS_PRIVATE_IDENTIFIER" => ERR_PRIVATE_BASIS,
+        "AGENT_TIMEOUT" => ERR_TIMEOUT,
+        "AGENT_RESPONSE_INVALID" => ERR_RESPONSE,
+        "AGENT_CODEX_NOT_FOUND" => "AGENT_CODEX_NOT_FOUND",
+        "AGENT_MODEL_NOT_ALLOWED" => "AGENT_MODEL_NOT_ALLOWED",
+        "AGENT_RATE_LIMITED" => "AGENT_RATE_LIMITED",
+        "AGENT_AUTH_REQUIRED" => "AGENT_AUTH_REQUIRED",
+        "AGENT_EXECUTION_FAILED" => ERR_EXECUTION,
+        "AGENT_TOOL_EXECUTION_DETECTED" => "AGENT_TOOL_EXECUTION_DETECTED",
+        "AGENT_RESPONSE_TOO_LARGE" => "AGENT_RESPONSE_TOO_LARGE",
+        "AGENT_EXECUTION_MISMATCH" => "AGENT_EXECUTION_MISMATCH",
+        "AGENT_PROCESS_BOUNDARY_UNAVAILABLE" => "AGENT_PROCESS_BOUNDARY_UNAVAILABLE",
+        "AGENT_PROMPT_TOO_LARGE" => "AGENT_PROMPT_TOO_LARGE",
+        _ => ERR_EXECUTION,
+    }
 }
