@@ -17,6 +17,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import sqlite3
 import stat
 import sys
@@ -229,6 +230,24 @@ def _exclusive_manifest(path, payload):
         raise
 
 
+def _capture_directory(capture_root, logical_fingerprint):
+    """Claim a capture directory named after the input content, never a random id.
+
+    The first capture of a content is ``<fingerprint>``; a later capture of the
+    same content takes the next free ``<fingerprint>-N``. Both names are derived
+    from the input, so a snapshot path never carries per-run randomness.
+    """
+    for ordinal in range(1, 1000):
+        name = logical_fingerprint if ordinal == 1 else f"{logical_fingerprint}-{ordinal}"
+        candidate = capture_root / name
+        try:
+            candidate.mkdir(exist_ok=False)
+        except FileExistsError:
+            continue
+        return candidate
+    raise RuntimeError("CAPTURE_DIRECTORY_EXHAUSTED")
+
+
 def _readonly(path):
     try:
         Path(path).chmod(stat.S_IREAD)
@@ -419,19 +438,34 @@ def capture(request, error):
     backups.mkdir(parents=True, exist_ok=True)
     capture_root = backups / "extractor-baseline-captures"
     capture_root.mkdir(parents=True, exist_ok=True)
-    capture_dir = capture_root / uuid.uuid4().hex
-    capture_dir.mkdir(exist_ok=False)
-    input_dir = capture_dir / "inputs"
-    input_dir.mkdir(exist_ok=False)
-    snapshot = _backup(evidence, input_dir)
-    input_hash, input_size = _file_digest(snapshot)
-    logical_fingerprint = sqlite_logical_fingerprint(snapshot)
+    # Snapshot first into a private staging directory, then name the published
+    # capture after the input's content fingerprint. The name is derived from the
+    # input, never from a per-run random id, so the snapshot path is a function of
+    # the content. A second capture of the same content still gets its own
+    # preserved bundle (an ordinal suffix), and lineage stays content-based, so
+    # both bundles hold identical output bytes.
+    staging = Path(tempfile.mkdtemp(prefix="extract-baseline-staging-", dir=str(backups)))
+    try:
+        snapshot = _backup(evidence, staging / "inputs")
+        input_hash, input_size = _file_digest(snapshot)
+        logical_fingerprint = sqlite_logical_fingerprint(snapshot)
+        capture_dir = _capture_directory(capture_root, logical_fingerprint)
+        input_dir = capture_dir / "inputs"
+        input_dir.mkdir(exist_ok=False)
+        published = input_dir / snapshot.name
+        os.replace(snapshot, published)
+        snapshot = published
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
     producer_before = production_module_hashes()
     # The source registry is explicitly bound to this snapshot. It cannot discover
     # neighboring customer files, and the event builder receives only this DB.
     with tempfile.TemporaryDirectory(prefix="extract-baseline-work-", dir=str(backups)) as work:
         sources = _sources(snapshot, work)
+        # Every registered database is this one snapshot, so its content fingerprint
+        # is the source of truth for lineage in every portal event.
+        sources["portal_content_fingerprints"] = {"0": logical_fingerprint}
         from app import ota_payments
         events = ota_payments.build_ota_payment_events(sources)
     output_result = write_baseline(out, events)
