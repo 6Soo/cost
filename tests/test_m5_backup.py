@@ -672,3 +672,91 @@ def test_legacy_state_without_gap_fields_stays_readable(tmp_path):
     assert state["state_reset_count"] == 0
     assert state["missed_days_total"] == 0
     assert state["complete"] is True
+
+
+def _invalid_generation(root: Path, name: str) -> Path:
+    """Create a directory shaped like a generation without publishing one."""
+    folder = root / name
+    folder.mkdir()
+    return folder
+
+
+def test_impossible_calendar_generation_refuses_with_specific_code(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    first = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)
+    assert first["ok"] is True
+
+    # The regex accepts \d{8}, so an impossible date reaches the calendar
+    # parser. It must not escape as ValueElse; it must surface as a code.
+    _invalid_generation(destination, "snapshot-20261332T000000Z-" + "a" * 16 + "-" + "b" * 8)
+    later = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=1))
+    assert later["ok"] is False
+    assert later["code"] == "GENERATION_DATE_INVALID"
+    # The previous generation is untouched and still verifies.
+    assert m5_backup.verify_snapshot(destination / first["generation"]) == created
+    assert (destination / "pull-state.json").exists()
+
+
+def test_future_last_success_state_is_rejected_and_backup_actually_runs(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    first = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)
+    assert first["ok"] is True
+    state = _pull_state(destination)
+    future = dict(state, last_success_at_utc="2036-11-15T12:00:00Z")
+    (destination / "pull-state.json").write_text(
+        json.dumps(future), encoding="utf-8")
+
+    # `current - last` would be negative, so a naive rule returns NOT_DUE
+    # forever and keeps reporting complete. The state must be refused instead.
+    result = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(hours=1))
+    assert result["ok"] is True
+    assert result["skipped"] is False
+    assert result["state_reset_count"] == 1
+    assert result["state_reset_reason"] == "rejected"
+    assert result["complete"] is False
+    state = _pull_state(destination)
+    assert state["last_success_at_utc"] == (day + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    assert state["state_reset_reason"] == "rejected"
+    assert state["complete"] is False
+
+
+def test_future_dated_generation_does_not_hide_a_gap(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    assert m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)["ok"] is True
+
+    _invalid_generation(destination, "snapshot-20361115T000000Z-" + "a" * 16 + "-" + "b" * 8)
+    # A generation dated ten years ahead must not be silently accepted: it
+    # would make today - previous negative and report no gap at all.
+    with pytest.raises(m5_backup.BackupError, match="GENERATION_DATE_INVALID"):
+        m5_backup._gap_judgement(destination, day + timedelta(days=1))
+    # And through the real pull path it surfaces as a named code, not PULL_FAILED.
+    later = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=1))
+    assert (later["ok"], later["code"]) == (False, "GENERATION_DATE_INVALID")
+    # The state file is unchanged, so the next run cannot report a fake success.
+    assert _pull_state(destination)["last_success_at_utc"] == day.isoformat().replace("+00:00", "Z")
+
+
+def test_impossible_calendar_generation_date_is_named_in_state(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    assert m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)["ok"] is True
+    _invalid_generation(destination, "snapshot-20260231T000000Z-" + "a" * 16 + "-" + "b" * 8)
+    # 2026-02-31 is not a real day either; refusing must not depend on the month.
+    result = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=1))
+    assert result["ok"] is False
+    assert result["code"] == "GENERATION_DATE_INVALID"
