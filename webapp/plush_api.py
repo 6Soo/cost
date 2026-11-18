@@ -334,8 +334,12 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
         try:
             amount = int(shown["amount"])
         except ValueError:
-            amount = 0
-        return (amount, shown["id"])
+            # An unknown amount is not a zero (SPEC §11.2.1 계약 4 / GGL-014) and
+            # must not sit among real balances. The flag is chosen so `reverse`
+            # still leaves the unknowns last: ascending sorts flag 1 before 0,
+            # descending reverses that into flag 0 before 1.
+            return (0 if sort.endswith("_desc") else 1, 0, shown["id"])
+        return (1 if sort.endswith("_desc") else 0, amount, shown["id"])
 
     rows.sort(key=key, reverse=sort.endswith("_desc"))
     try:
@@ -360,9 +364,11 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
     dto_rows = []
     for row in annotated:
         period, period_source = period_rows.period_for_row(row, board)
+        compact, full = period_rows.display_label(row)
         dto_rows.append(projection.ledger_row(
             row, read_only=read_only or row.get('google_income', False),
             period=period, period_source=period_source,
+            period_label=compact, period_label_full=full,
             google_match=match_status.get(str(row.get('row_id') or ''))))
     return {
         "trip": _trip_summary(board, trip, all_rows, income_source=income),
@@ -441,9 +447,11 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
     display_row = period_rows.annotate([display_row], board)[0]
     period, period_source = period_rows.period_for_row(display_row, board)
+    compact, full = period_rows.display_label(display_row)
     return {
         "row": projection.ledger_row(display_row, read_only=read_only,
-                                     period=period, period_source=period_source),
+                                     period=period, period_source=period_source,
+                                     period_label=compact, period_label_full=full),
         "source": projection.safe_source(row) if owner else None,
         "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,

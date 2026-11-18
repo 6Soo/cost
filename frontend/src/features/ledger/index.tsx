@@ -50,13 +50,18 @@ function safeMessage(reason: unknown, fallback: string): string {
  * nights, or fills a blank from the row's own fields. A value the server left
  * blank stays blank, and the state says which kind of blank it is.
  */
-export function PeriodValue({ period, status, basis, source, manualBlank }: {
+export function PeriodValue({ period, label, status, basis, source, manualBlank }: {
   period: string;
+  label?: string;
   status?: LedgerRow['period_status'];
   basis?: string;
   source?: string;
   manualBlank?: boolean;
 }) {
+  // The server decides both the value and its wording: `label` is the compact
+  // string the legacy cell prints. Falling back to the raw stored `period` is
+  // a display default only, never a computation.
+  const shown = label || period;
   if (status === 'stale') {
     return <span className="cost-ledger__period-stale">원본이 바뀌어 저장된 기간을 표시하지 않습니다</span>;
   }
@@ -66,19 +71,19 @@ export function PeriodValue({ period, status, basis, source, manualBlank }: {
   if (status === 'unknown') {
     return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
   }
-  if (!period) return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  if (!shown) return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
   if (status === 'inferred') {
     return (
       <span className="cost-ledger__period-inferred">
-        <span>{period}</span>
+        <span>{shown}</span>
         <small>추정{basis ? ` · ${basis}` : ''}</small>
       </span>
     );
   }
-  if (status === 'computed') return <span>{period} <small>증빙 계산</small></span>;
-  if (status === 'verified') return <span>{period} <small>확인됨</small></span>;
-  if (source === 'manual') return <span>{period} <small>수동 지정</small></span>;
-  return <span>{period}</span>;
+  if (status === 'computed') return <span>{shown} <small>증빙 계산</small></span>;
+  if (status === 'verified') return <span>{shown} <small>확인됨</small></span>;
+  if (source === 'manual') return <span>{shown} <small>수동 지정</small></span>;
+  return <span>{shown}</span>;
 }
 
 function LedgerDesktopTable({
@@ -107,6 +112,7 @@ function LedgerDesktopTable({
       cell: (row: LedgerRow) => (
         <PeriodValue
           period={row.period}
+          label={row.period_label}
           status={row.period_status}
           basis={row.period_basis}
           source={row.period_source}
@@ -147,6 +153,7 @@ function LedgerMobileList({
                 <span className="cost-ledger__mobile-period">
                   <PeriodValue
                     period={row.period}
+                    label={row.period_label}
                     status={row.period_status}
                     basis={row.period_basis}
                     source={row.period_source}

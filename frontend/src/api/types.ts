@@ -60,6 +60,10 @@ export interface LedgerRow {
   currency: string;
   payment: string;
   period: string;
+  /** The same compact label the legacy cell prints, formatted server-side. */
+  period_label?: string;
+  /** The full label the legacy cell carries as its tooltip. */
+  period_label_full?: string;
   /** Stored/manual period state: the same value the legacy screen shows. */
   period_status?: "verified" | "inferred" | "unknown" | "stale" | "computed";
   period_basis?: string;

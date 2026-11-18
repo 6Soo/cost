@@ -23,10 +23,13 @@
 | 카드사 3곳 로그인 자동화 | [카드 로그인 자동화](card-login-automation.md) | 모듈 착수·합성 검증. 라이브 검증은 사용자 자격 증명 등록 후 |
 | OTA 포털 3곳 조회 | [직접 조회](ota-portal-collection.md)·[수집 스크립트](ota-script-usage.md) | 읽기 전용 수집. 자료 가져오기·운영 반영은 별도 절차 |
 | 분기 검수 | [분기 검수](quarter-review.md) | AI 검수자(Fable 5.2 high) 수행. 사용자는 결과 확인·Google 붙여넣기만 |
-| 코어 1차 전환(P1 작성자 Python→Rust) | [코어 1차 전환](core-cutover.md) | 운영 사본 C1·C2 재측정 통과. Python 유지, 재전환 승인 ① 대기 |
+| 코어 1차 전환(P1 작성자 Python→Rust) | [코어 1차 전환](core-cutover.md) | 운영 전환 완료(`classification_writer=rust`, 2026-11-17 15:10). 절차서는 재전환·되돌림 기준으로 유지 |
 | OTA 근거 기존 중복 압축 | [OTA 근거 압축](ota-evidence-compaction.md) | 도구·사본 예행까지. 운영 반영은 운영 담당이 배포 창에서 |
-| 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 및 Windows OCR→로컬 Paseo Qwen4 경로. #966의 Qwen4 경로는 병합·합성 검증까지이며 운영 배포 전 |
+| 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 및 Windows OCR→로컬 Paseo Qwen4 경로. Qwen4 경로는 PR #966으로 병합됐고 운영 런처가 `WEBLEDGER_RECEIPT_VISION='paseo-qwen4-max'`를 설정한다 |
 | Paseo 작업공간 종료·정리 | [작업공간 종료·정리](workspace-closeout.md) | 완료 알림·결과 보존·통합 검수 뒤 agent/workspace archive와 잔여 자원 재확인 |
+| 장부 목록 성능(P-08) | [P-08 목록 성능 측정](p08-measurement.md) | 동등 산출물(L1) 단위, 1,000행 200ms 판정. 최적화는 별도 작업 |
+| M5 보조 노드 사전조건 | [보조 노드 사전조건](m5-node-prereq.md)·[백업 상태 해석](m5-backup-status.md) | 실제 `costcore`로 서버+노드 2프로세스 합성 예행(임대·만료·조회·1회 반영·백업 복원). 실제 클라우드·PC 전원 차단은 제공자 결정 뒤 |
+| OTA 추출기 퇴역(M6) | [추출기 퇴역 계획](m6-extractor-retirement.md) | **계획만**(코드 이식·삭제 없음). main에 Rust 사건 생성 0건, 후보는 미병합 브랜치. 고정 기준 재설정·`core_writer` 브리지 분리 2건이 소유자 결정 선행 |
 
 새 절차서는 이 폴더에 `<작업이름>.md`로 만든다. 검증한 범위와 운영 실행 여부를 각 문서에 구분해 적는다.
 

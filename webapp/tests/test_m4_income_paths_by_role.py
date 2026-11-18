@@ -20,7 +20,7 @@ import json
 
 import pytest
 
-from webapp import access_control, ledger_board, plush_api
+from webapp import access_control, ledger_board, plush_api, plush_projection
 from webapp.ledger_store import LedgerStore
 
 OWNER = "syn-owner"
@@ -123,9 +123,30 @@ def income_case(tmp_path, monkeypatch):
         monkeypatch.setattr(page.google_authority, "load_consistent",
                             lambda *a: (snapshot, rows))
 
+    def mark_cost_amount_missing():
+        """Make the summary see an unreadable COST amount.
+
+        `amount_krw` is NOT NULL, so this flag cannot arrive from storage. The
+        summary's guard is exercised by making the row layer report the marker
+        through the same list read the API uses.
+        """
+        real_list = store.list_tab_rows
+
+        def flagged(tab_id):
+            out = []
+            for row in real_list(tab_id):
+                row = dict(row)
+                if row.get("row_kind") == "income" and not row.get("google_income"):
+                    row["amount_missing"] = True
+                out.append(row)
+            return out
+
+        monkeypatch.setattr(store, "list_tab_rows", flagged)
+
     try:
         yield {"store": store, "tab": tab, "key": key, "grant": grant,
-               "set_verified": set_verified, "mark_amount_missing": mark_amount_missing}
+               "set_verified": set_verified, "mark_amount_missing": mark_amount_missing,
+               "mark_cost_amount_missing": mark_cost_amount_missing}
     finally:
         ledger_board.bind_access(previous_access)
         ledger_board.bind_store(previous_store)
@@ -241,3 +262,39 @@ def test_an_unreadable_amount_is_left_out_of_the_total_not_counted_as_zero(incom
         assert row["amount"] == "미확인", row
     # The unreadable Google row contributes nothing; the COST figure stands.
     assert body["total"] == str(COST_INCOME), body
+
+
+def test_a_cost_income_with_an_unreadable_amount_is_unknown(income_case, monkeypatch):
+    """The COST branch must answer like the Google branch when an amount is unreadable.
+
+    `amount_krw` is NOT NULL on a stored row, so a COST row cannot normally carry
+    `amount_missing`; this pins the defensive path the summary now shares with
+    the Google branch rather than leaving the two to disagree if a future source
+    ever produces one.
+    """
+    env = income_case
+    env["mark_cost_amount_missing"]()
+    status, body = _call(f"/api/plush/ledger?tab={env['tab']}", OWNER, env["store"])
+    assert status == 200, body
+    cost_rows = [r for r in body["rows"] if not str(r["id"]).startswith("google-income|")]
+    assert cost_rows, body["rows"]
+    assert body["trip"]["income"] == "미확인", body["trip"]
+    assert body["trip"]["profit"] == "미확인", body["trip"]
+
+
+def test_an_unknown_amount_sorts_after_a_real_balance_in_both_directions(income_case):
+    """An unknown amount must not sort as if it were 0원 (SPEC §11.2.1 계약 4).
+
+    Sorting by amount used to map "미확인" to 0, so it interleaved with a real
+    zero. It must also stay at the end when the order is reversed, because
+    `reverse` would otherwise float it to the top of a descending list.
+    """
+    env = income_case
+    env["mark_amount_missing"]()
+    for sort in ("amount_asc", "amount_desc"):
+        status, body = _call(f"/api/plush/ledger?tab={env['tab']}&sort={sort}", OWNER, env["store"])
+        assert status == 200, body
+        amounts = [r["amount"] for r in body["rows"]]
+        unknown_at = [i for i, a in enumerate(amounts) if a == "미확인"]
+        assert unknown_at, amounts
+        assert max(unknown_at) == len(amounts) - 1, (sort, amounts)

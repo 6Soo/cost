@@ -143,6 +143,16 @@ jobs:
         # Avoid apt-based --with-deps, which can fail on changing mirror images;
         # required browser tests still execute normally and remain fail-closed.
         run: python -m playwright install chromium
+      - name: Build the frontend the browser tests render
+        if: steps.plan.outputs.reuse != 'true' && steps.plan.outputs.browser == 'true'
+        # frontend/dist is gitignored and the board answers 503 UI_NOT_BUILT
+        # without it, so browser tests that open the app shell timed out on every
+        # host, CI included. The artifact must exist before the browser group
+        # runs; skipping the build would only make those tests fail slower.
+        run: |
+          cd frontend
+          npm ci
+          npm run build
       - name: Run data protection gate and impact tests
         if: steps.plan.outputs.reuse != 'true'
         run: |
