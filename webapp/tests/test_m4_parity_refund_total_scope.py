@@ -175,3 +175,38 @@ def test_quarter_tab_keeps_signs_so_partial_pairs_net_on_both_paths(bound_store,
     react_rows = {r["id"]: int(r["amount"]) for r in body["rows"]}
     assert legacy_rows == react_rows == {"card-QP": 100000, "card-QC": -30000}
     assert int(body["filtered_total"]) == 70000
+
+
+def test_quarter_tab_income_row_is_read_by_both_paths(bound_store, legacy_owner):
+    """분기 탭에 저장된 수입 행도 두 경로가 같은 행·금액으로 본다.
+
+    분기 탭은 지출 기록용이지만 store는 그 탭의 수입 행도 `board_rows`에 저장할
+    수 있다. 레거시가 지출만 읽으면 그 행과 수입 합계가 React에서만 보인다.
+    """
+    store, _access = bound_store
+    quarter = "quarter:2026:3"
+    _insert_card_row(store, "card-QE", quarter, 40000, source_event_id="QE")
+    income = {
+        "amount_krw": 50000, "occurred_on": "2026-11-12",
+        "income_kind": "deposit", "customer_name": "합성고객",
+        "description": "합성 수입", "source_kind": "직접 입력",
+        "source_event_id": "QI",
+    }
+    store.conn.execute(
+        "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision, payload_json)"
+        " VALUES (?,?,?,?,?)",
+        ("inc-quarter", "income", quarter, 1, json.dumps(income, ensure_ascii=False)))
+    store.conn.commit()
+
+    legacy_income = {r["row_id"]: ledger_board._shown_amount(r)
+                     for r in ledger_design._selected_rows(quarter)[0]}
+    assert legacy_income == {"inc-quarter": 50000}, (
+        f"레거시 분기 탭이 자기 수입 행을 읽지 않음: {legacy_income}")
+
+    status, body = react_ledger(store, quarter, kind="income", page_size=200)
+    assert status == 200
+    react_rows = {r["id"]: int(r["amount"]) for r in body["rows"]}
+    assert react_rows == legacy_income
+    assert int(body["filtered_total"]) == 50000
+    assert body["trip"]["income"] == "50000"
+

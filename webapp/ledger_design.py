@@ -1803,22 +1803,27 @@ def _group_expenses_for_display(rows: list) -> list:
     return sorted(rows, key=key)
 
 
-def _quarter_booked_rows(tab_id: str, store):
-    """A quarter tab's own saved expense rows, read the way the common query reads them.
+def _quarter_tab_rows(tab_id: str, store, kind: str):
+    """A quarter tab's own saved rows of one kind, read the way the common query reads them.
 
-    ``board._expense_rows`` only walks the trip tabs (`trip_tabs`) and the
-    unassigned bucket, so a quarter tab is not in it and its confirmed records
-    never appeared on this screen while the common query served them straight
-    from `board_rows`. Both paths now read `list_tab_rows` for the tab, so the
-    row set and the sum are the same set of rows on either entry point
+    ``board._expense_rows``/``board._income_rows`` only walk the trip tabs
+    (`trip_tabs`) and the unassigned bucket, so a quarter tab is not in them and
+    its records never appeared on this screen while the common query served them
+    straight from `board_rows`. Both paths now read `list_tab_rows` for the tab,
+    so the row set and the sum are the same set of rows on either entry point
     (SPEC §11.2.1 계약 1·3). Amounts, signs and the stored records are
     untouched: only which rows this screen counts and draws.
     """
     if store is None:
         return []
     rows = [row for row in store.list_tab_rows(tab_id)
-            if row.get('row_kind') != 'income']
+            if str(row.get('row_kind') or 'expense') == kind]
     return board._with_display_amount(rows)
+
+
+def _quarter_booked_rows(tab_id: str, store):
+    """A quarter tab's own saved expense rows (the rows this screen books)."""
+    return _quarter_tab_rows(tab_id, store, "expense")
 
 
 def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
@@ -2030,13 +2035,14 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         expenses = board._unclassified_rows()
     elif _is_quarter_tab(tab_id):
         # SPEC §11.2.1 계약 1·3: a quarter 기타비용 tab's rows are stored on it
-        # like a trip tab's, but `board._expense_rows` walks `trip_tabs` and the
-        # unassigned bucket only, so a quarter tab read nothing here while the
-        # common query served its rows. Both now read `list_tab_rows` for the
-        # tab, so the quarter page, its live summary and the common query count
-        # the same rows. Amounts, signs and the stored records are untouched.
-        incomes = []
-        expenses = _quarter_booked_rows(tab_id, board._active_store())
+        # like a trip tab's, but `board._expense_rows`/`_income_rows` walk
+        # `trip_tabs` and the unassigned bucket only, so a quarter tab read
+        # nothing here while the common query served its rows. Both now read
+        # `list_tab_rows` for the tab, so the quarter page, its live summary and
+        # the common query count the same rows. Amounts, signs and the stored
+        # records are untouched.
+        incomes = _quarter_tab_rows(tab_id, board._active_store(), "income")
+        expenses = _quarter_tab_rows(tab_id, board._active_store(), "expense")
     else:
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
         expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
