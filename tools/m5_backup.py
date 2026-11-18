@@ -673,6 +673,11 @@ STATE_RESET_REASONS = frozenset({"corrupt", "unreadable", "rejected"})
 # A state file may only claim a success this close to "now". Anything further
 # ahead is a corrupt or restored-old reading, not evidence that a pull ran.
 STATE_FUTURE_TOLERANCE = timedelta(minutes=5)
+# How far the reset counter is allowed to climb. It saturates instead of
+# counting forever: a rising number makes a genuinely new failure
+# indistinguishable from the same old one still being reported. `complete`
+# keeps its meaning (any reset keeps it false); the cap only limits display.
+STATE_RESET_CAP = 9
 
 
 def _read_pull_state(path: Path, now: datetime | None = None) -> dict | None:
@@ -934,6 +939,56 @@ def _cleanup_owned_generation(root: Path, path: Path, *, expected_name: str,
         return
 
 
+STATE_COUNTER_SCHEMA = "m5-backup-reset-counter-v1"
+STATE_COUNTER_FILE = "reset-counter.json"
+
+
+def _counter_path(root: Path) -> Path:
+    return root / STATE_COUNTER_FILE
+
+
+def _read_reset_counter(root: Path) -> int:
+    """Total resets seen under this pull root, surviving a lost state file.
+
+    The state file itself is what gets corrupted, so a count stored only
+    inside it restarts at zero on every failure and never reaches a cap.
+    """
+    path = _counter_path(root)
+    if not os.path.lexists(path):
+        return 0
+    try:
+        _reject_reparse_components(path)
+        if not path.is_file() or _is_reparse(path):
+            return 0
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or set(value) != {"schema", "count"}:
+            return 0
+        if value["schema"] != STATE_COUNTER_SCHEMA:
+            return 0
+        count = value["count"]
+        if type(count) is not int or count < 0:
+            return 0
+        return min(count, STATE_RESET_CAP)
+    except Exception:
+        return 0
+
+
+def _write_reset_counter(root: Path, count: int) -> None:
+    """Persist the saturating counter; a failure here never fails the backup."""
+    path = _counter_path(root)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        _reject_reparse_components(root)
+        with temporary.open("xb") as handle:
+            handle.write(_canonical_bytes(
+                {"schema": STATE_COUNTER_SCHEMA, "count": count}))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        _remove_owned_state_temporary(temporary)
+
+
 def pull_snapshot(client, destination_root: str | os.PathLike,
                   now: datetime | None = None) -> dict:
     """Pull, validate, restore-rehearse, and publish one new snapshot generation.
@@ -959,15 +1014,16 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
         previous = _read_pull_state(state_path, current)
         reset_reason = (previous["reset_reason"] if previous is not None
                         and "reset_reason" in previous else None)
-        prior_resets = (previous["state_reset_count"] if previous is not None
-                        and "reset_reason" not in previous else 0)
+        resets = _read_reset_counter(root)
+        if previous is not None and "reset_reason" not in previous:
+            resets = max(resets, previous["state_reset_count"])
         if previous is not None and "reset_reason" not in previous and \
                 current - previous["last_success"] < timedelta(hours=24):
             skipped = _gap_judgement(root, current)
             skipped["skipped"] = True
-            skipped["complete"] = prior_resets == 0 and skipped["missed_days_total"] == 0
+            skipped["complete"] = resets == 0 and skipped["missed_days_total"] == 0
             return {"ok": True, **skipped, "code": "NOT_DUE",
-                    "state_reset_count": prior_resets,
+                    "state_reset_count": resets,
                     "state_reset_reason": None,
                     "last_success_at_utc": _stamp(previous["last_success"])}
 
@@ -993,7 +1049,8 @@ def pull_snapshot(client, destination_root: str | os.PathLike,
         stage = None
         published_generation = generation
         published_snapshot_id = verified["snapshot_id"]
-        resets = prior_resets + (1 if reset_reason is not None else 0)
+        resets = min(STATE_RESET_CAP, resets + (1 if reset_reason is not None else 0))
+        _write_reset_counter(root, resets)
         _write_pull_state(state_path, current, verified["snapshot_id"],
                           gap=gap, state_resets=resets,
                           state_reset_reason=reset_reason)
