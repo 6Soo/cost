@@ -132,6 +132,10 @@ def _manual_board_values(store, transaction_ids=None):
     columns = {r[1] for r in store.conn.execute('PRAGMA table_info(board_manual_overrides)')}
     if 'field' not in columns:
         return {}
+    # The row's values live in `payload_json`; a file whose `board_rows` lacks that column has no value to
+    # name either, so nothing is merged rather than failing the read.
+    if 'payload_json' not in {r[1] for r in store.conn.execute('PRAGMA table_info(board_rows)')}:
+        return {}
     wanted: set[tuple[str, str]] = set()
     for row_id, field in manual_fields(store.conn):
         tid = str(row_id or '')
