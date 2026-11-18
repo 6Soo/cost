@@ -157,3 +157,31 @@ def test_tool_surface_variants_fail_closed(monkeypatch, event):
     with pytest.raises(AgentUnavailable) as error:
         adapter.run(payload, runner=lambda *a, **k: subprocess.CompletedProcess(a, 0, raw, b''))
     assert error.value.code == 'AGENT_TOOL_EXECUTION_DETECTED'
+
+
+def test_a_per_call_api_key_never_reaches_the_child(monkeypatch):
+    """An inherited API key would bill the API account, not the subscription.
+
+    The adapter spawns the provider with the parent environment, so it has to
+    strip the same billing switches the receipt bridge already strips
+    (app/receipt_paseo.py:_bridge_environment). Without this the owner's
+    approved subscription is silently bypassed.
+    """
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_SECRET_ACCESS_KEY",
+                 "AZURE_CLIENT_SECRET", "GOOGLE_APPLICATION_CREDENTIALS"):
+        monkeypatch.setenv(name, "synthetic-value")
+    monkeypatch.setenv("PATH", "/synthetic/bin")
+    environment = adapter._child_environment()
+    leaked = [key for key in environment
+              if key.upper().startswith(adapter.DENIED_ENV_PREFIXES)]
+    assert leaked == []
+    assert environment.get("PATH") == "/synthetic/bin"
+
+
+def test_the_provider_child_is_spawned_with_the_stripped_environment(monkeypatch):
+    """The guard must be on the real spawn path, not only a helper."""
+    import inspect
+
+    source = inspect.getsource(adapter.run)
+    assert "env=_child_environment()" in source
+    assert "env=dict(os.environ)" not in source

@@ -21,6 +21,21 @@ from app import frontier_agent_provider as provider
 from app.connected_agent_provider import AgentUnavailable, _run_bounded
 from tools.p2_batch.layer1 import schema, validate
 
+# Same deny list the receipt bridge uses (app/receipt_paseo.py:_bridge_environment):
+# a per-call API key or cloud credential inherited into the child would bill the
+# API account instead of the subscription the owner approved. The adapter spawns
+# with the whole parent environment, so it has to strip these itself.
+DENIED_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_USE_", "OPENAI_API_KEY", "AWS_",
+                       "AZURE_", "GOOGLE_APPLICATION_CREDENTIALS")
+
+
+def _child_environment() -> dict[str, str]:
+    """The parent environment minus anything that would switch billing accounts."""
+    return {
+        key: value for key, value in os.environ.items()
+        if not key.upper().startswith(DENIED_ENV_PREFIXES)
+    }
+
 MAX_REQUEST_BYTES = 512 * 1024
 SAFE_ERRORS = frozenset({
     'BATCH_REQUEST_INVALID', 'BATCH_BINDING_INVALID', 'BATCH_COVERAGE_INVALID',
@@ -83,7 +98,7 @@ def run(request, *, runner=None):
                    *provider.config_args(), '-c', 'model_provider="openai"',
                    '-c', 'model_reasoning_effort="medium"', '-']
         try:
-            proc = (runner or _run_bounded)(command, cwd=cwd, env=dict(os.environ),
+            proc = (runner or _run_bounded)(command, cwd=cwd, env=_child_environment(),
                                            timeout=240, input_bytes=prompt.encode('utf-8'))
         except subprocess.TimeoutExpired:
             raise AgentUnavailable('AGENT_TIMEOUT') from None
