@@ -77,16 +77,29 @@ def _payload_values(row_id: str, kind: str, payload: dict) -> dict:
 
 
 def read_existing(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
-    """board_rows + ledger_entries 를 ledger 행 모양으로 만든다."""
+    """board_rows + ledger_entries 를 ledger 행 모양으로 만든다.
+
+    두 저장소 모두 정본 후보다. `board_rows`는 화면 행이고 `ledger_entries`는
+    기장 영수증이다. 어느 한쪽에만 있는 행도 `ledger`에 들어가야 한다 — 예전에는
+    `board_rows`만 순회해 `ledger_entries` 단독 기장 행을 조용히 버렸고,
+    `compare()`는 그 행이 옛 테이블에 남아 있어 손실을 못 봤다.
+    """
     has_ledger_entries = bool(conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger_entries'").fetchone())
     entries = {}
     if has_ledger_entries:
         for r in conn.execute(
-                'SELECT transaction_id, batch_id, committed_at, trip_id'
+                'SELECT transaction_id, batch_id, committed_at, trip_id, item, description,'
+                ' display_tab_id, amount_krw, merchant, occurred_on, transaction_direction,'
+                ' source_hash'
                 ' FROM ledger_entries'):
-            entries[r[0]] = {'batch_id': r[1] or '', 'committed_at': r[2],
-                             'trip_id': r[3] or ''}
+            entries[r[0]] = {
+                'batch_id': r[1] or '', 'committed_at': r[2], 'trip_id': r[3] or '',
+                'item': r[4] or '', 'description': r[5] or '',
+                'display_tab_id': r[6], 'amount_krw': r[7],
+                'source_merchant': r[8] or '', 'occurred_on': r[9] or '',
+                'transaction_direction': r[10] or '', 'source_hash': r[11] or '',
+            }
 
     rows = []
     seen = set()
@@ -108,7 +121,76 @@ def read_existing(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
             raise SystemExit('MIGRATION_DUPLICATE_ENTRY_ID: ' + values['entry_id'])
         seen.add(values['entry_id'])
         rows.append(values)
-    return rows, {'ledger_entries_rows': len(entries)}
+
+    # `board_rows`에 없는 기장 행을 여기서 채운다. 이것이 없으면 기장된 거래가
+    # 미기장으로 보이는 상태가 새 정본에 그대로 굳는다.
+    orphan_entries = 0
+    board_txids = {v['transaction_id'] for v in rows if v['transaction_id']}
+    for txid, entry in sorted(entries.items()):
+        if not txid or txid in board_txids:
+            continue
+        row_id = 'card-' + txid                      # 계약 규칙 1: entry_id == 기존 row_id 규칙
+        if row_id in seen:
+            raise SystemExit('MIGRATION_DUPLICATE_ENTRY_ID: ' + row_id)
+        values = _payload_values(row_id, 'expense', {})
+        # `ledger_entries`에 실제로 있는 사실만 옮겨 적는다. `classification_state`는
+        # 이 영수증에 없는 값이라 지어내지 않는다(빈 문자열 그대로 둔다).
+        values.update(
+            item=entry['item'], description=entry['description'],
+            amount_krw=entry['amount_krw'],
+            occurred_on=entry['occurred_on'],
+            display_tab_id=entry['display_tab_id'],
+            trip_id=entry['trip_id'] or (entry['display_tab_id'] or ''),
+            source_merchant=entry['source_merchant'],
+            source_kind='카드',
+            source_event_id=txid,
+            event_kind=entry['transaction_direction'],
+            batch_id=entry['batch_id'],
+            committed_at=entry['committed_at'],
+        )
+        seen.add(row_id)
+        rows.append(values)
+        orphan_entries += 1
+
+    return rows, {'ledger_entries_rows': len(entries),
+                  'entries_without_board_row': orphan_entries}
+
+
+def _booked_source_set(conn: sqlite3.Connection) -> tuple[set[str], dict[str, set[str]]]:
+    """기장으로 봐야 하는 거래 ID 집합(옛 두 저장소의 합집합)과 저장소별 집합.
+
+    이관 대조의 기준이다. `board_rows`에는 수기·수입 행도 있어 거래 ID가 없을 수
+    있으므로 카드 거래(`card-<id>`)만 거래 ID로 센다.
+    """
+    entries = {r[0] for r in conn.execute(
+        'SELECT transaction_id FROM ledger_entries WHERE transaction_id IS NOT NULL')} \
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                        " AND name='ledger_entries'").fetchone() else set()
+    board = {r[0][len('card-'):] for r in conn.execute(
+        "SELECT row_id FROM board_rows WHERE row_id LIKE 'card-%'")} \
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                        " AND name='board_rows'").fetchone() else set()
+    return entries | board, {'ledger_entries': entries, 'board_rows': board}
+
+
+def compare_sources(conn: sqlite3.Connection) -> list[str]:
+    """이관 뒤 옛 두 저장소의 기장 거래가 전부 `ledger`에 있는지 확인한다.
+
+    `compare()`는 탭별 합계만 보므로 이 누락을 잡지 못한다. 여기서는 거래 ID
+    집합으로 직접 대조한다 — `ledger`가 옛 두 저장소의 합집합을 덮어야 한다.
+    """
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                        " AND name='ledger'").fetchone():
+        return ['LEDGER_TABLE_MISSING']
+    problems = []
+    _union, by_store = _booked_source_set(conn)
+    in_ledger = {r[0] for r in conn.execute(
+        'SELECT transaction_id FROM ledger WHERE transaction_id IS NOT NULL')}
+    for store, ids in sorted(by_store.items()):
+        missing = ids - in_ledger
+        if missing:
+            problems.append(f'SOURCE_ROWS_NOT_IN_LEDGER {store}: {len(missing)}')
+    return problems
 
 
 def totals(conn: sqlite3.Connection, table: str) -> dict:
@@ -147,7 +229,12 @@ def summarize(conn: sqlite3.Connection) -> dict:
 
 
 def compare(before: dict, after: dict) -> list[str]:
-    """이관 전 board_rows 합계가 이관 후 ledger 합계와 같은지 확인한다."""
+    """이관 전 board_rows 합계가 이관 후 ledger 합계와 다른지 확인한다.
+
+    `ledger_entries` 단독 행이 이관되면 `ledger`에 탭이 더 생긴다. 그것은 정상이므로
+    `UNEXPECTED_TAB`으로 실패시키지 않는다 — 대신 손실은 `compare_sources()`가
+    거래 ID 집합으로 잡는다. 여기서는 `board_rows` 쪽 합계가 줄거나 바뀌는 것만 본다.
+    """
     problems = []
     src = before['board_rows']
     dst = after['ledger']
@@ -155,12 +242,10 @@ def compare(before: dict, after: dict) -> list[str]:
         got = dst.get(key)
         if got is None:
             problems.append(f'MISSING_TAB {key}')
-        elif got['count'] != want['count'] or got['amount'] != want['amount']:
+        elif got['count'] < want['count'] or got['amount'] < want['amount']:
+            # `ledger_entries` 단독 행 때문에 늘어날 수는 있어도 줄 수는 없다.
             problems.append(
-                f'AMOUNT_OR_COUNT_CHANGED {key}: was {want} now {got}')
-    extra = set(dst) - set(src)
-    for key in sorted(extra, key=str):
-        problems.append(f'UNEXPECTED_TAB {key}')
+                f'AMOUNT_OR_COUNT_LOST {key}: was {want} now {got}')
     return problems
 
 
@@ -194,14 +279,30 @@ def migrate(conn: sqlite3.Connection, *, apply: bool) -> dict:
             inserted += 1
 
         after = summarize(conn)
+        problems = compare(before, after)
+        # 손실은 거래 ID 집합으로 잡는다. `compare()`는 탭별 합계만 보고, 예행에서
+        # 옛 저장소는 그대로라 그 대조만으로는 누락을 못 본다. 그래서 기록(`apply`)은
+        # 실제 `ledger` 내용과, 예행은 계획한 행(`rows`)과 옛 저장소를 대조한다.
+        source_problems = compare_sources(conn) if apply else []
+        if not apply:
+            # 예행: `ledger`에 실제로 들어갈 행(rows)이 옛 두 저장소의 합집합을 덮는지
+            # 미리 확인한다. 스키마만 만들고 롤백하므로 DB를 읽지 않고 메모리로 본다.
+            planned = {v['transaction_id'] for v in rows if v['transaction_id']}
+            _union, by_store = _booked_source_set(conn)
+            for store, ids in sorted(by_store.items()):
+                missing = ids - planned
+                if missing:
+                    source_problems.append(
+                        f'WOULD_LOSE_SOURCE_ROWS {store}: {len(missing)}')
         result = dict(
             status='APPLIED' if apply else 'PREVIEW',
             migrated_rows=len(rows),
+            entries_without_board_row=meta['entries_without_board_row'],
             inserted=inserted,
             skipped_existing=skipped,
             ledger_entries_source_rows=meta['ledger_entries_rows'],
             ledger_total_rows=conn.execute('SELECT COUNT(*) FROM ledger').fetchone()[0],
-            problems=compare(before, after),
+            problems=problems + source_problems,
         )
         if apply:
             conn.execute('RELEASE SAVEPOINT cost_ledger_migrate')
