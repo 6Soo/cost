@@ -170,6 +170,23 @@ def open_scope(row, trips):
             or (row.get('approval_date') or row.get('posting_date') or '') >= '2026-06-30')
 
 
+def ledger_records(conn):
+    """통합 장부(`ledger`)에 실제 행이 있는 거래 ID 집합.
+
+    `ledger` 테이블은 M6 후보에만 있고 main에는 없다. 없으면 빈 집합을 주어
+    기존 `ledger_entries`·`board_rows` 판정이 그대로 유지된다. 테이블이 있어도
+    이관이 끝나지 않아 비어 있으면 같은 결과다(빈 장부를 정본으로 보면 기장
+    판정이 통째로 뒤집힌다).
+    """
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone():
+            return set()
+        return {r[0] for r in conn.execute(
+            'SELECT transaction_id FROM ledger WHERE transaction_id IS NOT NULL')}
+    except Exception:
+        return set()
+
+
 def excluded_ids(conn, trips=(), *, evidence=None):
     """Narrow projection for review counters; never read customer source blobs."""
     fields = ('transaction_id','source_hash','approval_date','posting_date','trip_id','display_tab_id',
@@ -187,6 +204,9 @@ def excluded_ids(conn, trips=(), *, evidence=None):
     recorded = {r[0] for r in conn.execute('SELECT transaction_id FROM ledger_entries')}
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='board_rows'").fetchone():
         recorded.update(r[0][5:] for r in conn.execute("SELECT row_id FROM board_rows WHERE row_id LIKE 'card-%'"))
+    # 통합 장부도 기장의 정본이다. 빠뜨리면 이관 뒤 기장된 행이 '미기장'으로 오판되어
+    # 완료기간 보호가 풀린다(합성 재현: ledger에만 행이 있을 때 재분류 발생).
+    recorded |= ledger_records(conn)
     return {r['transaction_id'] for r in completed
             if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual,valid=valid)
             and not recoverable_unrecorded_booking(r,trips,evidence=(evidence or {}).get(r['transaction_id']),
