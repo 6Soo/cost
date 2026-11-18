@@ -196,3 +196,49 @@ def test_forged_compact_policy_is_rejected_even_with_recomputed_bundle_digest(se
     with pytest.raises(ValueError, match='AI_POLICY_STALE'):
         ai_classification.preview(setup.conn, trips, request, response, bundle=tampered)
     assert before == '\n'.join(setup.conn.iterdump())
+
+
+def test_consolidated_686_catalog_has_exact_retired_id_coverage():
+    """The reviewed policy is a 686/81 partition of the old 767 IDs."""
+    root = p2_case.ROOT / 'docs/policy'
+    areas = ('process', 'trip', 'item', 'date', 'link', 'refund',
+             'source', 'record', 'google', 'receipt', 'income')
+    active = []
+    for area in areas:
+        source = (root / (area + '.md')).read_text(encoding='utf-8')
+        active += re.findall(r'(?m)^### ([A-Z]{3,6}-\\d{3}) · ', source)
+    retired = re.findall(
+        r'(?m)^\\| `([A-Z]{3,6}-\\d{3})` \\|',
+        (root / 'RETIRED_IDS.md').read_text(encoding='utf-8'))
+    assert len(active) == len(set(active)) == 686
+    assert len(retired) == len(set(retired)) == 81
+    assert not set(active) & set(retired)
+    assert len(active) + len(retired) == 767
+
+
+def test_merged_2025_cancellation_exception_stays_in_compact_date_policy():
+    """A retired item exception must not be lost when its domain changes."""
+    full = p2_case.policy_context()
+    compact = p2_case.policy_context(compact=True)
+    assert full != compact, 'compact selector unexpectedly fell back'
+    assert 'DATE-054' in compact['date']
+    assert '지정된 짝 없는 취소' in compact['date']
+    assert 'ITEM-044' not in full['item']
+    assert 'ITEM-044' not in compact['item']
+
+
+def test_unreviewed_core_policy_change_forces_full_fallback(tmp_path, monkeypatch):
+    """Changing even the top-level owner/safety contract disables compaction."""
+    source = p2_case.ROOT
+    catalog = tmp_path / 'docs/policy'
+    catalog.mkdir(parents=True)
+    original = (source / 'docs/DECISION_POLICY.md').read_text(encoding='utf-8')
+    (tmp_path / 'docs/DECISION_POLICY.md').write_text(
+        original + '\\n<!-- Unreviewed top-level policy revision -->\\n',
+        encoding='utf-8')
+    for area in ('process', 'trip', 'item', 'date'):
+        (catalog / (area + '.md')).write_bytes(
+            (source / 'docs/policy' / (area + '.md')).read_bytes())
+    assert p2_policy_pack.compact_policy_context(tmp_path) is None
+    monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
+    assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
