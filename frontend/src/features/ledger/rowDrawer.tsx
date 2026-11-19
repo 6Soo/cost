@@ -5,6 +5,16 @@ import { getJSON, postJSON, ApiError } from '../../api/client';
 import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
 import { PeriodValue } from './index';
 
+/**
+ * SPEC §11.2.1 계약 4: the owner's row detail carries the same stored
+ * reservation·evidence values the legacy panel prints. The server sends them
+ * in `detail` (`plush_projection.safe_detail`); the drawer only prints what it
+ * was given — it never derives a period or an amount from these fields.
+ * `api/types.ts` is owned by another open change, so the shape is read
+ * structurally here rather than added to the shared DTO.
+ */
+type RowEvidence = Record<string, unknown>;
+
 type RowDetail = {
   row: LedgerRow;
   source: Record<string, unknown> | null;
@@ -13,7 +23,30 @@ type RowDetail = {
   history: unknown[];
   expected_revision: string | number | null;
   actions: ActionDescriptor[];
+  detail?: RowEvidence | null;
 };
+
+/** The stored values the drawer was missing. Only `reservation_no` is listed:
+ *  the other `safe_detail` keys already reach the reader elsewhere on this
+ *  screen — `source_merchant`/`source_kind`/`source_event_id`/`evidence_type`
+ *  in the 원문 section and the period in the 이용 기간 row — and printing them
+ *  twice is the duplicate-display defect M4 LOW #「거래 상세 서랍의 제목·닫기가
+ *  2회」 warns about. A blank value is omitted, so a missing reservation number
+ *  never prints an empty row (계약 4: 미확인 ≠ 0). */
+const EVIDENCE_FIELDS: Array<[key: string, label: string]> = [
+  ['reservation_no', '예약번호'],
+];
+
+function evidenceEntries(evidence: RowEvidence | null | undefined): Array<[string, string]> {
+  if (!evidence) return [];
+  return EVIDENCE_FIELDS
+    .map(([key, label]) => {
+      const raw = evidence[key];
+      const text = raw === null || raw === undefined ? '' : String(raw).trim();
+      return [label, text] as [string, string];
+    })
+    .filter(([, text]) => text !== '');
+}
 
 type RowDrawerProps = {
   rowId: string | null;
@@ -251,6 +284,14 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
   const writeActions = actions.filter((action) => action.method === 'POST');
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
+  /* Two independent gates, on purpose (defense in depth — SPEC §13#10):
+     1. the server sends `detail` only to the owner, so a viewer's response has
+        nothing to print;
+     2. this screen also refuses to print it unless the session is the owner.
+     Either gate alone would be enough today; if a future projection change,
+     a cache, or a proxy ever handed a viewer a populated `detail`, the client
+     gate still keeps the stored reservation number off a viewer's screen. */
+  const evidence = bootstrap.role === 'owner' ? evidenceEntries(detail?.detail) : [];
 
   return (
     <Drawer open={Boolean(rowId)} title={title} description={detail ? `${humanDate(detail.row.date)} · ${detail.row.category}` : undefined} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -272,6 +313,16 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
             />
           </p>
           {detail.row.read_only && <InlineNotice tone="info" title="읽기 전용">이 행 또는 마감 기간은 현재 수정할 수 없습니다.</InlineNotice>}
+          {evidence.length > 0 && (
+            <section className="cost-ledger__detail-section" aria-label="예약·증빙 근거">
+              <h3>예약·증빙 근거</h3>
+              <dl className="cost-ledger__detail-list">
+                {evidence.map(([label, text]) => (
+                  <div key={label}><dt>{label}</dt><dd>{text}</dd></div>
+                ))}
+              </dl>
+            </section>
+          )}
           {bootstrap.role === 'owner' && writeActions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
               <h3>동작</h3>
