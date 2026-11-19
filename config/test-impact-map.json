@@ -680,6 +680,12 @@
                 "webapp/tests/test_ledger_store.py",
                 "webapp/tests/test_ledger_apply.py",
                 "webapp/tests/test_refund_group_commit.py"]
+    },
+    {
+      "name": "m6-ledger-revision-alignment",
+      "paths": ["tools/align_ledger_revision.py", "tests/test_align_ledger_revision.py"],
+      "tests": ["tests/test_align_ledger_revision.py"],
+      "reason": "Copies the board_rows revision column into the ledger rows that lag it, on a copy only; board_rows is never written"
     }
   ]
 }
