@@ -418,10 +418,11 @@ def scope_group(store, result: dict, original_id: str,
     """
     members = group_members(store, original_id)
     if require_verified_zero:
-        from .partial_refund import recordable_group_for
-        # The shared group rule accepts a verified full zero-net group or a numbered
-        # partial group, so no caller re-states the conditions in its own words.
-        group, _links = recordable_group_for(store.conn, {original_id})
+        from .partial_refund import verified_group_links
+        # One shared rule, so no caller re-states the conditions in its own words.
+        # This screen reports a whole-batch scope; it is not itself a cross-file
+        # write, so the PROC-072 boundary is left to the recorder's own path.
+        group, _links = verified_group_links(store.conn, {original_id})
         if group != set(members):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
