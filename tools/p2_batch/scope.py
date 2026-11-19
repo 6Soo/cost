@@ -172,7 +172,11 @@ def service_warnings(data, rows):
                            occurred_on=source['approval_date'], display_tab_id=tab(source))
             # Current authoritative item, even if a stored projection is older.
             row = dict(row, item=source['item'])
-            label, _ = design._service_date_labels(row)
+            # The internal formatter, not the screen boundary: `_service_date_labels`
+            # blanks the sentinel on its way to the cell (owner decision 2026-11-19),
+            # so comparing its output to the sentinel would always be false and every
+            # unknown-service row would silently drop out of the P2 review scope.
+            label, _ = design._service_date_labels_for(row)
             if label in design._UNKNOWN_SERVICE_DATES:
                 counts[source['item']] += 1
                 ids.append(source['transaction_id'])
