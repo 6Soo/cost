@@ -91,6 +91,12 @@ from .ledger_store_allocation_validation import (
     normalize_plan_for_compare,
     validate_allocation_plan,
 )
+from .ledger_operation_requests import (
+    OWNER_PROFILE_DOMAIN,
+    RECEIPT_APPLY_DOMAIN,
+    insert_operation_request,
+    request_journal_shape,
+)
 from .ledger_store_schema import (
     INDEX_SQL,
     SCHEMA_SQL,
@@ -289,6 +295,11 @@ class LedgerStore:
         self._process_run_id = _PROCESS_RUN_ID
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
+        # The request journal format is decided by what the offline conversion
+        # tool left behind. CREATE TABLE IF NOT EXISTS is a no-op while a
+        # compatibility view owns the name, so the original schema script runs
+        # unmodified in both formats; a mixed shape is refused, not repaired.
+        self._request_journal_unified = request_journal_shape(self.conn) == "unified"
         self.conn.executescript(SCHEMA_SQL)
         self.conn.executescript(INDEX_SQL)
         _ensure_ledger_outbox_evidence(self.conn)
@@ -4647,10 +4658,11 @@ class LedgerStore:
         disagree with the change it describes is worse than none, because it is
         read as if it were reliable.
         """
-        self.conn.execute(
-            "INSERT INTO owner_profile_requests(client_request_id, input_digest,"
-            " result_json, created_at) VALUES (?,?,?,?)",
-            (client_request_id, digest, _canonical(result), created_at))
+        insert_operation_request(
+            self.conn, unified=self._request_journal_unified,
+            domain=OWNER_PROFILE_DOMAIN, request_id=client_request_id,
+            input_digest=digest, result_json=_canonical(result),
+            created_at=created_at)
         self.conn.execute(
             "INSERT INTO owner_profile_history(revision, change_kind, prev_json,"
             " new_json, actor, created_at, client_request_id)"
@@ -6139,10 +6151,11 @@ class LedgerStore:
 
                 result_body = {"request_id": request_id, "outcome": "applied",
                                "results": results}
-                self.conn.execute(
-                    "INSERT INTO receipt_apply_requests(request_id,request_hash,result_json,created_at)"
-                    " VALUES (?,?,?,?)",
-                    (request_id, request_hash, _canonical(result_body), created_at))
+                insert_operation_request(
+                    self.conn, unified=self._request_journal_unified,
+                    domain=RECEIPT_APPLY_DOMAIN, request_id=request_id,
+                    input_digest=request_hash, result_json=_canonical(result_body),
+                    created_at=created_at)
                 self._commit_write()
             except SaveError:
                 self._rollback_write()

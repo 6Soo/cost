@@ -440,6 +440,11 @@
       "tests": ["webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"]
     },
     {
+      "name": "ledger-request-journal",
+      "paths": ["tools/merge_ledger_operation_requests.py", "webapp/ledger_operation_requests.py", "webapp/tests/test_ledger_operation_requests.py"],
+      "tests": ["webapp/tests/test_ledger_operation_requests.py"]
+    },
+    {
       "name": "ledger-store-boundaries",
       "paths": ["webapp/ledger_store*.py", "webapp/tests/test_ledger_store*.py"],
       "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py", "webapp/tests/test_owner_metadata.py"]
