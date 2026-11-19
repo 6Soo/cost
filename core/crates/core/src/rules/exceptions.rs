@@ -63,7 +63,10 @@ pub const FUKUTAKE: OwnerException = OwnerException {
 
 pub const CARD3820_SINGAPORE: OwnerException = OwnerException {
     rule_id: "owner-card3820-singapore-20261012",
-    policy_ids: &["TRIP-070", "ITEM-037"],
+    // ITEM-037 merged into TRIP-070 (docs/policy/RETIRED_IDS.md), so only the
+    // canonical heading is named here; docs/DECISION_POLICY.md §5 lists it as
+    // TRIP-070 지정 카드·기간 여행.
+    policy_ids: &["TRIP-070"],
     origin: "app/classify.py:144-147,211-236",
     card_tail: Some("3820"),
     period: Some(("2026-09-19", "2026-09-24")),
@@ -74,7 +77,9 @@ pub const CARD3820_SINGAPORE: OwnerException = OwnerException {
 
 pub const CARD3820_RESIDUAL: OwnerException = OwnerException {
     rule_id: "owner-card3820-residual-20261012",
-    policy_ids: &["TRIP-071", "ITEM-038"],
+    // ITEM-038 merged into TRIP-071 (docs/policy/RETIRED_IDS.md); the canonical
+    // heading docs/DECISION_POLICY.md §5 lists is TRIP-071 지정 카드 잔여 분기.
+    policy_ids: &["TRIP-071"],
     origin: "app/classify.py:159-160,273-301",
     card_tail: Some("3820"),
     period: None,
