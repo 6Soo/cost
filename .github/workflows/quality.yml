@@ -174,3 +174,25 @@ jobs:
             quality-artifacts/**
           if-no-files-found: warn
           retention-days: 14
+
+  windows-p2-descendant-boundary:
+    # The P2 subprocess boundary needs Win32 Job Objects, so the Linux
+    # impact-checks job cannot decide it. The test itself asserts
+    # `os.name == 'nt'`: a Linux skip would be no evidence, so it runs here
+    # unchanged on every pull request and every push to main.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install app and Windows boundary test dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest>=8,<10"
+      - name: Verify real Windows child termination on timeout
+        run: python -m pytest platform_tests/windows/test_frontier_agent_child_boundary.py -q

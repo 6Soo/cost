@@ -1,3 +1,8 @@
 -r requirements.txt
 pytest>=8.0,<10
+# Selected P2 tests validate the tool-free response against the shipped
+# app/p2_output.schema.json. Without this the worker test fails on a clean
+# install (reported as ai_retry) while a developer machine only passes because
+# an unrelated package pulled jsonschema in.
+jsonschema>=4.23,<5
 playwright>=1.50,<2
