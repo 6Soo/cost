@@ -86,6 +86,12 @@ param(
     [switch]$DisableEntry,
     [switch]$MigrateLegacyEntry,
 
+    # Carried into the task's runner arguments only when asked, like
+    # -DisableEntry. The runner forwards it to the board launcher as the
+    # opt-in content-free request counters (#1001); absent, the task's
+    # command is exactly the one it has always been.
+    [switch]$RequestMetrics,
+
     [string]$TaskName = "WebLedger-Board",
 
     # Limited by default. Highest is here for an installer that is itself already
@@ -223,6 +229,7 @@ function Get-TaskPlan {
     )
     if ($DisableEntry) { $runnerArguments += "-DisableEntry" }
     if ($MigrateLegacyEntry) { $runnerArguments += "-MigrateLegacyEntry" }
+    if ($RequestMetrics) { $runnerArguments += "-RequestMetrics" }
 
     return [pscustomobject]@{
         Name        = $TaskName

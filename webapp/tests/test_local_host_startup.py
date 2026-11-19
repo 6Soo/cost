@@ -444,12 +444,13 @@ def run_runner(**kwargs):
 
 def run_installer(*, install=True, task_present=False, task_description=None,
                   checkout=CHECKOUT, run_level=None, launcher_path="",
-                  reserve_source_config=None, files=None):
+                  reserve_source_config=None, files=None, request_metrics=False):
     flag = "-Install" if install else ""
     level = f"-RunLevel {run_level}" if run_level else ""
     source = ""
     if reserve_source_config is not None:
         source = f"-ReserveSourceConfig '{reserve_source_config}' "
+    metrics = "-RequestMetrics " if request_metrics else ""
     body = (harness(task_present=task_present, task_description=task_description,
                     files=files)
             + f"\n$text = [System.IO.File]::ReadAllText('{INSTALLER}')\n"
@@ -459,7 +460,7 @@ def run_installer(*, install=True, task_present=False, task_description=None,
               f"-ReviewConfig '{REVIEW_CONFIG}' -OAuthFile '{OAUTH_FILE}' "
               f"-SessionSecretFile '{SESSION_SECRET_FILE}' "
               f"-CloudflareConfigPath '{CLOUDFLARE_CONFIG}' -TunnelId '{TUNNEL_ID}' "
-              f"{source}{level}\n")
+              f"{source}{metrics}{level}\n")
     return _invoke(body)
 
 
@@ -550,6 +551,53 @@ class BoardLaunchTests(unittest.TestCase):
         for value in (CHECKOUT, DATA_ROOT, OAUTH_FILE, SESSION_SECRET_FILE,
                       CLOUDFLARE_CONFIG, TUNNEL_ID):
             self.assertIn(value, output, value)
+
+
+class RequestMetricsOptInTests(unittest.TestCase):
+    """The content-free request counters reach the board only when asked (#1001).
+
+    Recording traffic is a separate operational decision from running the
+    board, so the default command must stay exactly the one it has always
+    been, and the flag must travel to the board child alone.
+    """
+
+    def test_the_default_plan_has_no_metrics_flag(self):
+        _code, output = run_runner(mode="Plan")
+        self.assertNotIn("--request-metrics", output)
+
+    def test_the_switch_adds_the_flag_to_the_board_command_only(self):
+        _code, output = run_runner(mode="Plan", extra="-RequestMetrics")
+        command = board_command(output)
+        self.assertIn("--request-metrics", command)
+        # One board, one flag: the tunnel and the entry page never carry it.
+        self.assertEqual(output.count("--request-metrics"), 1, output)
+        entry_lines = [line for line in output.splitlines()
+                       if "serve_review_entry.py" in line]
+        self.assertTrue(entry_lines, output)
+        for line in entry_lines:
+            self.assertNotIn("--request-metrics", line)
+
+    def test_a_started_board_and_its_restart_carry_the_flag(self):
+        _code, output = run_runner(extra="-RequestMetrics", exit_on_start=1)
+        starts = [line for line in output.splitlines()
+                  if "MOCK-START" in line and "launch_web_ledger.py" in line]
+        self.assertEqual(len(starts), 2, output)
+        for line in starts:
+            self.assertIn("--request-metrics", line)
+
+    def test_the_default_run_starts_the_board_without_the_flag(self):
+        _code, output = run_runner(exit_on_start=1)
+        starts = [line for line in output.splitlines()
+                  if "MOCK-START" in line and "launch_web_ledger.py" in line]
+        self.assertTrue(starts, output)
+        for line in starts:
+            self.assertNotIn("--request-metrics", line)
+
+    def test_the_task_carries_the_switch_only_when_asked(self):
+        _code, output = run_installer()
+        self.assertNotIn("-RequestMetrics", output)
+        _code, output = run_installer(request_metrics=True)
+        self.assertIn("-RequestMetrics", output)
 
 
 class PortProbeTests(unittest.TestCase):

@@ -100,6 +100,13 @@ param(
     [switch]$DisableEntry,
     [switch]$MigrateLegacyEntry,
 
+    # Opt-in content-free HTTP request counters for the board child only
+    # (#1001, SPEC 11.3). Off by default: without this switch the board command
+    # is exactly the one it has always been and no metrics file is created.
+    # The flag reaches run_candidate through the production launcher's own
+    # --request-metrics; the tunnel and the entry page never receive it.
+    [switch]$RequestMetrics,
+
     # Seconds to watch. Zero watches until the process is stopped, which is the
     # mode the scheduled task uses.
     [ValidateRange(0, 86400)]
@@ -525,16 +532,20 @@ function Get-HostPlan {
     }
     $entry = Join-Path $Checkout "tools\serve_review_entry.py"
 
+    $boardArguments = @(
+        $launcher,
+        "--checkout", $Checkout,
+        "--data-root", $DataRoot,
+        "--oauth-file", $OAuthFile,
+        "--session-secret-file", $SessionSecretFile,
+        "--port", "$BoardPort")
+    # The opt-in travels as the launcher's own flag, so the plan and the real
+    # start carry the same command and the default command stays untouched.
+    if ($RequestMetrics) { $boardArguments += "--request-metrics" }
+
     $children = @(
         New-HostChild -Name "board" -Exe $script:ChildPython -Marker $launcher `
-            -Port $BoardPort `
-            -Arguments @(
-            $launcher,
-            "--checkout", $Checkout,
-            "--data-root", $DataRoot,
-            "--oauth-file", $OAuthFile,
-            "--session-secret-file", $SessionSecretFile,
-            "--port", "$BoardPort")
+            -Port $BoardPort -Arguments $boardArguments
 
         New-HostChild -Name "tunnel" -Exe $CloudflareExe `
             -Marker $TunnelId -Port 0 -IdentityKind "Tunnel" `
