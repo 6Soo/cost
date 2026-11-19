@@ -2933,13 +2933,22 @@ class Handler(BaseHTTPRequestHandler):
                 # correction included), not the stored raw amount. ``amount_krw``
                 # is the existing allowlisted key, so this only fills that key
                 # with the shared figure — no new field, no raw source and no
-                # other field is added or changed.
-                shown = {str(r.get("row_id") or ""): int(
-                    r.get("display_amount_krw", r.get("amount_krw", 0) or 0))
-                    for r in display_rows}
+                # other field is added or changed. An amount that could not be
+                # read stays None (SPEC §11.2.1 계약 4 / GGL-014): coercing it
+                # to 0 would show a claimed zero, which ``amount_missing`` and
+                # the allowlist flag now prevent.
+                shown = {}
+                for r in display_rows:
+                    value = r.get("display_amount_krw", r.get("amount_krw"))
+                    if r.get("amount_missing"):
+                        value = None
+                    elif value is not None:
+                        value = int(value)
+                    shown[str(r.get("row_id") or "")] = value
                 for item in projected:
-                    if str(item.get("row_id")) in shown:
-                        item["amount_krw"] = shown[str(item["row_id"])]
+                    row_id = str(item.get("row_id"))
+                    if row_id in shown:
+                        item["amount_krw"] = shown[row_id]
                     access_control.assert_no_denied_fields(item)
                 totals = ledger_query.display_totals(display_rows, linked=linked)
                 confirmed_income, confirmed_known = ledger_query.confirmed_income(

@@ -269,6 +269,39 @@ def test_viewer_with_google_grant_sees_the_same_rows_on_all_three_paths(viewer_b
     assert int(react["source_totals"]["overall"]["income"]) == 1000000
 
 
+def test_viewer_list_keeps_an_unreadable_google_amount_unknown_not_zero(
+        viewer_board, monkeypatch):
+    """SPEC §11.2.1 계약 4 / GGL-014: 읽을 수 없는 금액은 목록에서 0원이 아니다.
+
+    독립 검수(2026-11-20)가 지적한 결함: `/access/rows`의 viewer 분기가
+    ``amount_krw=None``을 ``int(None or 0)=0``으로 위조해, Google 수입 행이
+    화면에서 확정 0원으로 보였다(같은 payload의 ``confirmed``는 미확인인데도).
+    행은 ``amount_krw=None``과 ``amount_missing=True``로 남아야 한다.
+    """
+    env = viewer_board
+    env.grant([VIEWER])
+    from webapp import google_ledger_page as page
+
+    # 같은 합성 블록이되 금액을 읽을 수 없게 만든다 → amount_missing 행.
+    monkeypatch.setattr(page, "owner_rows", lambda *a: {"income": [
+        dict(row=6, date="2026-10-01", name="SYNTHETIC", amount="", deposit=1000)],
+        "expense": []})
+
+    status, listing = env.request(f"/access/rows?tab={env.tab}")
+    assert status == 200
+    google = next(row for row in listing["rows"]
+                  if str(row.get("row_id", "")).startswith("google-income|"))
+    # The unknown amount is kept, not coerced to a claimed zero.
+    assert google["amount_krw"] is None, google
+    assert google["amount_missing"] is True, google
+    assert "amount_missing" in access_control.VIEWER_ROW_FIELDS
+    # COST income still confirms the figure; the unreadable Google row is not
+    # added to it and never turns into a claimed zero.
+    assert listing["confirmed"] == {"income_krw": 1000000, "balance_krw": 750000}
+    assert listing["totals"] == {"income_krw": 1000000, "expense_krw": 250000,
+                                 "balance_krw": 750000}
+
+
 def test_viewer_without_google_grant_never_receives_the_block(viewer_board):
     """다른 계정에 부여해도, 부여 없는 이 열람자는 Google 행·합계를 받지 않는다."""
     env = viewer_board
