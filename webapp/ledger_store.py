@@ -94,6 +94,7 @@ from .ledger_store_allocation_validation import (
 from .ledger_operation_requests import (
     OWNER_PROFILE_DOMAIN,
     RECEIPT_APPLY_DOMAIN,
+    SOURCE_FACT_DOMAIN,
     insert_operation_request,
     request_journal_shape,
 )
@@ -299,7 +300,9 @@ class LedgerStore:
         # tool left behind. CREATE TABLE IF NOT EXISTS is a no-op while a
         # compatibility view owns the name, so the original schema script runs
         # unmodified in both formats; a mixed shape is refused, not repaired.
-        self._request_journal_unified = request_journal_shape(self.conn) == "unified"
+        journal_shape = request_journal_shape(self.conn)
+        self._request_journal_unified = journal_shape != "legacy"
+        self._source_fact_journal_unified = journal_shape == "unified_source_facts"
         self.conn.executescript(SCHEMA_SQL)
         self.conn.executescript(INDEX_SQL)
         _ensure_ledger_outbox_evidence(self.conn)
@@ -3613,14 +3616,12 @@ class LedgerStore:
                                "unchanged": len(unchanged),
                                "conflicts": len(conflicts)},
                 }
-                self.conn.execute(
-                    "INSERT INTO source_fact_applies(request_id, input_digest,"
-                    " binding, choices_revision, result_json, created_at)"
-                    " VALUES (?,?,?,?,?,?)",
-                    (request_id, input_digest, expected_binding,
-                     expected_choices_revision,
-                     json.dumps(result, ensure_ascii=False, sort_keys=True),
-                     created_at))
+                insert_operation_request(
+                    self.conn, unified=self._source_fact_journal_unified,
+                    domain=SOURCE_FACT_DOMAIN, request_id=request_id,
+                    input_digest=input_digest, result_json=_canonical(result),
+                    created_at=created_at, binding=expected_binding,
+                    choices_revision=expected_choices_revision)
                 self._commit_write()
             except SaveError:
                 self._rollback_write()
