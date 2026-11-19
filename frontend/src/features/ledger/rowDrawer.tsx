@@ -5,6 +5,16 @@ import { getJSON, postJSON, ApiError } from '../../api/client';
 import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
 import { PeriodValue } from './index';
 
+/**
+ * SPEC §11.2.1 계약 4: the owner's row detail carries the same stored
+ * reservation·evidence values the legacy panel prints. The server sends them
+ * in `detail` (`plush_projection.safe_detail`); the drawer only prints what it
+ * was given — it never derives a period or an amount from these fields.
+ * `api/types.ts` is owned by another open change, so the shape is read
+ * structurally here rather than added to the shared DTO.
+ */
+type RowEvidence = Record<string, unknown>;
+
 type RowDetail = {
   row: LedgerRow;
   source: Record<string, unknown> | null;
@@ -13,7 +23,30 @@ type RowDetail = {
   history: unknown[];
   expected_revision: string | number | null;
   actions: ActionDescriptor[];
+  detail?: RowEvidence | null;
 };
+
+/** The evidence keys the drawer names. An absent or blank value is omitted, so
+ *  a missing reservation number never prints an empty row (계약 4: 미확인 ≠ 0). */
+const EVIDENCE_FIELDS: Array<[key: string, label: string]> = [
+  ['reservation_no', '예약번호'],
+  ['service_period', '저장 이용기간'],
+  ['evidence_type', '증빙 종류'],
+  ['source_merchant', '원문 가맹점'],
+  ['source_kind', '원본 종류'],
+  ['source_event_id', '원본 사건 ID'],
+];
+
+function evidenceEntries(evidence: RowEvidence | null | undefined): Array<[string, string]> {
+  if (!evidence) return [];
+  return EVIDENCE_FIELDS
+    .map(([key, label]) => {
+      const raw = evidence[key];
+      const text = raw === null || raw === undefined ? '' : String(raw).trim();
+      return [label, text] as [string, string];
+    })
+    .filter(([, text]) => text !== '');
+}
 
 type RowDrawerProps = {
   rowId: string | null;
@@ -251,6 +284,9 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
   const writeActions = actions.filter((action) => action.method === 'POST');
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
+  // The viewer's response has no `detail` (the server omits it), so this is
+  // empty for a viewer by construction, not by a client-side role test.
+  const evidence = evidenceEntries(detail?.detail);
 
   return (
     <Drawer open={Boolean(rowId)} title={title} description={detail ? `${humanDate(detail.row.date)} · ${detail.row.category}` : undefined} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -272,6 +308,16 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
             />
           </p>
           {detail.row.read_only && <InlineNotice tone="info" title="읽기 전용">이 행 또는 마감 기간은 현재 수정할 수 없습니다.</InlineNotice>}
+          {evidence.length > 0 && (
+            <section className="cost-ledger__detail-section" aria-label="예약·증빙 근거">
+              <h3>예약·증빙 근거</h3>
+              <dl className="cost-ledger__detail-list">
+                {evidence.map(([label, text]) => (
+                  <div key={label}><dt>{label}</dt><dd>{text}</dd></div>
+                ))}
+              </dl>
+            </section>
+          )}
           {bootstrap.role === 'owner' && writeActions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
               <h3>동작</h3>

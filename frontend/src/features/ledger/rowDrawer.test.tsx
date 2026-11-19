@@ -58,6 +58,48 @@ test('omits the origin line when the row has no known classification source', as
   expect(screen.queryByText('분류 출처')).toBeNull();
 });
 
+/**
+ * SPEC §11.2.1 계약 4: "목록 또는 행 상세에서 기존에 확인할 수 있던 이용기간,
+ * 예약·증빙 근거, Google 대사 상태 ... 를 확인할 수 있다."
+ *
+ * The server sends the owner these fields in `detail` (`plush_projection.
+ * safe_detail`: reservation_no, evidence_type, source_merchant, service_period,
+ * source_event_id ...). The legacy panel prints 예약번호/원문 가맹점 (ledger_design
+ * `_panel_html`). If the drawer drops the whole block, a value the owner can see
+ * on the legacy screen is unreachable on the React path — the two entry paths
+ * disagree (계약 1·4). Read-only rows keep them too: they are evidence, not edits.
+ */
+test('an owner sees the reservation and evidence block the server sent', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    detail: {
+      row_id: 'synthetic-row', reservation_no: 'SYNTH-PNR-7',
+      evidence_type: '카드', source_merchant: '합성 원문 가맹점',
+      service_period: '2026-11-14~2026-11-17', source_kind: 'card',
+    },
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  expect(await screen.findByText('SYNTH-PNR-7')).toBeTruthy();
+  expect(screen.getByText('합성 원문 가맹점')).toBeTruthy();
+  expect(screen.getByText('2026-11-14~2026-11-17')).toBeTruthy();
+});
+
+test('a read-only owner row still shows the stored evidence, it is not an edit', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    row: { id: 'synthetic-row', date: '2026-11-16', merchant: '합성 행', description: '', category: '숙박비', amount: '100', currency: 'KRW', read_only: true },
+    detail: { reservation_no: 'SYNTH-PNR-8', evidence_type: '영수증' },
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  expect(await screen.findByText('SYNTH-PNR-8')).toBeTruthy();
+  expect(screen.getByText('영수증')).toBeTruthy();
+});
+
+test('a viewer never receives the owner detail block and sees no evidence section', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({ detail: {} }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'viewer', csrf: '', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  await screen.findByText('수정 이력');
+  expect(screen.queryByRole('heading', { name: '예약·증빙 근거' })).toBeNull();
+});
+
 test('submits only server-advertised allocation fields plus concurrency identifiers', async () => {
   render(<RowDrawer rowId='synthetic-allocation' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: '수정' }));

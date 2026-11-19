@@ -190,6 +190,38 @@ def test_a_google_block_is_excluded_from_totals_and_the_summary(mixed_tab, monke
     assert body["income_source"]["available"] is True, body["income_source"]
 
 
+def test_the_row_detail_gives_the_owner_the_stored_reservation_and_evidence(mixed_tab):
+    """SPEC §11.2.1 계약 4: 상세는 예약·증빙 근거를 확인할 수 있어야 한다.
+
+    The React drawer can only show what this response carries. If `detail`
+    dropped `reservation_no`/`evidence_type`/`source_merchant`, the value the
+    legacy panel prints (``ledger_design`` '예약번호 (고정)') would be
+    unreachable on the React path — the two entry paths would disagree (계약 1).
+    """
+    store, tab = mixed_tab
+    _insert_card_row(store, "card-tx-evidence-1", tab, 210000,
+                     source_event_id="TX-EV",
+                     item="숙박", day="2026-11-13", merchant="합성 원문 가맹점")
+    store.conn.execute(
+        "UPDATE board_rows SET payload_json = ? WHERE row_id = ?",
+        (json.dumps({
+            "amount_krw": 210000, "occurred_on": "2026-11-13", "item": "숙박",
+            "source_kind": "카드", "source_event_id": "TX-EV",
+            "source_merchant": "합성 원문 가맹점", "pay_method": "카드",
+            "evidence_type": "카드", "reservation_no": "SYNTH-PNR-11",
+            "service_period": "2026-11-13~2026-11-15",
+        }, ensure_ascii=False), "card-tx-evidence-1"))
+    store.conn.commit()
+
+    status, body = _call(f"/api/plush/row?id=card-tx-evidence-1", OWNER, store)
+    assert status == 200, body
+    detail = body["detail"]
+    assert detail["reservation_no"] == "SYNTH-PNR-11", detail
+    assert detail["evidence_type"] == "카드", detail
+    assert detail["source_merchant"] == "합성 원문 가맹점", detail
+    assert detail["service_period"] == "2026-11-13~2026-11-15", detail
+
+
 def test_the_bootstrap_summary_uses_the_same_row_set_as_the_ledger(mixed_tab):
     """§11.2.1 계약 1: the list summary and the bootstrap summary agree."""
     store, tab = mixed_tab
