@@ -446,12 +446,16 @@ def test_private_state_limit_and_invalid_bound_refused(harness, field, value):
         run()
 
 
-def test_registration_script_parses_and_uses_whatif():
-    import subprocess
+def test_registration_script_declares_whatif_and_resolves_file():
+    """Portable checks stay on Linux; the parser run itself moved to Windows.
+
+    `register_incremental_task.ps1` is only parsed by Windows PowerShell, so the
+    parse assertion lives in
+    platform_tests/windows/test_registration_task_script_parses.py. What is
+    portable — the file is where the module looks for it, and it declares the
+    dry-run contract — is asserted here so a Linux run still covers it.
+    """
     script = Path(inc.__file__).with_name('register_incremental_task.ps1')
-    result = subprocess.run(['powershell', '-NoProfile', '-Command',
-        '$tokens=$null; $parseErrors=$null; [System.Management.Automation.Language.Parser]::ParseFile(\''
-        +str(script)+"', [ref]$tokens, [ref]$parseErrors) | Out-Null; if ($parseErrors.Count) { exit 1 }"], capture_output=True)
-    assert result.returncode == 0
+    assert script.is_file()
     text = script.read_text(encoding='utf-8')
     assert 'SupportsShouldProcess=$true' in text and 'TASK_ALREADY_EXISTS' in text
