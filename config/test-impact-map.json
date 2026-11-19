@@ -440,9 +440,9 @@
     },
     {
       "name": "ledger-period-parity",
-      "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_m4_period_parity_contract.py"],
-      "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py"],
-      "reason": "SPEC 11.2.1 계약 4 / DATE-017: the same stored/manual use-period on both the React and legacy read paths, incl. old-schema cores and a changed source"
+      "paths": ["webapp/ledger_periods.py", "webapp/plush_periods.py", "app/core_writer.py", "webapp/plush_projection.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_m4_period_parity_contract.py", "webapp/tests/test_period_display_policy_20261119.py", "webapp/tests/test_period_display_trip_candidates.py", "tools/audit_unassigned_reservation_trip.py"],
+      "tests": ["webapp/tests/test_m4_period_parity_contract.py", "tests/test_stored_period_reads.py", "tests/test_stored_period_records.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_period_display_policy_20261119.py", "webapp/tests/test_period_display_trip_candidates.py"],
+      "reason": "SPEC 11.2.1 계약 4 / DATE-017 / 소유자 표시 정책 2026-11-19: the same stored/manual use-period on both the React and legacy read paths, incl. old-schema cores and a changed source; a period cell shows real dates only and stays blank otherwise; and the read-only finder for a reservation that has no trip"
     },
     {
       "name": "ledger-design-assets",

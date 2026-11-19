@@ -156,41 +156,42 @@ test('COST-only and COST+Google differ by the Google evidence line, not the summ
   expect(costOnly.googleEvidence).toBe(false);
 });
 
-/* The server's trip.income is "미확인" when it cannot confirm an income figure
-   (no COST income and no verified Google block). The summary must show that
-   word as a state, never as an amount: no currency unit, no NaN and no
-   "미확인원". This is the display risk the new server contract exposes. */
-test('an unknown income and 차액 show the word with no currency unit', async () => {
-  const summary: TripSummary = { ...trip, income: '미확인', expense: '250000', profit: '미확인' };
+/* The server's trip.income is "—" when it cannot confirm an income figure
+   (no COST income and no verified Google block — 소유자 결정 2026-11-19 ②).
+   The summary must show that mark as a state, never as an amount: no currency
+   unit, no NaN and no "—원". This is the display risk the server contract
+   exposes. */
+test('an unknown income and 차액 show the mark with no currency unit', async () => {
+  const summary: TripSummary = { ...trip, income: '—', expense: '250000', profit: '—' };
   vi.mocked(getJSON).mockResolvedValue(payload(summary, {
     income_source: { available: true, verified: false, reason: 'INCOME_UNVERIFIED' },
   }));
   renderTab(summary);
   await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
-  // Both summary words render as exactly "미확인", with no currency unit.
-  const unknown = screen.getAllByText('미확인');
+  // Both summary marks render as exactly "—", with no currency unit.
+  const unknown = screen.getAllByText('—');
   expect(unknown.length).toBeGreaterThanOrEqual(2);
-  for (const node of unknown) expect(node.textContent).toBe('미확인');
+  for (const node of unknown) expect(node.textContent).toBe('—');
   // A currency-formatted expense is still money.
   expect(screen.getAllByText(/250,000/).length).toBeGreaterThan(0);
   // No broken currency rendering of the unknown state.
-  expect(screen.queryByText(/미확인\s*원/)).toBeNull();
-  expect(screen.queryByText(/미확인\s*KRW/)).toBeNull();
+  expect(screen.queryByText(/—\s*원/)).toBeNull();
+  expect(screen.queryByText(/—\s*KRW/)).toBeNull();
   expect(screen.queryByText(/NaN/)).toBeNull();
-  expect(screen.queryByText(/₩미확인/)).toBeNull();
-  // The unverified state is labelled provisional without changing the word.
+  expect(screen.queryByText(/₩—/)).toBeNull();
+  // The unverified state is labelled provisional without changing the mark.
   expect(screen.getAllByText('잠정')).toHaveLength(2);
 });
 
-test('an unknown income with no Google block still shows the word, not money', async () => {
-  const summary: TripSummary = { ...trip, income: '미확인', expense: '0', profit: '미확인' };
+test('an unknown income with no Google block still shows the mark, not money', async () => {
+  const summary: TripSummary = { ...trip, income: '—', expense: '0', profit: '—' };
   vi.mocked(getJSON).mockResolvedValue(payload(summary, { income_source: noSource }));
   renderTab(summary);
   await waitFor(() => expect(screen.queryByText('장부 조회 중')).toBeNull());
-  const unknown = screen.getAllByText('미확인');
-  for (const node of unknown) expect(node.textContent).toBe('미확인');
+  const unknown = screen.getAllByText('—');
+  for (const node of unknown) expect(node.textContent).toBe('—');
   expect(screen.queryByText(/NaN/)).toBeNull();
-  expect(screen.queryByText(/미확인\s*(원|KRW)/)).toBeNull();
+  expect(screen.queryByText(/—\s*(원|KRW)/)).toBeNull();
 });
 
 test('a payload left over from the previous tab does not paint its income source on the new tab', async () => {

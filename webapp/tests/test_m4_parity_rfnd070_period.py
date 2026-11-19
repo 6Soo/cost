@@ -102,7 +102,7 @@ def _expense_with_period(store, tab, amount, period):
     """저장 이용기간(service_period)을 가진 합성 장부 행을 시드한다."""
     rid = f"parity-period-{_uid()}"
     record = {
-        "amount_krw": amount, "occurred_on": "2026-11-12", "item": "숙박",
+        "amount_krw": amount, "occurred_on": "2026-11-12", "item": "숙박비",
         "description": "합성 숙박", "source_kind": "카드", "source_event_id": "",
         "source_merchant": "합성가맹점", "operator_note": "", "pay_method": "카드",
         "evidence_type": "카드", "service_period": period,
