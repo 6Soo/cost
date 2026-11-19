@@ -142,8 +142,6 @@ def sync_ledger_row(conn, transaction_id: str, *, item=None, description=None,
         if value is not None:
             pairs.append(column + '=?')
             values.append(value)
-    if trip_id is not None and display_tab_id is None:
-        pass  # 호출자가 trip_id만 준 경우에도 그대로 반영한다.
     if not pairs:
         return
     conn.execute(f'UPDATE ledger SET {",".join(pairs)} WHERE transaction_id=?',
