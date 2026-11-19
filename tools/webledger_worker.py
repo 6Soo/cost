@@ -131,8 +131,15 @@ def run_process(job: dict, log: Log, stop: threading.Event, now=time.monotonic, 
                     code = process.wait(timeout=timeout)
                     log.note(name, "exit", code=code, seconds=round(now() - started, 1))
                 except subprocess.TimeoutExpired:
-                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                    # The job's own children must go with it. On Windows that needs
+                    # taskkill /T because a plain kill leaves the descendants
+                    # running; the other platforms have no taskkill, so calling it
+                    # raised OSError and reported "error" instead of "timeout".
+                    if os.name == "nt":
+                        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                    else:
+                        process.kill()
                     process.wait()
                     log.note(name, "timeout", seconds=timeout)
         except OSError as exc:

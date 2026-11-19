@@ -144,24 +144,18 @@ def test_output_outside_the_protected_folder_is_refused(tmp_path):
     assert not response['ok'] and response['error']['code'] == 'OUT_NOT_PROTECTED'
 
 
-@pytest.mark.parametrize('form', ['hardlink', 'extended_prefix'])
-def test_live_file_is_refused_through_a_hard_link_or_extended_path(tmp_path, form):
+def test_live_file_is_refused_through_a_hard_link(tmp_path):
+    # The extended-prefix form (`\\?\...`) is a Windows path syntax and lives in
+    # platform_tests/windows/test_core_bridge_extended_prefix.py. Only the hard
+    # link form is portable, so only that one runs here; dropping the other
+    # parameter would have deleted a Linux-decidable assertion instead.
     import os
     req = request(tmp_path)
     live = Path(req['host_root']) / 'data' / 'board.sqlite'
     shutil.copy(req['db'], live)
-    if form == 'hardlink':
-        alias = tmp_path / 'alias.sqlite'
-        os.link(live, alias)
-        given = str(alias)
-    else:
-        # The extended-length prefix must not bypass the live-file guard:
-        # ``ota_input.is_live`` strips the four-character prefix before it
-        # compares paths, so ``\\?\<live>`` names the live file on every
-        # platform. Skipping off Windows hid this check instead of proving it;
-        # the assertions below run (and pass) on POSIX hosts too.
-        given = '\\\\?\\' + str(live.resolve())
-    response = handle('ota-input', dict(req, db=given), sha='')
+    alias = tmp_path / 'alias.sqlite'
+    os.link(live, alias)
+    response = handle('ota-input', dict(req, db=str(alias)), sha='')
     assert not response['ok'] and response['error']['code'] == 'DB_IS_LIVE'
     assert not Path(req['out']).exists()
 

@@ -50,6 +50,9 @@
 .cost-ledger__period-unknown { color: var(--cost-text-secondary); font-size: .8125rem; }
 .cost-ledger__period-stale,
 .cost-ledger__period-unknown { overflow-wrap: anywhere; }
+/* 소유자 결정 2026-11-19 ①: a row with no date shows an empty cell, so the
+   column keeps its height without printing a word where a date would go. */
+.cost-ledger__period-blank { display: inline-block; min-height: 1.25em; }
 .cost-ledger__mobile-period { min-width: 0; }
 .cost-ledger__mobile-list { display: none; margin: 0; padding: 0; list-style: none; border: 1px solid var(--cost-border); border-radius: 18px; overflow: hidden; background: var(--cost-surface); }
 .cost-ledger__mobile-list li + li { border-top: 1px solid var(--cost-border); }

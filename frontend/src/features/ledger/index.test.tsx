@@ -57,9 +57,16 @@ describe('stored use period on the React ledger', () => {
     expect(screen.queryAllByText(/확인됨/)).toHaveLength(0);
   });
 
-  test('unknown states what is missing instead of inventing a period', async () => {
+  test('unknown leaves the cell empty instead of inventing a period or a word', async () => {
+    // 소유자 결정 2026-11-19 ①: no date means an empty cell. The server also
+    // blanks `period` alongside an empty label, so nothing can refill it.
     renderPage([row({ id: 'r-unknown', period: '', period_status: 'unknown', period_source: 'decision' })]);
-    expect((await screen.findAllByText('기간 근거 없음')).length).toBeGreaterThan(0);
+    const table = await screen.findByRole('table', { name: '여행 장부 거래 목록' });
+    const cell = table.querySelector('.cost-ledger__period-blank');
+    expect(cell).toBeTruthy();
+    expect(cell?.textContent).toBe('');
+    expect(screen.queryByText('기간 근거 없음')).toBeNull();
+    expect(screen.queryByText('2026-11-01')).toBeNull();
   });
 
   test('a manual blank is told apart from a missing evidence basis', async () => {

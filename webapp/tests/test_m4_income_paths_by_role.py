@@ -278,8 +278,9 @@ def test_a_cost_income_with_an_unreadable_amount_is_unknown(income_case, monkeyp
     assert status == 200, body
     cost_rows = [r for r in body["rows"] if not str(r["id"]).startswith("google-income|")]
     assert cost_rows, body["rows"]
-    assert body["trip"]["income"] == "미확인", body["trip"]
-    assert body["trip"]["profit"] == "미확인", body["trip"]
+    # 소유자 결정 2026-11-19 ②: an unconfirmable income summary shows an em dash.
+    assert body["trip"]["income"] == "—", body["trip"]
+    assert body["trip"]["profit"] == "—", body["trip"]
 
 
 def test_an_unknown_amount_sorts_after_a_real_balance_in_both_directions(income_case):

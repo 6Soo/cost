@@ -44,11 +44,15 @@ function safeMessage(reason: unknown, fallback: string): string {
 
 /**
  * SPEC §11.2.1 계약 4 · 사용자 결정 2026-11-14 (렌더 시점 판정 금지).
+ * 소유자 결정 2026-11-19 ①: the period cell carries real dates only.
  *
  * The period is a stored decision. This component prints the string the server
  * resolved and only names that value's state; it never parses the dates, counts
  * nights, or fills a blank from the row's own fields. A value the server left
- * blank stays blank, and the state says which kind of blank it is.
+ * blank stays blank — the cell is empty, with no word standing in for a missing
+ * date. The two states the owner did not cover keep their own wording, because
+ * they describe a different fact: a stale saved value (the source changed) and
+ * a period a person deliberately cleared.
  */
 export function PeriodValue({ period, label, status, basis, source, manualBlank }: {
   period: string;
@@ -59,8 +63,9 @@ export function PeriodValue({ period, label, status, basis, source, manualBlank 
   manualBlank?: boolean;
 }) {
   // The server decides both the value and its wording: `label` is the compact
-  // string the legacy cell prints. Falling back to the raw stored `period` is
-  // a display default only, never a computation.
+  // string the legacy cell prints, and the server blanks `period` with it, so
+  // the fallback below can only ever produce an empty cell, never the stored
+  // ISO range.
   const shown = label || period;
   if (status === 'stale') {
     return <span className="cost-ledger__period-stale">원본이 바뀌어 저장된 기간을 표시하지 않습니다</span>;
@@ -68,10 +73,7 @@ export function PeriodValue({ period, label, status, basis, source, manualBlank 
   if (manualBlank) {
     return <span className="cost-ledger__period-unknown">사용자가 비워 둔 이용 기간</span>;
   }
-  if (status === 'unknown') {
-    return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
-  }
-  if (!shown) return <span className="cost-ledger__period-unknown">기간 근거 없음</span>;
+  if (!shown) return <span className="cost-ledger__period-blank" />;
   if (status === 'inferred') {
     return (
       <span className="cost-ledger__period-inferred">
