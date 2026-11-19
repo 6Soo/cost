@@ -141,6 +141,10 @@ VIEWER_ROW_FIELDS = (
     "evidence_type",
     "source_event_id",
     "is_cancellation",
+    # SPEC §11.2.1 계약 4 / GGL-014: a Google income row whose source amount
+    # could not be read carries ``amount_krw=None`` and this flag, so the viewer
+    # can show 미확인 instead of a claimed 0원.
+    "amount_missing",
 )
 
 # Never sent to a viewer, listed for the audit trail and the tests.
