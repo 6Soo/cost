@@ -2,6 +2,8 @@
 
 All rows and names are synthetic. Never touch the operational card DB.
 """
+import json
+
 import pytest
 
 from app import ledger
@@ -417,5 +419,123 @@ def test_batch_record_screen_takes_only_cross_file_partials_outside_completed_pe
         board.conn.commit()
         with pytest.raises(StoreError):
             _group_context(board, original)
+    finally:
+        board.close()
+
+
+# --- RFND-029 (다): the two narrowed recording paths (Worker resume, single row) ----
+
+def _worker(board, flow):
+    """A completion worker that reuses the flow already prepared by the test."""
+    from webapp.card_completion_worker import CardCompletionWorker
+    import threading
+    worker = CardCompletionWorker(board, threading.RLock(), flow_factory=lambda _b: flow)
+    flow.trip_valid = lambda *a, **k: True
+    flow.tab_valid = lambda *a, **k: True
+    flow.ota_group_holds = lambda: {}
+    flow._already_projected = lambda *a, **kw: False
+    flow.preview_metadata = lambda *a, **kw: (lambda e: {})
+    return worker
+
+
+def test_worker_resume_records_a_refund_only_file_against_the_booked_original(tmp_path, monkeypatch):
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    from webapp.card_completion_worker import queue_batch
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path)
+    try:
+        queue_batch(board, refund_batch)
+        worker = _worker(board, flow)
+        assert worker.sweep_once()
+        assert worker.status['failures'] == 0
+        assert worker.status['recorded'] == 1
+        assert board.conn.execute(
+            "SELECT display_tab_id,trip_id,amount_krw FROM ledger_entries WHERE transaction_id=?",
+            (refund,)).fetchone() == ("trip-a", "trip-a", -300000)
+        assert board.conn.execute(
+            "SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 2
+        # The job closes once the group is recorded; a second sweep writes nothing.
+        assert not worker.sweep_once()
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 2
+    finally:
+        board.close()
+
+
+@pytest.mark.parametrize("kwargs", [
+    dict(refund_amount=-700000),                       # over-refund
+    dict(number=""),                                   # no verified approval number
+    dict(tab="refunds", trip=""),                      # original has no real attribution
+    dict(hold=True),                                   # a person's hold on the refund
+])
+def test_worker_resume_never_records_a_refund_the_group_rule_rejects(tmp_path, monkeypatch, kwargs):
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    from webapp.card_completion_worker import queue_batch
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path, **kwargs)
+    try:
+        queue_batch(board, refund_batch)
+        worker = _worker(board, flow)
+        worker.sweep_once()
+        assert board.conn.execute(
+            "SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?",
+                                  (refund,)).fetchone()[0] == 0
+    finally:
+        board.close()
+
+
+def test_worker_resume_never_queues_an_inferred_link(tmp_path, monkeypatch):
+    """A same-amount, same-day inference is display-only: it must not become a job."""
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    from webapp.card_completion_worker import queue_batch
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(
+        tmp_path, refund_amount=-625280, number="")
+    try:
+        queue_batch(board, refund_batch)
+        worker = _worker(board, flow)
+        worker.sweep_once()
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
+        assert board.conn.execute(
+            "SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?", (refund,)).fetchone()[0] == 0
+    finally:
+        board.close()
+
+
+def test_single_row_decision_records_the_verified_cross_file_partial(tmp_path, monkeypatch):
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path)
+    try:
+        monkeypatch.setattr(CardFlow, "trip_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "tab_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "ota_group_holds", lambda self: {})
+        monkeypatch.setattr(CardFlow, "_already_projected", lambda self, *a, **kw: False)
+        assert flow.record_decision(refund_batch, refund) == 1
+        assert board.conn.execute(
+            "SELECT display_tab_id,trip_id FROM ledger_entries WHERE transaction_id=?",
+            (refund,)).fetchone() == ("trip-a", "trip-a")
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 2
+        # The owner's own click is not relabelled as an automatic write.
+        payload = board.conn.execute(
+            "SELECT payload_json FROM board_rows WHERE row_id='card-' || ?", (refund,)).fetchone()[0]
+        assert json.loads(payload)["confirmed_by"] == "owner"
+    finally:
+        board.close()
+
+
+@pytest.mark.parametrize("kwargs", [
+    dict(refund_amount=-700000),
+    dict(number=""),
+    dict(tab="refunds", trip=""),
+])
+def test_single_row_decision_keeps_the_group_rule(tmp_path, monkeypatch, kwargs):
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    from app import StoreError
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path, **kwargs)
+    try:
+        monkeypatch.setattr(CardFlow, "trip_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "tab_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "ota_group_holds", lambda self: {})
+        monkeypatch.setattr(CardFlow, "_already_projected", lambda self, *a, **kw: False)
+        with pytest.raises(StoreError):
+            flow.record_decision(refund_batch, refund)
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
     finally:
         board.close()

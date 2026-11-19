@@ -60,15 +60,22 @@ def enabled_for(board):
 
 
 def candidates(conn, ids=None):
-    """Rows still to complete; with `ids`, only among those rows (the scan then skips the rest of the batch)."""
+    """Rows still to complete; with `ids`, only among those rows (the scan then skips the rest of the batch).
+
+    A cancellation is not a purchase job, but a verified refund group whose original
+    is already booked is a recording job in its own right: the refund still has to
+    reach the ledger with the original's attribution. Those rows are candidates only
+    when the shared group rule accepts them, never an inferred or held link.
+    """
     from .card_classification_completion import missing_assignment_sql
-    from app.manual_overrides import exists_sql as manual_exists_sql
-    scope = '' if ids is None else ' WHERE transaction_id IN (SELECT value FROM json_each(?))'
+    booked_sql, booked_params = booked_refund_sql(conn)
+    params = ((() if ids is None else (json.dumps(sorted(ids)),)) + booked_params)
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
     return conn.execute(
         "WITH imported AS MATERIALIZED (SELECT transaction_id,MIN(batch_id) batch_id"
-        " FROM import_batch_rows" + scope + " GROUP BY transaction_id),"
+        " FROM import_batch_rows" + ('' if ids is None else
+        ' WHERE transaction_id IN (SELECT value FROM json_each(?))') + " GROUP BY transaction_id),"
         " queued AS MATERIALIZED (SELECT j.value transaction_id FROM requests q, json_each(q.response_json,'$.ids') j"
         " WHERE q.scope='card_completion_job' AND json_extract(q.response_json,'$.pending')=1),"
         " refund_originals AS MATERIALIZED (SELECT DISTINCT issuer,card_tail,original_approval_number"
@@ -79,23 +86,54 @@ def candidates(conn, ids=None):
         " FROM imported b JOIN transactions t USING(transaction_id)"
         " LEFT JOIN refund_originals f ON f.issuer=t.issuer AND f.card_tail=t.card_tail"
         " AND f.original_approval_number=t.approval_number"
-        " WHERE t.transaction_direction='purchase' AND t.amount_krw>0"
+        " WHERE ((t.transaction_direction='purchase' AND t.amount_krw>0"
         " AND (t.classification_state NOT IN ('classified','booked') OR COALESCE(t.item,'')=''"
         " OR " + missing_assignment_sql() +
         " OR t.transaction_id IN (SELECT transaction_id FROM queued))"
-        " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
-        " AND COALESCE(t.duplicate_of,'')='' AND t.decided_at IS NULL"
-        " AND COALESCE(t.classification_source,'') NOT IN"
-        " ('user_decision','user_exception','owner_booking','manual','manual_hold')"
-        " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
-        " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id") +
-        " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
-        " AND f.original_approval_number IS NULL"
-        " ORDER BY b.batch_id,t.row_index,t.transaction_id",
-        () if ids is None else (json.dumps(sorted(ids)),)).fetchall()
+        " AND " + held_back_sql(conn) + ")"
+        " OR (" + booked_sql + "))"
+        " ORDER BY b.batch_id,t.row_index,t.transaction_id", params).fetchall()
+
+
+_HOLD_BACK = (
+    " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
+    " AND COALESCE(t.duplicate_of,'')='' AND t.decided_at IS NULL"
+    " AND COALESCE(t.classification_source,'') NOT IN"
+    " ('user_decision','user_exception','owner_booking','manual','manual_hold')"
+    " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+    " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+    " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
+    " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+    " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e"
+    " WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
+)
+
+
+def held_back_sql(conn):
+    """The purchase conditions a completion job must pass, unchanged from before."""
+    from app.manual_overrides import exists_sql as manual_exists_sql
+    return ("1=1 AND f.original_approval_number IS NULL" + _HOLD_BACK
+            + " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id"))
+
+
+def booked_refund_sql(conn):
+    """`(sql, params)`: a cancellation tied to one of this job's queued rows by the shared group rule.
+
+    Derived from the same rule every recording path uses, so an inferred link, an
+    over-refund, a completed period or an unclean sibling never becomes a job.
+    """
+    from app.partial_refund import recordable_group_for
+    from app.manual_overrides import exists_sql as manual_exists_sql
+    queued = {r[0] for r in conn.execute(
+        "SELECT j.value FROM requests q, json_each(q.response_json,'$.ids') j"
+        " WHERE q.scope='card_completion_job' AND json_extract(q.response_json,'$.pending')=1")}
+    members, links = recordable_group_for(conn, queued)
+    pending = sorted(tid for tid in links if tid in members)
+    if not pending:
+        return "0", ()
+    return ("t.transaction_id IN (" + ",".join("?" for _ in pending) + ")"
+            " AND t.transaction_direction IN ('cancellation','refund')" + _HOLD_BACK
+            + " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id"), tuple(pending))
 
 
 def _digest(value):

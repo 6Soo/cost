@@ -15,7 +15,7 @@ _ROUTE = re.compile(r"^/api/maintenance/refund-pair/([a-zA-Z0-9_:-]{1,160})/(pre
 
 
 def _group_context(board, original_id):
-    from app.partial_refund import refund_links, refund_group, is_numbered_partial
+    from app.partial_refund import partial_group_exclusion, recordable_group_for, refund_group
     from .card_flow import CardFlow
 
     source = board.conn.execute(
@@ -27,19 +27,17 @@ def _group_context(board, original_id):
     members = refund_group(board.conn, original_id)
     if len(members) < 2:
         raise StoreError("REFUND_LINK_NOT_VERIFIED", "검증된 취소·환불 연결이 없습니다")
-    links = refund_links(board.conn, members[1:])
-    if (len(links) != len(members) - 1
-            or any(link["original_id"] != original_id or link.get("inferred")
-                   or not ((link.get("status") == "full" and link.get("net_krw") == 0)
-                           or is_numbered_partial(link))
-                   for link in links.values())):
+    # The same group rule every recording path uses: verified by approval number,
+    # never inferred, never an over-refund, number-partial groups outside completed
+    # periods and with no unclean sibling. Nothing here re-states those conditions.
+    group, links = recordable_group_for(board.conn, {original_id})
+    if group != set(members):
         raise StoreError("REFUND_LINK_NOT_VERIFIED",
                          "추론 연결이거나 원승인번호로 검증되지 않은 거래는 자동 기록하지 않습니다")
 
     if any(link.get("status") != "full" for link in links.values()):
-        # A numbered partial group is accepted only across files, and PROC-072 completed periods
-        # and errored/duplicate/conflicted cancels come first.
-        from app.partial_refund import partial_group_exclusion
+        # A numbered partial group is accepted only across files; a same-file partial
+        # is the ordinary pair rule's job and is not recorded by this screen.
         files = [{r[0] for r in board.conn.execute(
             "SELECT batch_id FROM import_batch_rows WHERE transaction_id=?", (m,))} for m in members]
         if partial_group_exclusion(board.conn, original_id) or set.intersection(*files):

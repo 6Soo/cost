@@ -82,14 +82,15 @@ class Pipeline:
                tab_validator=None,review_from=None,
                entry_metadata=None, additional_holds=None, group_original=None,
                automatic_record=False, include_verified_full_refunds=False,
-               transaction_ids=None) -> dict:
+               transaction_ids=None, verified_refund_expansion=False) -> dict:
         return commit(self.store, batch_id, preview_digest, request_id,
                       projection=projection, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
                       group_original=group_original, automatic_record=automatic_record,
                       include_verified_full_refunds=include_verified_full_refunds,
-                      transaction_ids=transaction_ids)
+                      transaction_ids=transaction_ids,
+                      verified_refund_expansion=verified_refund_expansion)
 
     # history
     def changes(self, subject: str = "") -> list:
