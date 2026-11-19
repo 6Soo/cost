@@ -64,21 +64,11 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
         else (review_from, review_from, batch_id, json.dumps(sorted(transaction_ids)))).fetchall())
     if not include_verified_full_refunds:
         return rows
-    from .partial_refund import refund_links, refund_group, is_numbered_partial, partial_group_exclusion
+    from .partial_refund import recordable_group_for
     current_ids = {row[0] for row in rows}
-    refund_ids = [r[0] for r in store.conn.execute(
-        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
-    links = refund_links(store.conn, refund_ids)
-    extra = set()
-    for refund_id, link in links.items():
-        if link.get('inferred') or not (
-                (link['status'] == 'full' and link['net_krw'] == 0) or is_numbered_partial(link)):
-            continue
-        if is_numbered_partial(link) and partial_group_exclusion(store.conn, link['original_id']):
-            continue
-        if refund_id in current_ids or link['original_id'] in current_ids:
-            extra.update(refund_group(store.conn, link['original_id']))
-    extra.difference_update(current_ids)
+    # One shared rule decides which other actual rows join a verified refund group.
+    members, _links = recordable_group_for(store.conn, current_ids)
+    extra = members - current_ids
     # Only ever use actual imported originals. Never construct synthetic money rows.
     # Bounded SQL parameters work even when a source batch has thousands of rows.
     for start in range(0, len(extra), 400):
@@ -428,13 +418,11 @@ def scope_group(store, result: dict, original_id: str,
     """
     members = group_members(store, original_id)
     if require_verified_zero:
-        from .partial_refund import refund_links, is_numbered_partial
-        links = refund_links(store.conn, members[1:])
-        if (not links or len(links) != len(members) - 1
-                or any(link.get('inferred') or link['original_id'] != original_id
-                       or not ((link['status'] == 'full' and link['net_krw'] == 0)
-                               or is_numbered_partial(link))
-                       for link in links.values())):
+        from .partial_refund import recordable_group_for
+        # The shared group rule accepts a verified full zero-net group or a numbered
+        # partial group, so no caller re-states the conditions in its own words.
+        group, _links = recordable_group_for(store.conn, {original_id})
+        if group != set(members):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
@@ -790,7 +778,8 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
-           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None) -> dict:
+           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None,
+           verified_refund_expansion=False) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -818,9 +807,13 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if automatic_record:
         scope['automatic_record'] = True
     if include_verified_full_refunds:
-        if not automatic_record:
+        if not (automatic_record or verified_refund_expansion):
             raise StoreError(CODE_INVALID_INPUT, "검증된 환불 묶음 확장은 자동 기록 전용입니다")
         scope['include_verified_full_refunds'] = True
+    if verified_refund_expansion and not automatic_record:
+        # An owner's single-row recording may carry its verified refund group
+        # without being labelled an automatic write.
+        scope['verified_refund_expansion'] = True
     if group_original is not None:
         scope["group"] = str(group_original)
     payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()

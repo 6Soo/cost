@@ -1581,13 +1581,21 @@ class CardFlow:
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), entry_metadata=self.preview_metadata())
         from app.db import StoreError
+        # The chosen row is recorded with the verified refund group it belongs to,
+        # under the same rule the automatic paths use. `batch_scope` still holds
+        # everything else in this file back, so no other row is booked.
+        from app.partial_refund import recordable_group_for
+        members, _links = recordable_group_for(self.board.conn, {transaction_id})
+        include_groups = bool(members & {transaction_id})
         with self.board._lock:
-            holds = dict(self.automatic_holds(batch_id))
-            probe = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            holds = dict(self.automatic_holds(batch_id, include_verified_full_refunds=include_groups))
+            probe = self.pipeline.preview(batch_id, **options, additional_holds=holds,
+                                          include_verified_full_refunds=include_groups)
             for row in probe['rows']:
                 if row['transaction_id'] != transaction_id:
                     holds.setdefault(row['transaction_id'], {'kind': 'batch_scope', 'reason': '이번에 정한 거래만 기록합니다'})
-            preview = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            preview = self.pipeline.preview(batch_id, **options, additional_holds=holds,
+                                            include_verified_full_refunds=include_groups)
             if not any(row['transaction_id'] == transaction_id for row in recordable_rows(preview['rows'])):
                 if any(row['transaction_id'] == transaction_id and row.get('already_booked') for row in preview['rows']):
                     return 0
@@ -1595,7 +1603,9 @@ class CardFlow:
                 raise StoreError('NOT_RECORDED', reason)
             result = self.pipeline.commit(batch_id, preview['digest'],
                 'decision-record:' + transaction_id + ':' + preview['digest'],
-                projection=lambda entry: self.project(entry), additional_holds=holds, **options)
+                projection=lambda entry: self.project(entry), additional_holds=holds,
+                include_verified_full_refunds=include_groups,
+                verified_refund_expansion=include_groups, **options)
             return result['applied']
 
     def _trip_move_origin_revision(self, transaction_id, request_id, originating_revision=None):
@@ -1890,6 +1900,13 @@ class CardFlow:
             state['auto_recorded'] = 0
             return state
         include_refund_groups = transaction_ids is None
+        # A narrowed chunk still records a verified refund group as one unit. The
+        # question is whether the selected rows belong to such a group, not whether
+        # the caller happened to hand over a whole batch.
+        if not include_refund_groups and transaction_ids:
+            from app.partial_refund import recordable_group_for
+            members, _links = recordable_group_for(self.board.conn, transaction_ids)
+            include_refund_groups = bool(members & set(transaction_ids))
         # A selected chunk is previewed and committed with only the rows it is judged with (itself and its
         # refund pairs/groups); the rest of the batch used to be read, held and previewed again for nothing.
         scope = None if transaction_ids is None else self._refund_scope(batch_id, transaction_ids)
