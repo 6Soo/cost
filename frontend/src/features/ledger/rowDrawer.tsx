@@ -26,15 +26,15 @@ type RowDetail = {
   detail?: RowEvidence | null;
 };
 
-/** The evidence keys the drawer names. An absent or blank value is omitted, so
- *  a missing reservation number never prints an empty row (계약 4: 미확인 ≠ 0). */
+/** The stored values the drawer was missing. Only `reservation_no` is listed:
+ *  the other `safe_detail` keys already reach the reader elsewhere on this
+ *  screen — `source_merchant`/`source_kind`/`source_event_id`/`evidence_type`
+ *  in the 원문 section and the period in the 이용 기간 row — and printing them
+ *  twice is the duplicate-display defect M4 LOW #「거래 상세 서랍의 제목·닫기가
+ *  2회」 warns about. A blank value is omitted, so a missing reservation number
+ *  never prints an empty row (계약 4: 미확인 ≠ 0). */
 const EVIDENCE_FIELDS: Array<[key: string, label: string]> = [
   ['reservation_no', '예약번호'],
-  ['service_period', '저장 이용기간'],
-  ['evidence_type', '증빙 종류'],
-  ['source_merchant', '원문 가맹점'],
-  ['source_kind', '원본 종류'],
-  ['source_event_id', '원본 사건 ID'],
 ];
 
 function evidenceEntries(evidence: RowEvidence | null | undefined): Array<[string, string]> {
