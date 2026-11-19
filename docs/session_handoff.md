@@ -1,3 +1,20 @@
+# 2026-11-19 — M4 환불 귀속 제외의 합계 범위·분기 탭 행 대조 (PR #1015)
+
+- **요청/결과:** 감독 지시 “M4 환불 탭·배제 필터 패리티”에 따라, 금액 대조 작업자가 코드로만 확인하고 실측하지 못한 `_selected_rows`의 환불 짝 제외와 React `_ledger`의 행 선택을 같은 합성 저장소에서 대조했다. 기준 `origin/main`은 **`3d8e8791`**(`d2debf38` 이후, `1a386e8d` 병합 포함), 작업공간은 이 worktree의 브랜치 `work/m4-refund-tab-parity-20261118`.
+- **코드 확정(제외 규칙의 범위):** 레거시 `webapp/ledger_design.py:_selected_rows`는 `owner`일 때 `refund_tab.member_ids`의 `source_event_id`를 **지출 목록에서만** 걸러 내고(수입 목록은 그대로), `whole_expense`에도 같은 조건을 건다. `webapp/refund_tab.py:_member_ids`는 비추론·모든 구성원 기록·순액 0·같은 탭일 때만 구성원을 돌려준다. React `webapp/plush_api.py:_ledger`는 `1a386e8d` 이후 같은 `member_ids`를 쓰되 **모든 행**에 조건을 걸어, 수입 행이 같은 키를 가지면 두 경로의 행 집합·합계가 갈렸다.
+- **실측(합성, 운영 원본·운영 DB·운영 포트 미사용):**
+  - 전액환불 짝 + 일반 지출 + 부분환불 한 탭(owner): 레거시 3행 100,000원 = React 3행 `filtered_total` 100,000·`trip.expense` 100,000. 제외는 양쪽에서 동일하게 적용됨(차이 0).
+  - 수입 행 키 충돌(수입 777,000원 + 전액 짝): **수정 전** 레거시 수입 1행 777,000원 vs React 0행(수입·차액 `미확인`); **수정 후** 양쪽 1행 777,000원.
+  - 분기 탭(`quarter:2026:3`) 확정 지출 40,000·60,000: **수정 전** 레거시 `거래 0건 · 0원`·실시간 요약 0원 vs React 2건 100,000원; **수정 후** 양쪽 `거래 2건 · 100,000원`, React 2행 `filtered_total` 100,000. 분기 탭에 저장된 수입 행도 같은 방식으로 양쪽 일치(50,000원).
+  - 부분환불: 양쪽이 원결제 여행에 +100,000/−30,000을 보존, 합계 70,000(RFND-021). 초과환불·중복·원본 충돌은 기존 회귀가 이미 고정(이번 변경 전후 통과).
+  - viewer: 짝은 양쪽에서 제외되지 않고 순액 그대로 남는다(레거시 3행 30,000 = React 3행 30,000).
+- **수정:** ① `plush_api._ledger`의 제외를 **지출 행에만** 적용(레거시와 같은 범위). ② `ledger_design`에 `_quarter_tab_rows`/`_quarter_booked_rows`/`_is_quarter_tab`를 추가하고 `_selected_rows`·`_quarter_body`·`_quarter_page`가 분기 탭의 자기 행을 `list_tab_rows`로 읽게 함(지출·수입 모두). 표시·합계 집합만 맞췄고 금액·부호·환불 관계·권한 경계는 바꾸지 않았다.
+- **회귀 고정:** `webapp/tests/test_m4_parity_refund_total_scope.py`(5건, owner 수입 키 충돌·부분환불·분기 지출 행·분기 부호·분기 수입 행). 수정 전 3건이 실패하고 수정 후 통과함을 확인했다. `config/test-impact-map.json`의 `m4-query-contract-parity`에 등록.
+- **검사:** 새 파일 5 passed, 패리티 5파일 34 passed, 인접 설계·plush·분기 105 passed + 15 subtests. 공식 `python tools/run_quality_checks.py --base origin/main --run` 결과는 이 절 아래 값으로 채운다.
+- **2026-11-19 후속(이번 턴):** 표적 패리티 4파일 32 passed → 수정 후 33 passed, `m4-query-contract-parity` 영향 그룹 7파일 **71 passed**. **새 결함 1건 발견·수정:** 분기 탭 행이 여행 탭 순액 0 짝과 `source_event_id`를 공유하면 분기 헤더·본문은 2건·81,000원, 바로 옆 실시간 요약과 React는 1건·20,000원을 그려 **같은 화면 안에서 모순**이었다. `_quarter_booked_rows`에 `_selected_rows`와 같은 배제·같은 역할 경계를 적용(`0cc7222d`), 회귀 테스트 `test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip`은 수정 전 코드에서 실패하고 수정 후 통과함을 확인했다. 이어 `0cc7222d`에서는 배제 규칙을 `_quarter_excluded_ids` 한 곳으로 모았다(`1bb1bb96`, 동작 불변). 행 집합 대조 8개 시나리오 전부 차이 0(`.local-archive/m4-refund-tab-20261119/rowset-compare.md`).
+- **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `webapp/tests/test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
+- **검수 상태(중요):** AGY(`claude-opus-4-6-thinking`) 검수는 세 번째 실행이 **구독 한도(429, 약 4시간 28분 후 초기화)로 마지막 단계에서 중단**됐다. 판정문은 없다. 중단 전까지 초점 A(배제 경계=레거시와 동일)·B(분기 탭 행 원천·이중 계산 없음·탭 오인 없음)·C(동등성)·D(테스트 약화 없음)를 확인하고 결함을 찾지 못했다. **최종 SHA `1bb1bb96`은 검수되지 않았다** — 한도 초기화 뒤 재검수 또는 AGENTS.md 2026-11-13 소유자 결정(구현자와 다른 opus 세션 검수)으로 대체해야 병합 조건을 채운다.
+
 # 2026-11-19 — OTA 별칭 4개 추가 (PR #1027, CI 초록·미병합)
 
 - **요청/결과:** 소유자 결정(2026-11-19) “OTA 명단에 airbnb·rakuten·forest·mytrip 추가”에 따라 `config/ota-matching-defaults.json`에 별칭을 추가했다. 브랜치 `analysis/ota-service-period-coverage-20261119`, 커밋 `9d4d7d07`, 기준 `40ee03fd`. **PR #1027 생성, CI(impact-checks·rust-core) 실행 중.**
@@ -10,8 +27,8 @@
 - **남은 일:** ① 병합(검수 승인 + CI 초록이므로 충분조건 충족). ② 소유자 결정 2026-11-17에 따라 같은 세션 단일 작성자 창에서 배포 판단(금융 기장 진행 중이면 보류, 다른 세션에 배포 전후 알림).
 - **사전 결함(고치지 않음):** `provider_for_merchant('MYTRIP.COM')=='trip'` — `trip.com`이 부분 문자열로 우선. 변경 전에도 같다. 게이트 매칭을 단어 경계로 바꾸는 정책 결정 필요. 테스트에 사실만 고정했다.
 - **다음 명령:** `gh pr checks 1027` → CI 초록이면 `tools/deploy_verified_release.ps1 -PreviousSha <현재 운영 SHA>`(다른 세션에 배포 전후 알림).
-
 # 2026-11-18 — M5 작업 큐·임대·P2 어댑터 최소 후보 분리 (미병합)
+
 
 - **요청/결과:** “#993 M5에서 이미 병합된 순수 P2 결속(#1003)·백업(#996)·계측(#1001)을 제외하고 원격 큐·리스·재시도와 P2 어댑터의 최소 독립 후보를 최신 main에 분리”에 따라 origin/main **`00d4aac5`(#1005, docs-only)** 기준의 미커밋 후보로 분리했다. 브랜치 `qwen-m5-queue-adapter-min-20261118`, 작업공간 `C:/AX/cost-m5-queue-adapter-20261118`. 원래 통합 작업공간 `qwen-m5-runtime-20261118`은 HEAD `019386ac`·미커밋 테스트 4파일 상태 그대로 복구해 두었고, 백업은 `.local-archive/qwen-m5-runtime-split-20261118/`에 SHA256과 함께 있다.
 - **포함:** `core/crates/core/src/jobs/mod.rs`(중복 키·임대 소유자/만료·generation fencing·30/60초 재시도·일일 예산 예약·결과 저장), `store/schema.rs`의 가산적 V3(열 3개·`jobs_state_id` 색인·state 트리거), `cli`의 `queue` stdin/stdout 브리지·`server`/`node` 실행·`p2 prepare/validate/replay/codex`, `core/src/p2.rs`의 제한된 Codex CLI 어댑터, `tools/m5_runtime.py`(HTTPS 필수·루프백만 허용·노드 리스너 없음)와 `tools/m5_p2_adapter.py`, 그리고 Rust `jobs_queue.rs`·`queue_bridge.rs`·`p2_binding.rs` 및 합성 HTTP 통합·어댑터 검사.
