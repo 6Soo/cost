@@ -117,12 +117,68 @@ def policy_dir(tmp_path, *, retired=(), extra=None):
 def test_layer1_policy_exceptions_keep_seven_sections_after_abolished_ids():
     # The real policy set must still hand layer 1 all seven item exceptions even though
     # ITEM-037/038/044 became TRIP-070/071/DATE-054 in the consolidated documents.
+    # Each section starts a line with `ID · title`, as the old split('### ') produced.
     text = layer1.policy_text()
-    identities = re.findall(r'(?m)^### ([A-Z]+-\d+)', text)
+    identities = re.findall(r'(?m)^([A-Z]+-\d+) · ', text)
     assert identities == ['ITEM-024', 'ITEM-028', 'ITEM-029', 'TRIP-070', 'TRIP-071', 'DATE-054', 'ITEM-050']
+    assert '### ' not in text
     core = layer1.ROOT.joinpath('docs/DECISION_POLICY.md').read_text(encoding='utf-8')
     assert text.startswith(core.split('### 3.3 항목',1)[1].split('### 3.4',1)[0])
     assert '- 출처:' not in text
+
+
+def test_layer1_policy_text_truncates_source_markers_inside_sections(tmp_path):
+    # No canonical section carries `- 출처:` today, so the legacy truncation rule would
+    # look vacuous. Pin it on a minimal synthetic set that keeps all seven IDs.
+    files = {f'{index}.md': f'### {identity} · 형식\n\n{identity} 본문 유지\n'
+             for index, identity in enumerate(layer1.POLICY_EXCEPTION_IDS)}
+    files['0.md'] = '### ITEM-024 · 형식\n\n본문 유지\n- 출처: 내부 근거\n'
+    (tmp_path/'RETIRED_IDS.md').write_text(
+        '| 과거 ID | 과거 규칙 제목 | 결정 유형 | 상태 | 현행 정본 ID |\n'
+        '| `ITEM-037` | 옛 | 사용자 예외 | **폐지·통합** | [`ITEM-038`](./4.md) |\n'
+        '| `ITEM-038` | 옛 | 사용자 예외 | **폐지·통합** | [`ITEM-044`](./5.md) |\n'
+        '| `ITEM-044` | 옛 | 사용자 예외 | **폐지·통합** | [`ITEM-029`](./2.md) |\n', encoding='utf-8')
+    for name, body in files.items():
+        (tmp_path/name).write_text(body, encoding='utf-8')
+    text = layer1.policy_text(tmp_path)
+    assert '본문 유지' in text and '내부 근거' not in text
+    assert '- 출처:' not in text
+
+
+
+
+def test_policy_text_join_shape_reproduces_the_legacy_split():
+    # The legacy code was `next(s for s in item.split('### ') if s.startswith(id)` joined
+    # with '\n'. Rebuild that shape directly from the real documents and require the
+    # joined exception block to match byte for byte; only the policy text itself may differ.
+    requested = ((('ITEM-024', 'ITEM-024', 'item.md'), ('ITEM-028', 'ITEM-028', 'item.md'),
+                  ('ITEM-029', 'ITEM-029', 'item.md'), ('ITEM-037', 'TRIP-070', 'trip.md'),
+                  ('ITEM-038', 'TRIP-071', 'trip.md'), ('ITEM-044', 'DATE-054', 'date.md'),
+                  ('ITEM-050', 'ITEM-050', 'item.md')))
+    library = {requested_id: next(s for s in layer1.ROOT.joinpath('docs/policy', name).read_text(encoding='utf-8')
+                                 .split('### ') if s.startswith(canonical))
+               for requested_id, canonical, name in requested}
+    legacy_block = '\n'.join(library[identity].split('- 출처:', 1)[0]
+                             for identity, _, _ in requested)
+    text = layer1.policy_text()
+    # The core block already ends with a newline, so the legacy join adds exactly one
+    # more before the first section. Slice from that separator, not from the section ID.
+    assert text.endswith(legacy_block)
+    assert text[:-len(legacy_block)].endswith('\n')
+    for section in library.values():  # the marker is stripped, never kept
+        assert not section.startswith('### ')
+
+
+def test_policy_text_keeps_the_legacy_boundary_on_the_real_policy_set():
+    # The real set must keep the same boundary shape the old `split('### ')` produced,
+    # even though consolidation changed the text of some sections.
+    text = layer1.policy_text()
+    assert '\n\nITEM-028 · 다이소 공통 사무용품\n' in text
+    assert '\n\nITEM-050 · FUKUTAKE 입장료\n' in text
+    assert '### ' not in text
+
+
+
 
 
 def test_layer1_policy_text_refuses_missing_section_instead_of_stopiteration(tmp_path):

@@ -129,7 +129,7 @@ def merchants(rows):
 # headings; ITEM-037/038/044 were merged into TRIP-070/TRIP-071/DATE-054 and resolve
 # through docs/policy/RETIRED_IDS.md. The rules themselves are never edited here.
 POLICY_EXCEPTION_IDS = ('ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-037', 'ITEM-038', 'ITEM-044', 'ITEM-050')
-POLICY_HEADING_RE = re.compile(r'(?m)^### ([A-Z]+-\d+)')
+POLICY_CHUNK_RE = re.compile(r'^([A-Z]+-\d+)')
 POLICY_RETIRED_RE = re.compile(
     r'(?m)^\| `([A-Z]+-\d+)` \|[^|]*\|[^|]*\|[^|]*\| \[`([A-Z]+-\d+)`\]\(\./([^)\s]+)\) \|')
 
@@ -140,16 +140,22 @@ def policy_documents(policy_dir):
 
 
 def policy_sections(documents):
-    """`### <ID>` bodies keyed by canonical rule ID across the whole policy set."""
+    """`### <ID>` sections keyed by canonical rule ID across the whole policy set.
+
+    Extraction mirrors the previous `item.split('### ')` contract exactly, including the
+    leading whitespace of each chunk and any trailing blank line, because layer-1's prompt
+    and request digest are built from that text.
+    """
     sections, owners = {}, {}
     for name, text in documents.items():
-        headings = list(POLICY_HEADING_RE.finditer(text))
-        for position, heading in enumerate(headings):
-            identity = heading.group(1)
+        for chunk in text.split('### ')[1:]:
+            match = POLICY_CHUNK_RE.match(chunk)
+            if not match:
+                continue
+            identity = match.group(1)
             if identity in sections:
                 raise ValueError('POLICY_ID_DUPLICATED:' + identity)
-            end = headings[position + 1].start() if position + 1 < len(headings) else len(text)
-            sections[identity] = text[heading.start():end].rstrip('\n')
+            sections[identity] = chunk
             owners[identity] = name
     return sections, owners
 
@@ -186,6 +192,9 @@ def policy_text(policy_dir=None):
     retired = retired_map(documents)
     exceptions = [canonical_rule(identity, sections, owners, retired).split('- 출처:',1)[0]
                   for identity in POLICY_EXCEPTION_IDS]
+    # Sections are trimmed and joined with one newline, exactly as the previous
+    # `split('### ')` + `'\n'.join` did. The join shape feeds the request digest, so
+    # trimming or re-joining differently would silently reshape the P2 prompt.
     return core + '\n' + '\n'.join(exceptions)
 
 
