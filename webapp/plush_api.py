@@ -94,11 +94,28 @@ def _owner(ledger_board: Any, access: Any, session: Any) -> bool:
 def _visible_trips(board: Any, access: Any, session: Any, owner: bool) -> list[dict[str, Any]]:
     if board is None:
         return []
-    trips = list(board.list_trips(include_archived=True))
+    # The ledger request asks for the trip list several times (the trip lookup,
+    # the summary, the row-detail projection), and each read ran a trip query
+    # plus two history scans.  ``_cached_trips`` memoises the store read for the
+    # request; only the role filter stays here.  ``ledger_board`` and the
+    # reconciliation helper read the same store through ``list_trips`` and use the
+    # same scope key, so one request reads the list once whichever path asks.
+    trips = _cached_trips(board)
     if owner:
         return [trip for trip in trips if not trip.get("deleted")]
     allowed = set(access.visible_tabs(session.user_id))
     return [trip for trip in trips if trip.get("tab_id") in allowed and not trip.get("deleted")]
+
+
+def _cached_trips(board: Any) -> list[dict[str, Any]]:
+    """The archived-inclusive trip list, read once per read scope."""
+    from . import read_scope
+    if not read_scope.active():
+        return list(board.list_trips(include_archived=True))
+    return list(read_scope.remember(
+        ("trips_archived", id(board)),
+        lambda: list(board.list_trips(include_archived=True)),
+    ))
 
 
 def _board_instance(board: Any) -> Any:
@@ -285,9 +302,22 @@ def _refund_member_ids(board: Any, owner: bool) -> set:
         return set()
 
 
-def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
-            query: dict[str, list[str]]) -> dict[str, Any]:
-    owner = _owner(ledger_board, access, session)
+def _sort_amount_text(row: dict[str, Any]) -> str:
+    """The amount string ``plush_projection.ledger_row`` puts in its ``amount``.
+
+    The sort order must match what the table shows, so this returns exactly the
+    DTO's amount: ``"미확인"`` for a Google income row whose source amount could
+    not be read (the DTO replaces the number there), otherwise the displayed
+    integer as a string.  ``int()`` on ``"미확인"`` raises, which is what places
+    an unknown amount last instead of treating it as zero.
+    """
+    if row.get("google_income") and row.get("amount_missing"):
+        return "미확인"
+    return projection.money(projection._display_amount(row))
+
+
+def _ledger(access: Any, session: Any, board: Any,
+            query: dict[str, list[str]], *, owner: bool) -> dict[str, Any]:
     trip, rows = _trip_for_query(board, access, session, owner, query)
     income = _source_income(board, access, session, owner, str(trip.get('tab_id') or ''))
     rows = _with_income(rows, income)
@@ -326,20 +356,29 @@ def _ledger(ledger_board: Any, access: Any, session: Any, board: Any,
         raise _ProjectionError("INVALID_VALUE", "정렬 조건이 올바르지 않아요", 400)
 
     def key(row: dict[str, Any]):
-        shown = projection.ledger_row(row)
+        # The sort only needs the displayed date, merchant and amount.  Building
+        # the whole DTO per comparison is O(n log n) projections and was the
+        # single largest cost of this list at 5,000 rows.  The values are read
+        # from the same fields ``ledger_row`` reads, so the order is identical:
+        # ``_display_date``/``_display_amount`` are the projection's own helpers.
         if sort.startswith("date"):
-            return (shown["date"], shown["id"])
+            return (projection._display_date(row), str(row.get("row_id") or ""))
         if sort.startswith("merchant"):
-            return (shown["merchant"].casefold(), shown["id"])
+            kind = str(row.get("row_kind") or "expense")
+            merchant = (row.get("source_merchant") if kind != "income"
+                        else row.get("customer_name"))
+            merchant = merchant or row.get("item") or row.get("income_kind") or ""
+            return (str(merchant or "").casefold(), str(row.get("row_id") or ""))
+        amount_text = _sort_amount_text(row)
         try:
-            amount = int(shown["amount"])
+            amount = int(amount_text)
         except ValueError:
             # An unknown amount is not a zero (SPEC §11.2.1 계약 4 / GGL-014) and
             # must not sit among real balances. The flag is chosen so `reverse`
             # still leaves the unknowns last: ascending sorts flag 1 before 0,
             # descending reverses that into flag 0 before 1.
-            return (0 if sort.endswith("_desc") else 1, 0, shown["id"])
-        return (1 if sort.endswith("_desc") else 0, amount, shown["id"])
+            return (0 if sort.endswith("_desc") else 1, 0, str(row.get("row_id") or ""))
+        return (1 if sort.endswith("_desc") else 0, amount, str(row.get("row_id") or ""))
 
     rows.sort(key=key, reverse=sort.endswith("_desc"))
     try:
@@ -1601,12 +1640,23 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, raw: bytes | None = None,
         # One request reads each Google snapshot and row set once. Bootstrap and
         # home both walk every trip, and each trip re-reads the same 1.7MB files
         # through plush_income: ~3.5s for 72 trips uncached, ~0.8s inside one scope.
+        #
+        # The ledger is scoped for the same reason.  Its period annotation reads
+        # a stored/manual/evidence index per row, and each row without a saved
+        # period asked for ``stay_index`` again; outside a scope that recomputed a
+        # full tab load and a schema probe on every row (51 probes for 50 rows).
+        # One scope makes those shared reads happen once per request.  It changes
+        # no value: every key it memoises is read-only for the life of the request.
         from . import read_scope
         if path in ("/api/plush/bootstrap", "/api/plush/home"):
             projection_fn = _bootstrap if path == "/api/plush/bootstrap" else _home
             result = read_scope.scoped(projection_fn)(ledger_board, access, session, board)
         elif path == "/api/plush/ledger":
-            result = _ledger(ledger_board, access, session, board, query)
+            owner = _owner(ledger_board, access, session)
+            # Only the owner's refund exclusion needs rows across tabs.
+            bulk_rows = owner and _first(query, "tab") != "refunds"
+            result = read_scope.scoped(_ledger, bulk_board_rows=bulk_rows)(
+                access, session, board, query, owner=owner)
         elif path == "/api/plush/row":
             result = _row_detail(ledger_board, access, session, board, query)
         elif path == "/api/plush/transactions":
