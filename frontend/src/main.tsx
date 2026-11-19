@@ -1,17 +1,19 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "./app/AppShell";
 import { featureRoute } from "./app/routes";
 import { ApiError, getJSON } from "./api/client";
 import type { Bootstrap } from "./api/types";
-import { HomePage } from "./features/home";
-import { TripsPage } from "./features/trips";
-import { LedgerPage } from "./features/ledger";
-import { TransactionsPage } from "./features/transactions";
-import { ReceiptsPage } from "./features/receipts";
-import { AdminPage } from "./features/admin";
-import { AuxiliaryPage } from "./features/auxiliary";
 import "./styles/index.css";
+
+// Pages load per route so the first screen does not ship every tab's code.
+const HomePage = lazy(() => import("./features/home").then((m) => ({ default: m.HomePage })));
+const TripsPage = lazy(() => import("./features/trips").then((m) => ({ default: m.TripsPage })));
+const LedgerPage = lazy(() => import("./features/ledger").then((m) => ({ default: m.LedgerPage })));
+const TransactionsPage = lazy(() => import("./features/transactions").then((m) => ({ default: m.TransactionsPage })));
+const ReceiptsPage = lazy(() => import("./features/receipts").then((m) => ({ default: m.ReceiptsPage })));
+const AdminPage = lazy(() => import("./features/admin").then((m) => ({ default: m.AdminPage })));
+const AuxiliaryPage = lazy(() => import("./features/auxiliary").then((m) => ({ default: m.AuxiliaryPage })));
 
 function pageFor(path: string, bootstrap: Bootstrap, search: URLSearchParams) {
   const props = { bootstrap, path, search };
@@ -39,7 +41,7 @@ function RootApp() {
   }, []);
   if (error) return <main className="cost-main"><section className="cost-panel" role="alert"><h1>화면을 열 수 없습니다</h1><p>{error}</p></section></main>;
   if (!bootstrap) return <main className="cost-main"><p role="status">COST 화면을 준비하는 중입니다…</p></main>;
-  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path} currentTripId={search.get("tab") || search.get("trip") || ""}>{pageFor(path, bootstrap, search)}</AppShell>;
+  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path} currentTripId={search.get("tab") || search.get("trip") || ""}><Suspense fallback={<main className="cost-main"><p role="status">화면을 준비하는 중입니다…</p></main>}>{pageFor(path, bootstrap, search)}</Suspense></AppShell>;
 }
 
 const rootElement = document.getElementById("root");
