@@ -375,10 +375,6 @@ def _index_side(rows, label):
                          "duplicate": duplicate_items}
 
 
-def _entry_of_unused(identity: str) -> str:
-    return identity
-
-
 def _comparable(row: dict) -> dict:
     return {field: row.get(field) for field in BUSINESS_FIELDS}
 

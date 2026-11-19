@@ -14,7 +14,6 @@ from .pages import (
     history_page,
     kpi_page,
     new_csrf_token,
-    preview_page,
     propose_form_page,
     queue_page,
 )
@@ -118,9 +117,6 @@ class WebApp:
                 target = item["target"] or stream_id
                 shadow[target] = {"axes": item["axes"], "event_id": item["event_id"]}
         return diff_json(baseline, {**baseline, **shadow})
-
-    def handle_preview(self, query):
-        return 200, "text/html; charset=utf-8", preview_page(self.shadow_preview())
 
     def check_csrf(self, headers, form) -> bool:
         token = form.get("csrftoken", [""])[0]
