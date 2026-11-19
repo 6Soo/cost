@@ -16,9 +16,9 @@
     },
     {
       "name": "m5-content-free-request-metrics",
-      "paths": ["app/http_request_counts.py", "webapp/http_counting.py", "tools/http_request_metrics_summary.py", "tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "tools/launch_web_ledger.py", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "webapp/tests/test_local_host_startup.py", "webapp/tests/test_launch_request_metrics.py"],
-      "tests": ["tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "webapp/tests/test_http_counting.py", "webapp/tests/test_local_host_startup.py", "webapp/tests/test_launch_request_metrics.py"],
-      "reason": "Persisted request counters without request contents or customer identifiers, and the explicit opt-in launch forwarding that reaches them (board only, default off)"
+      "paths": ["app/http_request_counts.py", "webapp/http_counting.py", "tools/http_request_metrics_summary.py", "tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "tools/launch_web_ledger.py", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "platform_tests/windows/test_local_host_startup.py", "webapp/tests/test_launch_request_metrics.py"],
+      "tests": ["tests/test_http_request_counts.py", "tests/test_http_request_metrics_summary.py", "webapp/tests/test_http_counting.py", "webapp/tests/test_launch_request_metrics.py"],
+      "reason": "Persisted request counters without request contents or customer identifiers, and the explicit opt-in launch forwarding that reaches them (board only, default off). The Windows-only host startup contract lives in platform_tests/windows, executed fail-closed by the Windows CI job; it is a path trigger here, never an Ubuntu pytest target."
     },
     {
       "name": "p2-period-gate",

@@ -6,6 +6,12 @@ would touch is replaced by a mock — and assert on what the operator would be
 shown. No scheduled task is registered, no process is started, no port is
 opened and no network call is made.
 
+This file lives in platform_tests/windows/ because it drives native Windows
+PowerShell ('powershell'), which the Ubuntu impact runner does not have. The
+Windows CI job executes this whole folder fail-closed on every pull request
+and push to main, so the impact map lists the file as a path trigger only,
+never as an Ubuntu pytest target.
+
 The mocks are deliberately faithful about the parts of Windows that bit this
 code before:
 
