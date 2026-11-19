@@ -164,6 +164,58 @@ def test_selected_browser_module_parse_error_fails_closed(tmp_path):
         quality.collect_browser_tests(["test_broken_browser.py"], root=tmp_path)
 
 
+def test_browser_resolved_through_class_helper_requires_the_test():
+    # Regression for the CI mismatch: the test never mentions sync_playwright;
+    # its class helper `_page` does, so Chromium must be installed before it runs.
+    targets = ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_state.py"]
+    cases = quality.collect_browser_tests(targets)
+    assert len([c for c in cases if c.startswith("webapp.tests.test_ledger_design::")]) == 29
+    assert len([c for c in cases if c.startswith("webapp.tests.test_ledger_design_state::")]) == 12
+    assert ("webapp.tests.test_ledger_design::DesignScreenTests::"
+            "test_the_font_is_really_loaded_in_the_browser") in cases
+    selected = ("webapp/tests/test_ledger_design.py::DesignScreenTests::"
+                "test_the_font_is_really_loaded_in_the_browser")
+    assert quality.collect_browser_tests([selected]) == [
+        "webapp.tests.test_ledger_design::DesignScreenTests::test_the_font_is_really_loaded_in_the_browser"]
+
+
+def test_browser_helper_chain_is_followed_and_cycles_terminate(tmp_path):
+    module = tmp_path / "test_nested_helpers.py"
+    module.write_text(
+        "class HelperChainTests:\n"
+        "    def _page(self):\n"
+        "        return self._open()\n"
+        "    def _open(self):\n"
+        "        from playwright.sync_api import sync_playwright\n"
+        "        return sync_playwright().start()\n"
+        "    def test_renders_through_helper(self):\n"
+        "        self._page()\n"
+        "    def _loop_a(self):\n"
+        "        return self._loop_b()\n"
+        "    def _loop_b(self):\n"
+        "        return self._loop_a()\n"
+        "    def test_helper_cycle_is_not_a_browser(self):\n"
+        "        self._loop_a()\n",
+        encoding="utf-8")
+    cases = quality.collect_browser_tests(["test_nested_helpers.py"], root=tmp_path)
+    assert cases == ["test_nested_helpers::HelperChainTests::test_renders_through_helper"]
+
+
+def test_unittest_browser_setup_makes_selected_cases_required():
+    target = "webapp/tests/test_global_and_filter_totals.py"
+    cases = quality.collect_browser_tests([target])
+    prefix = "webapp.tests.test_global_and_filter_totals::LeaveConfirmBrowserTests::"
+    assert set(cases) == {
+        prefix + "test_a_clean_page_leaves_without_any_dialog",
+        prefix + "test_a_saved_edit_is_not_unsaved_any_more",
+        prefix + "test_leaving_with_an_unsaved_edit_raises_beforeunload",
+    }
+    selected = target + "::LeaveConfirmBrowserTests::test_a_clean_page_leaves_without_any_dialog"
+    assert quality.collect_browser_tests([selected]) == [
+        prefix + "test_a_clean_page_leaves_without_any_dialog",
+    ]
+
+
 def test_autonomous_workflow_http_journeys_are_selected_from_the_map():
     impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
     targets, unknown = selector_tool.select_targets(["webapp/tests/test_autonomous_workflows.py"], impact_map["groups"])
@@ -678,9 +730,12 @@ def test_cargo_step_failure_marks_run_failed(monkeypatch, tmp_path, failing):
 
 
 def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
     seen = []
     monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
-    monkeypatch.setattr(quality.os, "name", "nt")
+    # Keep pathlib and pytest on the host platform while exercising this module's Windows branch.
+    monkeypatch.setattr(quality, "os", SimpleNamespace(**{**vars(quality.os), "name": "nt"}))
     monkeypatch.setattr(quality, "DEFAULT_WINDOWS_TARGET_DIR", tmp_path / "cargo-target")
     monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
     monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: (

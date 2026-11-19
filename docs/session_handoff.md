@@ -1,12 +1,35 @@
+# 2026-11-19 — OTA 별칭 4개 추가 (PR #1027, CI 초록·미병합)
+
+- **요청/결과:** 소유자 결정(2026-11-19) “OTA 명단에 airbnb·rakuten·forest·mytrip 추가”에 따라 `config/ota-matching-defaults.json`에 별칭을 추가했다. 브랜치 `analysis/ota-service-period-coverage-20261119`, 커밋 `9d4d7d07`, 기준 `40ee03fd`. **PR #1027 생성, CI(impact-checks·rust-core) 실행 중.**
+- **소유자 지시와 코드가 다른 점 2가지(중요):** ① `app/mytrip_mail.py:63,76`이 `provider='gotogate'`를 낸다(`test_mytrip_mail.py:16`이 이를 고정, 표시 경로 `ledger_stay_evidence.py:811`도 gotogate 별칭으로 카드를 찾음) → **`mytrip`을 새 공급자가 아니라 gotogate 그룹에 넣었다.** ② 실측 `RAKUTENTRAVELKOKUNAISH`는 공백이 없어 `rakuten travel`로 매칭되지 않는다 → `rakutentravel`을 함께 넣었다.
+- **최종 별칭:** `gotogate += "mytrip"`, `airbnb = ["airbnb","에어비앤비"]`, `rakuten = ["rakuten travel","rakutentravel","라쿠텐 트래블"]`, `forest = ["휴양시설","숲나들e"]`. 기존 9개 문자열 불변. `_SAFE_DEFAULTS`(비상값)는 손대지 않았다.
+- **정정 사실:** 기간 표시 `_build_index`는 별칭 게이트를 통과하지 **않는다**(별칭 없이도 Airbnb 합성 거래에 기간이 채워짐을 실행 확인). 별칭이 여는 것은 ① `booking_evidence_needed` 분류 완료(`classify.py:294,460`) ② `provider_compatible`(`ota_payments.py:1390`)의 더 엄격한 타 공급자 배제다.
+- **검사:** 표적 `pytest` **396 passed**(신규 `tests/card_pipeline/test_ota_alias_four_providers.py`, 기존 9개 유지, 오탐 미검출). `run_quality_checks.py --run`은 지시대로 미실행. 같은 브랜치 기존 실패 `tests/card_pipeline/test_trip_airfare_descriptor.py:104`는 **stash로 기준선에서도 동일 실패**함을 확인(이 PR 원인 아님).
+- **검수:** gemini-3.8-flash-high(effort high), 5개 항목 전부 PASS, **VERDICT: APPROVE**(파일 읽기만, 테스트 미실행).
+- **CI 결과:** `impact-checks` pass(1m15s), `rust-core` pass(15s) — run 44423033271. 실패 0.
+- **남은 일:** ① 병합(검수 승인 + CI 초록이므로 충분조건 충족). ② 소유자 결정 2026-11-17에 따라 같은 세션 단일 작성자 창에서 배포 판단(금융 기장 진행 중이면 보류, 다른 세션에 배포 전후 알림).
+- **사전 결함(고치지 않음):** `provider_for_merchant('MYTRIP.COM')=='trip'` — `trip.com`이 부분 문자열로 우선. 변경 전에도 같다. 게이트 매칭을 단어 경계로 바꾸는 정책 결정 필요. 테스트에 사실만 고정했다.
+- **다음 명령:** `gh pr checks 1027` → CI 초록이면 `tools/deploy_verified_release.ps1 -PreviousSha <현재 운영 SHA>`(다른 세션에 배포 전후 알림).
+
+# 2026-11-18 — M5 작업 큐·임대·P2 어댑터 최소 후보 분리 (미병합)
+
+- **요청/결과:** “#993 M5에서 이미 병합된 순수 P2 결속(#1003)·백업(#996)·계측(#1001)을 제외하고 원격 큐·리스·재시도와 P2 어댑터의 최소 독립 후보를 최신 main에 분리”에 따라 origin/main **`00d4aac5`(#1005, docs-only)** 기준의 미커밋 후보로 분리했다. 브랜치 `qwen-m5-queue-adapter-min-20261118`, 작업공간 `C:/AX/cost-m5-queue-adapter-20261118`. 원래 통합 작업공간 `qwen-m5-runtime-20261118`은 HEAD `019386ac`·미커밋 테스트 4파일 상태 그대로 복구해 두었고, 백업은 `.local-archive/qwen-m5-runtime-split-20261118/`에 SHA256과 함께 있다.
+- **포함:** `core/crates/core/src/jobs/mod.rs`(중복 키·임대 소유자/만료·generation fencing·30/60초 재시도·일일 예산 예약·결과 저장), `store/schema.rs`의 가산적 V3(열 3개·`jobs_state_id` 색인·state 트리거), `cli`의 `queue` stdin/stdout 브리지·`server`/`node` 실행·`p2 prepare/validate/replay/codex`, `core/src/p2.rs`의 제한된 Codex CLI 어댑터, `tools/m5_runtime.py`(HTTPS 필수·루프백만 허용·노드 리스너 없음)와 `tools/m5_p2_adapter.py`, 그리고 Rust `jobs_queue.rs`·`queue_bridge.rs`·`p2_binding.rs` 및 합성 HTTP 통합·어댑터 검사.
+- **검수 차단 보완(2026-11-18 3차):** ① `PORT` 환경변수 우회를 닫았다. `make_server`가 상속된 `PORT`를 `reserved_environment_port()`로 검사해 예약 포트면 `SERVER_WEB_PORT_RESERVED`로 거부하고, 웹 자식은 `Popen(..., env=web_child_environment(os.environ, ...))`로 env를 **직접 통제**한다(부모 환경 검사 대신 자식 통제를 택함 — 부모 `PORT` 재설정에도 확실). ② 용량 재시도 기본값은 Rust `jobs::DEFAULT_CAPACITY_RETRY_SECONDS`가 **유일 출처**다. Python 쪽 중복 상수를 제거하고, 제공자 권고값이 없으면 노드가 키를 생략한다. ③ `reserved_port_argument()`가 argparse 접두 축약(`--po 8751`)과 공백 값(` 8751 `)까지 잡는다. `--bind`·`--PORT`는 argparse가 받지 않아 위험 없음을 테스트로 고정했다. ④ `enqueue`에 "열린 트랜잭션에서 호출 금지" doc와 `debug_assert!(conn.is_autocommit())`를 추가했다(동작 불변).
+- **제외:** 병합된 `p2.rs` 순수 결속분(원본 그대로 유지, 어댑터 128행만 추가), `tools/m5_backup.py`/`tests/test_m5_backup.py`, `app/http_request_counts.py`/`webapp/http_counting.py`, 판정 완전성(R1)·화면(R2)·manifest(R3)·M4 수락(R7), `run_candidate.py`·`app/core_writer.py` 변경. `push`·PR·배포·운영 DB·실제 모델 호출·운영 포트는 사용하지 않았다.
+- **검사/근거(기준 `00d4aac5`, 커밋된 SHA):** `cargo test --workspace` rc0, 통과 **240건**(core 110·jobs_queue 22·queue_bridge 11·p2_binding 9·apply_t4 14·shadow_links_cli 8 등, `test result: FAILED` 0건), `cargo fmt --all --check`·`cargo clippy --workspace --all-targets -- -D warnings` rc0. Python 표적 `pytest tests/test_m5_p2_adapter.py tests/test_m5_runtime.py tests/test_m5_runtime_integration.py -q` **91 passed**(16+63+12). 공식 영향 검사는 커밋된 SHA에서 실행한다(아래 커밋 근거 참조). 합성 사본 DDL 예행: v2 파일에 기존 jobs·budgets·decisions 행을 넣고 실제 `costcore migrate` 실행 → `from_version 2→3`, 세 테이블 행 보존 true, 새 열 기본값 `('',0,'')`, 잘못된 state 삽입 거부 true, 트리거·색인 생성 확인. V3를 충돌 트리거로 강제 실패시켰을 때 `STORE_ERROR`·`schema_meta` 버전 2 유지·새 열 없음(롤백 확인) true. 구버전 v2 파일은 `queue` 브리지에서 `CORE_SCHEMA_MISMATCH`로 거부됨(테스트로 고정).
+- **미검증/남은 일:** 실제 클라우드 이전·PC-off·실제 제공자 호출·신선한 일일 백업은 M5 제공자 게이트(SPEC §14#10) 전이므로 실행하지 않았다. 후보는 브랜치 `qwen-m5-queue-adapter-min-20261118`에 커밋되며 독립 검수·PR·병합·운영 배포는 후속이다. `tests/test_m5_runtime*.py`는 `COSTCORE_TEST_BIN`이 없으면 **건너뛰지 않고 실패**로 알린다(위 91 passed는 변수를 설정한 실행의 값이다).
+- **다음 명령:** 이 작업공간에서 `cargo build --manifest-path core/Cargo.toml --workspace` 후 `$env:COSTCORE_TEST_BIN=core/target/debug/costcore.exe; python -I tools/run_quality_checks.py --base origin/main --run`(미커밋 트리는 `NO_CHANGES`이므로 영향 검사는 임시 커밋 필요); 정확 후보 SHA 독립 검수 후 단일 작성자 창에서 PR·배포.
+
 # 2026-11-18 — Google 장부용 복사 성능·2열 왼쪽 정렬 수정 완료
 
-- **요청/결과:** 사용자 요청 “Google 장부용 복사가 오래 걸리는 문제 수정”, “붙여넣기 시에 2열이 가운데 정렬이 아닌 왼쪽 가로 맞춤 형식으로 되게”의 로컬 구현·검사를 완료했다. 운영 배포·PR 생성·독립 검수는 이어서 진행하며 아래 운영 반영 절에 기록한다.
+- **요청/결과:** 사용자 요청 “Google 장부용 복사가 오래 걸리는 문제 수정”, “붙여넣기 시에 2열이 가운데 정렬이 아닌 왼쪽 가로 맞춤 형식으로 되게”의 로컬 구현·검사를 완료했고, 같은 기능이 PR #994(`bff6e2aa`)로 main에 병합돼 `d27cd89a` 배포(2026-11-18 17:31)부터 운영에 있다. 아래 운영 반영 절에 배포 근거를 적는다.
 - **복사 성능:** `app/google_authority.py`가 snapshot과 generation별 rows JSON을 최대 8개 LRU 캐시하고 절대 경로·파일 identity·`mtime_ns`·크기로 무효화한다. 원자적 교체 경합은 최대 4회 재시도하며 읽기 전후 identity와 schema·generation 검증을 통과한 값만 `deepcopy`로 제공한다. 합성 20,000행(5,098,128 bytes)에서 최초 233.150ms, 캐시 반복 중앙값 112.147ms·p95 130.949ms, 원자 교체 후 최초 202.337ms로 최초 대비 약 2.1배 빨라졌다.
 - **붙여넣기 정렬:** `app/google_tsv.py`는 기존 `tsv` 응답 형식을 유지하면서 같은 데이터의 `html` 표를 함께 반환하고 모든 셀에 `text-align:left`를 적용한다. `webapp/static/js/ledger_design.js`는 한 copy 이벤트에 `text/plain` TSV와 `text/html` 표를 함께 기록하며 `다시 복사`에도 HTML을 보존한다. 구형 응답에 HTML이 없을 때만 plain text로 후퇴하고 rich copy 실패는 성공으로 표시하지 않는다.
 - **검사:** 표적 검사는 88, 23+4 subtests, 10, 21, 15, 55 passed다. 공식 `python tools/run_quality_checks.py --base 259bc18741b4075e47464c017d18093231bc1ba2 --run`는 **654 passed·41 subtests passed·skip 0·known failure 0**, pytest/compile/costcore build exit0이다. 실제 클립보드에서 `text/plain`과 `text/html` 동시 기록, HTML 셀 왼쪽 정렬, 최초·다시 복사 HTML 유지, 기존 TSV 동일성, 실제 `Ctrl+V` 결과 일치, rich copy 실패 시 수동 안내를 확인했다.
 - **영향 검사 보완:** 최초 공식 실행은 실제 실패가 아니라 `UNKNOWN_IMPACT:2`로 중단됐다. `config/test-impact-map.json`의 `google-readonly` 그룹에 `tests/card_pipeline/test_google_authority.py`, `tests/card_pipeline/test_google_tsv.py`를 등록한 뒤 위 전체 검사를 재실행해 통과했다.
-- **구현/검증 커밋:** 구현 `052ef49f`, 영향 검사 매핑 `fab0e3c5`. 기준 `origin/main`은 `259bc18741b4075e47464c017d18093231bc1ba2`다. graphify update는 완료했으며 SQL parser 미설치로 `.sql` 2개가 기여하지 못한 경고를 구분했다. `graphify-out/`은 기존 저장소 이력에 추적되지 않은 약 117.8MB 산출물이므로 이번 커밋에 포함하지 않았다.
-- **남은 일/보호:** 로컬 구현·검사 잔여는 없고 운영에는 미배포다. 공유 작업 트리 `C:/AX/cost`, 운영 DB, 포트 `8751/8752/8790`, 다른 세션의 안드레 여행 표기 배포는 수정하지 않았다. 운영 반영이 필요하면 이 브랜치의 exact SHA 독립 검수와 승인된 배포 절차를 별도로 수행한다. 이 완료 문서 때문에 재배포하지 않는다.
+- **구현/검증 커밋:** 로컬 구현 `052ef49f`, 영향 검사 매핑 `fab0e3c5`(둘 다 origin/main 비조상, main에는 PR #994로 독립 병합). 기준 `origin/main`은 `259bc18741b4075e47464c017d18093231bc1ba2`다. graphify update는 완료했으며 SQL parser 미설치로 `.sql` 2개가 기여하지 못한 경고를 구분했다. `graphify-out/`은 기존 저장소 이력에 추적되지 않은 약 117.8MB 산출물이므로 이번 커밋에 포함하지 않았다.
+- **남은 일/보호:** 구현·검사·운영 배포 잔여는 없다. 운영에는 `d27cd89a`(2026-11-18 17:31)부터 반영됐고 `app/google_authority.py`·`app/google_tsv.py`는 로컬 `052ef49f`와 운영 릴리스 `90ea51ff`의 blob이 같다. 공유 작업 트리 `C:/AX/cost`, 운영 DB, 포트 `8751/8752/8790`, 다른 세션의 안드레 여행 표기 배포는 수정하지 않았다. 이 완료 문서 때문에 재배포하지 않는다.
 
 # 2026-11-17 — 현재 여행 탭의 왼쪽 목록 선택 표시
 
@@ -280,10 +303,10 @@
 
 ## 운영과 Rust 전환
 
-- **운영:** 배포 증거 기준 `77865bfadce7cc96336cf751d1dbd41964549388`, Board 8751, readyz 200, 보호 13표 불변. 이 수치는 마지막 배포 기록이며 문서 정리를 위한 새 운영 검사가 아니다. 실제 배포 근거는 [운영 기록](operations.md) 맨 위 절.
-- **Rust 1차 전환:** C1 신선 사본 7,336행, Python/Rust 그림자 차이 0·목록 밖 0. C2 185사례 두 방식 모두 동일. 과거 교정 대조 일치 131·불일치 40·원천 보호 제외 14. 전환 전 상태는 Python 작성자이며 전환 키 3개가 없다.
-- **승인 ① 대기:** 이번 정리 요청은 Rust 운영 전환 승인이 아니다. [전환 절차서](playbooks/core-cutover.md)의 승인 ① → 신선 백업·복원 확인·사본 되돌림 예행 → 승인 ② → 설정 전환·Board/Worker 재시작·첫 창 대조 순서를 유지한다. 운영 `core.sqlite`는 11/15 생성분을 유지하며 백업 범위에 계속 포함한다.
-- **Rust 2차(연결):** 11/15 OTA 목록 밖 차이 1,648건이 남아 별도 보류. 이번 요청에서 전환하지 않는다.
+- **운영:** 배포 증거 기준 `90ea51ff424efd5ac3954af43986be881ed4a30a`(2026-11-18 22:45), Board 8751, readyz 200, 보호 **14표** 불변. 실제 배포 근거는 [운영 기록](operations.md) 맨 위 절.
+- **Rust 1차 전환:** C1 신선 사본 7,336행, Python/Rust 그림자 차이 0·목록 밖 0. C2 185사례 두 방식 모두 동일. 과거 교정 대조 일치 131·불일치 40·원천 보호 제외 14. **전환 완료**: 운영 `card-flow.json`에 `classification_writer=rust`·`costcore_bin`·`core_db`가 있고 Board·Worker 적용 기록이 같은 릴리스다([운영 기록](operations.md) 2026-11-17 15:10 절).
+- **승인 ①:** 1차 전환은 소유자 승인 아래 완료됐다(2026-11-15 08:02 창·2026-11-17 15:10 절). [전환 절차서](playbooks/core-cutover.md)는 향후 재전환·되돌림의 보호 기준으로 유지한다. 운영 `core.sqlite`는 백업 범위에 계속 포함한다.
+- **Rust 2차(연결):** **전환 완료**. 운영 `links_producer=rust`이며 첫 창 대조 OTA 7,965/7,965·환불 486/486·목록 밖 차이 0으로 PASS였다([운영 기록](operations.md) 2026-11-17 00:26 절).
 - **단계:** M2 종료, M3 진행. 구현 정본은 [SPEC](SPEC.md), 판정 정본은 [규칙집](DECISION_POLICY.md)과 `policy/`다. 이후 Rust·React·클라우드 순서와 데이터 보호는 그대로 유지한다.
 
 이전 상세 인계와 완료 근거는 [정리 전 인계](history/session_handoff-through-20261116.md), [과거 배정표](history/BOARD-through-20261116.md), [문서 지도](README.md)에서 찾는다.

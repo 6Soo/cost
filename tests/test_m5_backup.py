@@ -628,12 +628,16 @@ def test_failed_daily_attempts_surface_as_missed_days(tmp_path, monkeypatch):
 
 def test_corrupt_or_invalid_state_is_not_read_as_recent_success(tmp_path):
     _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
-    destination = tmp_path / "node-backups"
     day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
-    m5_backup.pull_snapshot(_SyntheticDownloadClient(snapshot), destination, now=day)
 
-    for payload, reason in ((b"{not-json", "corrupt"),
-                            (b'{"schema":"wrong"}', "rejected")):
+    # Each failure shape gets its own pull root: the reset counter is durable
+    # per root (it must survive a lost state file), so sharing one root would
+    # legitimately accumulate 2 resets rather than test one at a time.
+    for index, (payload, reason) in enumerate(((b"{not-json", "corrupt"),
+                                              (b'{"schema":"wrong"}', "rejected"))):
+        destination = tmp_path / f"node-backups-{index}"
+        m5_backup.pull_snapshot(
+            _SyntheticDownloadClient(snapshot), destination, now=day)
         (destination / "pull-state.json").write_bytes(payload)
         result = m5_backup.pull_snapshot(
             _SyntheticDownloadClient(snapshot), destination,
@@ -760,3 +764,60 @@ def test_impossible_calendar_generation_date_is_named_in_state(tmp_path):
         _SyntheticDownloadClient(snapshot), destination, now=day + timedelta(days=1))
     assert result["ok"] is False
     assert result["code"] == "GENERATION_DATE_INVALID"
+
+
+def test_temporary_clock_skew_runs_once_then_returns_to_not_due(tmp_path):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    first = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)
+    assert first["ok"] is True
+
+    # The node's clock jumped ahead by more than the 5-minute tolerance, so the
+    # state it wrote last time looks like the future. One real backup runs.
+    skewed = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination,
+        now=day - timedelta(minutes=30))
+    assert skewed["ok"] is True
+    assert skewed["skipped"] is False
+    assert skewed["state_reset_reason"] == "rejected"
+    assert skewed["state_reset_count"] == 1
+    assert skewed["complete"] is False
+
+    # The skew was momentary: the very next attempt is inside 24 hours of the
+    # fresh success and must not keep re-running backups.
+    recovered = m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination,
+        now=day - timedelta(minutes=30) + timedelta(hours=1))
+    assert recovered["ok"] is True
+    assert recovered["skipped"] is True
+    assert recovered["code"] == "NOT_DUE"
+    assert recovered["state_reset_count"] == 1
+    # `state_reset_count` stays non-zero, so `complete` honestly stays false
+    # (a reset happened); it is not silently promoted back to true.
+    assert recovered["complete"] is False
+
+
+@pytest.mark.parametrize("attempts", [10, 25])
+def test_repeated_rejected_state_stops_counting_at_the_cap(tmp_path, attempts):
+    _database, _originals, snapshot, created = _create_snapshot(tmp_path / "source")
+    destination = tmp_path / "node-backups"
+    day = datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)
+    assert m5_backup.pull_snapshot(
+        _SyntheticDownloadClient(snapshot), destination, now=day)["ok"] is True
+
+    for index in range(attempts):
+        (destination / "pull-state.json").write_text("{not-json", encoding="utf-8")
+        result = m5_backup.pull_snapshot(
+            _SyntheticDownloadClient(snapshot), destination,
+            now=day + timedelta(days=index + 1))
+        assert result["ok"] is True
+        assert result["state_reset_reason"] == "corrupt"
+        assert result["complete"] is False
+        state = _pull_state(destination)
+        # The counter saturates so the alert says "there is an unexplained
+        # reset", never a rising number that hides a genuinely new failure.
+        assert state["state_reset_count"] == min(index + 1, m5_backup.STATE_RESET_CAP)
+    assert _pull_state(destination)["state_reset_count"] == m5_backup.STATE_RESET_CAP
+    assert _pull_state(destination)["complete"] is False

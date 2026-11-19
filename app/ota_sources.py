@@ -77,8 +77,15 @@ def content_stamp(path):
     return {'path':str(path.resolve()),'sha256':digest.hexdigest()}
 
 
-def source_lineage_id(registry, path):
-    """Resolve an optional operator-assigned stable source ID, with a path fallback."""
+def source_lineage_id(registry, path, content_fingerprint=None):
+    """Resolve an optional operator-assigned stable source ID, else a content-based key.
+
+    An operator registration always wins. Without one, the fallback is keyed on the
+    input's content fingerprint when the caller supplies it, so the same content at
+    a different path (or in a differently named snapshot directory) is the same
+    source. Only a caller that cannot supply a fingerprint falls back to the
+    historical absolute-path key.
+    """
     path = Path(path).resolve()
     normalized = os.path.normcase(str(path))
     for registered_path, lineage in (registry or {}).items():
@@ -87,6 +94,8 @@ def source_lineage_id(registry, path):
                 return str(lineage)
         except (OSError, TypeError, ValueError):
             continue
+    if content_fingerprint:
+        return "content_" + hashlib.sha256(str(content_fingerprint).encode("utf-8")).hexdigest()
     return "path_" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 

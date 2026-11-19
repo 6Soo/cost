@@ -860,7 +860,22 @@ def bind_importer(importer) -> None:
 def live_trips(include_archived: bool = False):
     if _active_store() is None:
         return [dict(t) for t in TRIPS]
-    return _active_store().list_trips(include_archived=include_archived)
+    # One render asks for the trip list from several places (the row lists, the
+    # tab ids, the reconciliation preview).  Inside a read scope the list is the
+    # same for the whole request, and the scope key is shared with the Plush
+    # projection so both paths read it once instead of once per caller.
+    from . import read_scope
+    if not read_scope.active():
+        return _active_store().list_trips(include_archived=include_archived)
+    store = _active_store()
+    # Read the archived-inclusive list once and filter in memory, so a caller
+    # that wants only live trips does not run the same three queries again.
+    trips = read_scope.remember(
+        ("trips_archived", id(store)),
+        lambda: store.list_trips(include_archived=True))
+    if include_archived:
+        return list(trips)
+    return [trip for trip in trips if not trip.get("archived")]
 
 
 def trip_display_label(trip, fallback: str = "") -> str:

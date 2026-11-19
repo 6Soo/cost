@@ -633,7 +633,8 @@ def _attach_forest_portal_periods(events, portal_events):
     return events + remaining
 
 
-def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=None):
+def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=None,
+                   content_fingerprints=None):
     grouped = defaultdict(list)
     database_paths = [Path(item).resolve() for item in ota_portal.as_databases(databases)]
     missing = [{"kind":"portal_database", "path":str(path)} for path in database_paths
@@ -663,7 +664,11 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
         # 통합 저장소의 위치가 바뀌어도 원래 포털 출처와 관측 ID는 유지한다.
         source_path = evidence[0].get('_source_locator') or source_path
         from app import ota_sources
-        lineage_basis = (ota_sources.source_lineage_id(source_lineage_ids or {}, source_path)
+        # 내용 지문이 있으면 출처 식별자를 경로가 아니라 입력 내용에 고정한다.
+        # 그래야 같은 내용을 다른 경로/다른 스냅샷 디렉터리에서 실행해도 같은 출처가 된다.
+        fingerprint = (content_fingerprints or {}).get(str(database_number))
+        lineage_basis = (ota_sources.source_lineage_id(source_lineage_ids or {}, source_path,
+                                                       content_fingerprint=fingerprint)
                          if source_path else str(database_index))
         source_lineage_id = lineage_basis
         roles = {row["evidence_role"] for row in evidence}
@@ -945,7 +950,8 @@ def build_ota_payment_events(sources, *, extraction_outcomes=None):
     events = _mail_events(sources.get("mail_directories"))
     events.extend(_portal_events(sources.get("portal_databases"),
                                  source_lineage_ids=sources.get("source_lineage_ids"),
-                                 extraction_outcomes=extraction_outcomes))
+                                 extraction_outcomes=extraction_outcomes,
+                                 content_fingerprints=sources.get("portal_content_fingerprints")))
     events.extend(_trip_reservation_events(sources.get("portal_databases")))
     events.extend(_booking_trip_events(sources.get("portal_databases")))
     events = _attach_forest_portal_periods(events, _forest_portal_events(sources.get("portal_databases")))

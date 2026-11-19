@@ -6,6 +6,7 @@ pub mod dates;
 pub mod digest;
 pub mod domain;
 pub mod guard;
+pub mod jobs;
 pub mod known_diffs;
 pub mod links;
 pub mod p2;

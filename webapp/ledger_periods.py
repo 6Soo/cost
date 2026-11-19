@@ -22,6 +22,31 @@ _ANNOTATED_PERIOD_SOURCES = {
 }
 
 
+def display_label(row: dict[str, Any]) -> tuple[str, str]:
+    """The (compact, full) period label the legacy ledger line already prints.
+
+    SPEC §11.2.1 계약 4 asks the two entry paths to show the same 이용기간. The
+    legacy cell prints an item-aware label ("10.01–10.03 · 2박", a flight's
+    departure days, a rental's pickup/return, a pre-authorization note) rather
+    than the stored ISO range, so a React screen that printed the raw range would
+    still disagree with the other path.
+
+    The formatting therefore stays in one place, :mod:`ledger_design`, and is
+    read here rather than reimplemented: a second formatter would be a second
+    answer to the same question. Display only — this never decides a period, and
+    an unavailable formatter yields an empty label, never a guess.
+    """
+    from . import ledger_design
+
+    try:
+        compact, full = ledger_design._service_date_labels_for(row)
+    except Exception:
+        # A row shape the legacy formatter cannot describe keeps the stored value
+        # (the DTO still carries it); the difference is never an invented label.
+        return "", ""
+    return str(compact or ""), str(full or "")
+
+
 def annotate(rows: list[dict[str, Any]], board: Any) -> list[dict[str, Any]]:
     """Apply the stored/manual/evidence precedence to the rows on one screen.
 

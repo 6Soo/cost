@@ -2014,11 +2014,17 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         expenses = [r for r in expenses if r.get('source_event_id') not in paired]
         whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
+        # SPEC §11.2.1 계약 1: the same query returns the same rows on both
+        # paths, so this compares case-insensitively over the same recorded
+        # fields the React list searches. `operator_note` stays in the set:
+        # this path is the owner's screen, and a viewer never reaches it.
+        text = str(query).casefold()
+
         def keep(row):
             blob = " ".join(str(row.get(key) or "") for key in (
                 "item", "description", "operator_note", "reservation_no",
                 "source_merchant", "customer_name"))
-            return query in blob
+            return text in blob.casefold()
         incomes = [r for r in incomes if keep(r)]
         expenses = [r for r in expenses if keep(r)]
     expenses = _sort_expenses_for_display(expenses)
@@ -2281,14 +2287,21 @@ def viewer_trips_html(trips) -> str:
 
 
 def _matches(row: dict, needle: str) -> bool:
-    """Does this row contain the search text, over the fields the screen shows."""
+    """Does this row contain the search text, over the fields the screen shows.
+
+    SPEC §11.2.1 계약 1: the same query must return the same rows on both paths,
+    so this compares case-insensitively the way the React list does. The fields
+    are the ones the screen already shows plus the operator's note, which an
+    owner may read and searches.
+    """
     if not needle:
         return True
+    text = str(needle).casefold()
     hay = " ".join(str(row.get(f) or "") for f in (
         "occurred_on", "item", "description", "customer_name", "nickname",
         "reservation_no", "service_period", "source_merchant", "operator_note",
         "display_tab_id", "income_kind", "evidence_type"))
-    return needle in hay
+    return text in hay.casefold()
 
 
 def _summary_totals(rows_in, rows_ex):

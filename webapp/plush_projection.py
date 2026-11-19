@@ -51,7 +51,14 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]]) -> dict[s
                    if row.get("row_kind") == "income" and row.get("google_income")]
     expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")
     if cost_income:
-        income = sum(_display_amount(row) for row in cost_income)
+        # An unreadable COST amount is not a zero either (SPEC §11.2.1 계약 4,
+        # GGL-014). Summing it would present a confirmed figure lower than what
+        # the rows say, so it must reach the same answer the Google branch is
+        # already required to give.
+        if any(row.get("amount_missing") for row in cost_income):
+            income = None
+        else:
+            income = sum(_display_amount(row) for row in cost_income)
     elif google_rows and trip.get("google_verified"):
         # Only a verified block may stand in for a missing COST figure, and only
         # when every row it relies on has a readable amount (GGL-014).
@@ -94,7 +101,10 @@ def _display_date(row: dict[str, Any]) -> str:
 
 def ledger_row(row: dict[str, Any], *, read_only: bool = False,
                period: str | None = None,
-               period_source: str | None = None) -> dict[str, Any]:
+               period_source: str | None = None,
+               period_label: str | None = None,
+               period_label_full: str | None = None,
+               google_match: dict[str, Any] | None = None) -> dict[str, Any]:
     """Project a board row into the stable Plush table shape.
 
     ``period``/``period_source`` come from the shared stored/manual read
@@ -123,6 +133,14 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
         "payment": str(payment or ""),
         "period": str(period if period is not None else row.get("service_period") or ""),
         "period_source": str(period_source or ""),
+        # The compact and full labels the legacy cell already prints, so both
+        # entry paths show the same wording (SPEC §11.2.1 계약 4). Empty when the
+        # formatter could not describe this row; the raw `period` still travels.
+        "period_label": str(period_label if period_label is not None
+                            else row.get("_plush_period_label") or ""),
+        "period_label_full": str(period_label_full if period_label_full is not None
+                                 else row.get("_plush_period_label_full") or ""),
+        "google_match": google_match,
         "evidence_summary": str(evidence or ""),
         "revision": row.get("revision"),
         "read_only": bool(read_only),
@@ -187,8 +205,21 @@ def safe_detail(row: dict[str, Any]) -> dict[str, Any]:
     return {key: row.get(key) for key in allowed if key in row}
 
 
-def search_text(row: dict[str, Any]) -> str:
+def search_text(row: dict[str, Any], *, owner: bool = False) -> str:
+    """The text a search runs against, over the fields this caller may read.
+
+    The legacy board searches a row's own recorded fields, including the
+    operator's note; the React list searched only the displayed projection, so
+    a query that matched a memo found the row on one path and not the other.
+    ``operator_note`` is a viewer-denied field (``access_control.VIEWER_DENIED_
+    FIELDS``), so it is included for the owner only — a viewer's search cannot
+    reach it and cannot use it as an oracle for text they may not see.
+    """
     projected = ledger_row(row)
-    return " ".join(str(projected.get(key) or "") for key in (
-        "date", "merchant", "description", "category", "payment", "period", "evidence_summary"
-    )).casefold()
+    parts = [str(projected.get(key) or "") for key in (
+        "date", "merchant", "description", "category", "payment", "period", "evidence_summary")]
+    parts.extend(str(row.get(key) or "") for key in (
+        "item", "reservation_no", "source_merchant", "customer_name"))
+    if owner:
+        parts.append(str(row.get("operator_note") or ""))
+    return " ".join(parts).casefold()
