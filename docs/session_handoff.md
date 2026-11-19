@@ -1,6 +1,15 @@
 # COST 현재 상태 · 작업 인계
 
-기준일 2026-11-20 KST. 확인한 main은 `326d6afd`, 운영은 `9fd2d4c2`다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+기준일 2026-11-20 KST. 확인한 main은 `62263509`, 운영은 `0c7b563b`다(`releases/` 최신 폴더와 `core-switch-applied-*.json` 06:44 기록). 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+
+## 이번 연속 작업에서 병합한 것
+
+- **열람자 금액 위조(차단 결함) 수정** [PR #1060](https://github.com/6Soo/cost/pull/1060) `19518d4e`. 독립 검수(SHA `e7ee3859`)의 차단 지적: `/access/rows` viewer 분기가 `int(display_amount_krw, amount_krw, 0)`로 금액을 강제 변환해, 금액 미확인 Google 수입 행(`amount_krw=None`, `amount_missing=True`)을 **0원으로 위조**했다. 같은 payload의 `confirmed`는 미확인이라 한 응답이 자기모순이었고 SPEC §11.2.1 계약 1·4 / GGL-014를 위반했다. 수정: 미확인이면 `None` 유지, `VIEWER_ROW_FIELDS`에 `amount_missing` 추가, 회귀 검사 1건(수정 없이는 `0 is None`으로 실패 확인). viewer 10 + 인접 128 passed, CI 3/3.
+- **CI 증거 재사용 도구의 토큰 누출 수정** [PR #1061](https://github.com/6Soo/cost/pull/1061) `53204c7e`. artifact 다운로드의 302 redirect(서명 storage URL)로 `Authorization`이 따라가던 것을 `add_unredirected_header` + API URL 검증으로 막았다. `test_quality_checks` 60 passed(신규 검사는 수정 전 `io` import 누락으로 실패했다가 통과).
+- **세 번째 저널 통합** [PR #1062](https://github.com/6Soo/cost/pull/1062) `62263509`. `source_fact_applies`를 `ledger_operation_requests`로 이동(3값 shape `legacy`/`unified`/`unified_source_facts`, `--include-source-facts` 오프라인 병합 CLI, 별도 백업 `.pre-source-facts-merge-backup`). `reserve_link_saves`는 AccessStore 계약(SPEC 16.4)이라 제외. 저널 32 + 스키마 5 = 37 passed(rebase 후 재확인), CI 3/3. 운영 DB·스키마 미접촉.
+- **CI 재사용 첫 성공 실측:** main push `53204c7e`가 PR 증거를 재사용해 **1분 53초**에 끝났다(같은 PR 실행은 2~3분). 이전 main 실행 4건은 모두 재실행이었다.
+- **남은 차단(소유자 결정):** M6 §11.1-3 고정 추출 기준(`7,965건 / a26d4465…`)은 입력 사본 소실로 재현 불가다. 기준 재설정은 소유자 결정 사항이라 그 전에는 M6 퇴역을 시작할 수 없다.
+- **열린 PR:** [#1008](https://github.com/6Soo/cost/pull/1008) 정책 초안(draft, 소유자 결정 없이 병합하지 않음). 이번 작업에서 운영 배포는 하지 않았다.
 
 ## 진행 상태
 
