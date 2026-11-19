@@ -57,7 +57,7 @@ def test_completed_item_classification_does_not_excuse_the_ota_review():
 
 # --- verified relations stay P1; routing never re-checks them -------------
 
-@pytest.mark.parametrize("status", ["MATCHED_AUTO", "MATCHED_USER"])
+@pytest.mark.parametrize("status", ["MATCHED_AUTO", "MATCHED_USER", "MATCHED_GROUP"])
 def test_verified_relation_is_preserved_and_not_reopened(status):
     record = routing.route(event(), {"status": status, "transaction_id": "card-a"})
     assert record["obligation"] == routing.EXACT_RELATION
@@ -156,11 +156,31 @@ def test_review_record_with_candidates_keeps_each_outcome_separate():
     assert "M_N_EDGES_PRESERVED" not in record["reason_codes"]
 
 
+def test_route_marks_truncated_and_m_n_search_results():
+    truncated = routing.route(event(), _hold(),
+                              search=_search(status="SEARCH_LIMIT_EXCEEDED"))
+    assert truncated["reason_codes"] == ["HOLD_NO_CARD", "CANDIDATE_SEARCH_TRUNCATED"]
+    assert truncated["candidate_evidence"]["truncated"] is True
+
+    multi = routing.route(event(), _hold(),
+                          search=_search(accepted=[("MATCH", True), ("MATCH", True)]))
+    assert multi["reason_codes"] == ["HOLD_NO_CARD", "M_N_EDGES_PRESERVED"]
+    assert multi["candidate_evidence"]["candidate_count"] == 2
+
+
+def test_no_search_evidence_leaves_route_reasons_without_candidate_codes():
+    record = routing.route(event(), _hold())
+    assert "candidate_evidence" not in record
+    assert "CANDIDATE_SEARCH_TRUNCATED" not in record["reason_codes"]
+    assert "M_N_EDGES_PRESERVED" not in record["reason_codes"]
+
+
 # --- PROC-010: finished-with-no-relation vs did-not-run --------------------
 
 def test_actual_review_completion_is_recorded_only_with_link_044_detail():
-    state, findings = routing.investigation_state(_record())
-    assert state == "P2_COMPLETED_UNVERIFIED" and findings == ()
+    for outcome in routing.ACCEPTED_OUTCOMES:
+        state, findings = routing.investigation_state(_record(outcome=outcome))
+        assert state == "P2_COMPLETED_UNVERIFIED" and findings == ()
 
 
 @pytest.mark.parametrize("name", routing.REQUIRED_DETAIL)
@@ -172,16 +192,17 @@ def test_a_review_record_missing_any_required_detail_is_incomplete(name):
     assert findings == ("MISSING_" + name.upper(),)
 
 
-@pytest.mark.parametrize("record", [
-    {"outcome": "failed", "candidate_outcomes": [], "sources": [], "policy_version": "x",
-     "explicit_conflicts": [], "candidate_ranking": []},
-    {"outcome": "no_relation", "error": "RETRIEVAL_PERMISSION_DENIED"},
-    {"outcome": "no_relation"},
-    {"outcome": "something_else", "candidate_outcomes": [], "sources": [],
-     "policy_version": "x", "explicit_conflicts": [], "candidate_ranking": []},
+@pytest.mark.parametrize("record,expected", [
+    ({"outcome": "failed", "candidate_outcomes": [], "sources": [], "policy_version": "x",
+     "explicit_conflicts": [], "candidate_ranking": []}, "P2_RUN_FAILED"),
+    ({"outcome": "no_relation", "error": "RETRIEVAL_PERMISSION_DENIED"}, "P2_RUN_FAILED"),
+    ({"outcome": "no_relation"}, "P2_RUN_INVALID"),
+    ({"outcome": "something_else", "candidate_outcomes": [], "sources": [],
+     "policy_version": "x", "explicit_conflicts": [], "candidate_ranking": []}, "P2_RUN_INVALID"),
 ])
-def test_failed_or_thin_records_are_not_a_completed_review(record):
+def test_failed_or_thin_records_are_not_a_completed_review(record, expected):
     state, _ = routing.investigation_state(record)
+    assert state == expected
     assert state != "P2_COMPLETED_UNVERIFIED"
 
 
