@@ -1,4 +1,4 @@
-# 2026-11-19 — M4 환불 귀속 제외의 합계 범위·분기 탭 행 대조 (미병합 후보)
+# 2026-11-19 — M4 환불 귀속 제외의 합계 범위·분기 탭 행 대조 (PR #1015)
 
 - **요청/결과:** 감독 지시 “M4 환불 탭·배제 필터 패리티”에 따라, 금액 대조 작업자가 코드로만 확인하고 실측하지 못한 `_selected_rows`의 환불 짝 제외와 React `_ledger`의 행 선택을 같은 합성 저장소에서 대조했다. 기준 `origin/main`은 **`3d8e8791`**(`d2debf38` 이후, `1a386e8d` 병합 포함), 작업공간은 이 worktree의 브랜치 `work/m4-refund-tab-parity-20261118`.
 - **코드 확정(제외 규칙의 범위):** 레거시 `webapp/ledger_design.py:_selected_rows`는 `owner`일 때 `refund_tab.member_ids`의 `source_event_id`를 **지출 목록에서만** 걸러 내고(수입 목록은 그대로), `whole_expense`에도 같은 조건을 건다. `webapp/refund_tab.py:_member_ids`는 비추론·모든 구성원 기록·순액 0·같은 탭일 때만 구성원을 돌려준다. React `webapp/plush_api.py:_ledger`는 `1a386e8d` 이후 같은 `member_ids`를 쓰되 **모든 행**에 조건을 걸어, 수입 행이 같은 키를 가지면 두 경로의 행 집합·합계가 갈렸다.
@@ -15,7 +15,18 @@
 - **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `webapp/tests/test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
 - **검수 상태(중요):** AGY(`claude-opus-4-6-thinking`) 검수는 세 번째 실행이 **구독 한도(429, 약 4시간 28분 후 초기화)로 마지막 단계에서 중단**됐다. 판정문은 없다. 중단 전까지 초점 A(배제 경계=레거시와 동일)·B(분기 탭 행 원천·이중 계산 없음·탭 오인 없음)·C(동등성)·D(테스트 약화 없음)를 확인하고 결함을 찾지 못했다. **최종 SHA `1bb1bb96`은 검수되지 않았다** — 한도 초기화 뒤 재검수 또는 AGENTS.md 2026-11-13 소유자 결정(구현자와 다른 opus 세션 검수)으로 대체해야 병합 조건을 채운다.
 
+# 2026-11-19 — OTA 별칭 4개 추가 (PR #1027, CI 초록·미병합)
 
+- **요청/결과:** 소유자 결정(2026-11-19) “OTA 명단에 airbnb·rakuten·forest·mytrip 추가”에 따라 `config/ota-matching-defaults.json`에 별칭을 추가했다. 브랜치 `analysis/ota-service-period-coverage-20261119`, 커밋 `9d4d7d07`, 기준 `40ee03fd`. **PR #1027 생성, CI(impact-checks·rust-core) 실행 중.**
+- **소유자 지시와 코드가 다른 점 2가지(중요):** ① `app/mytrip_mail.py:63,76`이 `provider='gotogate'`를 낸다(`test_mytrip_mail.py:16`이 이를 고정, 표시 경로 `ledger_stay_evidence.py:811`도 gotogate 별칭으로 카드를 찾음) → **`mytrip`을 새 공급자가 아니라 gotogate 그룹에 넣었다.** ② 실측 `RAKUTENTRAVELKOKUNAISH`는 공백이 없어 `rakuten travel`로 매칭되지 않는다 → `rakutentravel`을 함께 넣었다.
+- **최종 별칭:** `gotogate += "mytrip"`, `airbnb = ["airbnb","에어비앤비"]`, `rakuten = ["rakuten travel","rakutentravel","라쿠텐 트래블"]`, `forest = ["휴양시설","숲나들e"]`. 기존 9개 문자열 불변. `_SAFE_DEFAULTS`(비상값)는 손대지 않았다.
+- **정정 사실:** 기간 표시 `_build_index`는 별칭 게이트를 통과하지 **않는다**(별칭 없이도 Airbnb 합성 거래에 기간이 채워짐을 실행 확인). 별칭이 여는 것은 ① `booking_evidence_needed` 분류 완료(`classify.py:294,460`) ② `provider_compatible`(`ota_payments.py:1390`)의 더 엄격한 타 공급자 배제다.
+- **검사:** 표적 `pytest` **396 passed**(신규 `tests/card_pipeline/test_ota_alias_four_providers.py`, 기존 9개 유지, 오탐 미검출). `run_quality_checks.py --run`은 지시대로 미실행. 같은 브랜치 기존 실패 `tests/card_pipeline/test_trip_airfare_descriptor.py:104`는 **stash로 기준선에서도 동일 실패**함을 확인(이 PR 원인 아님).
+- **검수:** gemini-3.8-flash-high(effort high), 5개 항목 전부 PASS, **VERDICT: APPROVE**(파일 읽기만, 테스트 미실행).
+- **CI 결과:** `impact-checks` pass(1m15s), `rust-core` pass(15s) — run 44423033271. 실패 0.
+- **남은 일:** ① 병합(검수 승인 + CI 초록이므로 충분조건 충족). ② 소유자 결정 2026-11-17에 따라 같은 세션 단일 작성자 창에서 배포 판단(금융 기장 진행 중이면 보류, 다른 세션에 배포 전후 알림).
+- **사전 결함(고치지 않음):** `provider_for_merchant('MYTRIP.COM')=='trip'` — `trip.com`이 부분 문자열로 우선. 변경 전에도 같다. 게이트 매칭을 단어 경계로 바꾸는 정책 결정 필요. 테스트에 사실만 고정했다.
+- **다음 명령:** `gh pr checks 1027` → CI 초록이면 `tools/deploy_verified_release.ps1 -PreviousSha <현재 운영 SHA>`(다른 세션에 배포 전후 알림).
 # 2026-11-18 — M5 작업 큐·임대·P2 어댑터 최소 후보 분리 (미병합)
 
 
