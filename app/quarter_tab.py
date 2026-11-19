@@ -131,6 +131,15 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (transaction_id, row['batch_id'], ITEM, description, tab, '', amount,
                      row['merchant'] or '', day, 'purchase', row['source_hash'], now))
+                # M6: 같은 트랜잭션 안에서 통합 장부에도 쓴다.
+                from .ledger import write_ledger_row
+                write_ledger_row(
+                    store.conn, transaction_id,
+                    {'item': ITEM, 'description': description, 'display_tab_id': tab,
+                     'trip_id': '', 'amount_krw': amount, 'merchant': row['merchant'] or '',
+                     'occurred_on': day, 'transaction_direction': 'purchase',
+                     'classification_state': 'classified'},
+                    now=now, batch=row['batch_id'])
                 store.log_change('quarter.booked', transaction_id, {'tab': tab, 'amount_krw': amount})
                 booked.append(transaction_id)
                 if projection is not None:

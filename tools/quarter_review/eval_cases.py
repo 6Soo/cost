@@ -228,6 +228,12 @@ def rejudge(conn, trips, cases, *, nets=None, evidence=None, plan_fn=_python_pla
                          ' WHERE transaction_id=?', (*fresh.values(), tid))
             copy.execute('DELETE FROM ledger_entries WHERE transaction_id=?', (tid,))
             copy.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
+            # 통합 장부(있을 때)도 함께 지운다. 남으면 이 거래가 여전히 '기장됨'으로
+            # 판정되어 재판정 결과를 왜곡한다. 이 사본은 메모리/임시 파일이라
+            # 운영 데이터에는 닿지 않는다.
+            if copy.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                            " AND name='ledger'").fetchone():
+                copy.execute('DELETE FROM ledger WHERE transaction_id=?', (tid,))
         protected = {}
         for tid, duplicate, conflict, parse_error in copy.execute(
                 'SELECT transaction_id,duplicate_of,conflict_reason,parse_error FROM transactions '

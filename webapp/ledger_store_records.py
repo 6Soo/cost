@@ -73,6 +73,135 @@ def deserialize_row_record(
     return payload
 
 
+def ledger_table_exists(conn: Any) -> bool:
+    """통합 장부 테이블이 있나. 없으면 아직 이관 전 DB다."""
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone())
+
+
+def ledger_is_authoritative(conn: Any) -> bool:
+    """통합 장부가 읽기 정본인가.
+
+    테이블이 '있기만' 하면 정본이 아니다. `LedgerStore`가 스키마를 만들기 때문에
+    새 합성 DB에도 빈 `ledger`가 생긴다. 이관이 실제로 끝난 DB만 정본으로 본다 —
+    기준은 `ledger`에 행이 있는 것이다.
+
+    빈 `ledger`를 정본으로 보면 기장 판정이 전부 '미기장'으로 뒤집힌다.
+    """
+    try:
+        if not ledger_table_exists(conn):
+            return False
+        return conn.execute('SELECT 1 FROM ledger LIMIT 1').fetchone() is not None
+    except Exception:
+        return False
+
+
+def _table_exists(conn: Any, name: str) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+
+def booked_sql(conn: Any, transaction_alias: str = 't') -> str:
+    """'이 거래가 장부에 기장됐나'를 판단하는 SQL 조각.
+
+    세 저장소의 **합집합**을 본다: `ledger`(새 정본)·`ledger_entries`(기장 영수증)·
+    `board_rows`(화면 행). 어느 하나만 빠져도 기장된 거래가 '미기장'으로 뒤집힌다.
+
+    `ledger_entries`를 반드시 포함해야 한다. `ledger`에 행이 하나라도 있으면
+    (`ledger_is_authoritative`) 옛 영수증만 보던 행이 사라지는데, 이관은 행을
+    추가만 하므로 **일부만 이관된 DB**와 '이관 전 기장 → 새 코드의 첫 쓰기' 상태가
+    흔하다. 그 거래가 미기장으로 보이면 완료기간 보호가 풀리고 중복·환불 부호
+    보호가 풀린다.
+
+    테이블이 모두 없으면 **항상 거짓**인 조각을 준다 — 테이블이 없으면 기장된 행도
+    없으므로 `EXISTS(...)`가 False가 되는 것이 정확한 뜻이고, 호출자가 None을
+    따로 처리하지 않아도 된다.
+
+    호출자는 이 조각을 `EXISTS(...)`/`NOT EXISTS(...)` 안에 넣어 쓴다.
+    """
+    sources = []
+    if ledger_is_authoritative(conn):
+        sources.append("SELECT 1 FROM ledger l"
+                       f" WHERE l.transaction_id={transaction_alias}.transaction_id")
+    if _table_exists(conn, 'ledger_entries'):
+        sources.append("SELECT 1 FROM ledger_entries e"
+                       f" WHERE e.transaction_id={transaction_alias}.transaction_id")
+    if _table_exists(conn, 'board_rows'):
+        sources.append("SELECT 1 FROM board_rows b"
+                       f" WHERE b.row_id='card-'||{transaction_alias}.transaction_id")
+    if not sources:
+        return 'SELECT 1 WHERE 0'
+    return ' UNION ALL '.join(sources)
+
+
+def sync_ledger_from_record(conn: Any, record: dict) -> None:
+    """화면 행 record 하나를 통합 장부에도 맞춰 쓴다(있으면 갱신, 없으면 삽입).
+
+    `board_rows`를 고치는 경로가 모두 이 함수를 부른다. 값은 이미 화면 행이
+    계산한 것을 그대로 옮겨 적으므로 두 저장소가 서로 다른 말을 할 수 없다.
+
+    통합 장부가 없는 미이관 DB에서는 아무것도 하지 않는다. 그때는 `board_rows`가
+    정본이고 어긋날 대상이 없다.
+    """
+    if not ledger_table_exists(conn):
+        return
+    row_id = record.get('row_id')
+    if not row_id:
+        return
+    transaction_id = row_id[len('card-'):] if row_id.startswith('card-') else None
+    values = dict(
+        entry_id=row_id,
+        transaction_id=transaction_id,
+        entry_kind=record.get('row_kind') or record.get('entry_kind') or 'expense',
+        item=record.get('item') or '',
+        description=record.get('description') or '',
+        amount_krw=record.get('amount_krw'),
+        occurred_on=record.get('occurred_on') or '',
+        display_tab_id=record.get('display_tab_id'),
+        trip_id=record.get('trip_id') or record.get('display_tab_id') or '',
+        service_period=record.get('service_period') or '',
+        reservation_no=record.get('reservation_no') or '',
+        evidence_type=record.get('evidence_type') or '',
+        source_kind=record.get('source_kind') or '',
+        source_event_id=record.get('source_event_id') or '',
+        source_fact_digest=record.get('source_fact_digest') or '',
+        source_merchant=record.get('source_merchant') or '',
+        source_issuer=record.get('source_issuer') or '',
+        source_card_last4=record.get('source_card_last4') or '',
+        source_approval_number=record.get('source_approval_number') or '',
+        source_approval_date=record.get('source_approval_date') or '',
+        source_posting_date=record.get('source_posting_date') or '',
+        source_local_amount=record.get('source_local_amount') or '',
+        source_currency=record.get('source_currency') or '',
+        event_kind=record.get('event_kind') or '',
+        classification_state=record.get('classification_state') or '',
+        classification_source=record.get('classification_source') or '',
+        classification_basis=record.get('classification_basis') or '',
+        confirmed_by=record.get('confirmed_by') or '',
+        memo=record.get('memo') or '',
+        operator_note=record.get('operator_note') or '',
+        customer_id=record.get('customer_id') or '',
+        customer_name=record.get('customer_name') or '',
+        nickname=record.get('nickname') or '',
+        income_kind=record.get('income_kind') or '',
+        event_type=record.get('event_type') or '',
+        created_by_request=record.get('created_by_request') or '',
+        ota_evidence_json=json.dumps(record['ota_evidence'], ensure_ascii=False,
+                                     sort_keys=True) if record.get('ota_evidence') else '',
+        revision=record.get('revision') or 1,
+    )
+    if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (row_id,)).fetchone():
+        pairs = ','.join(f'{column}=?' for column in values)
+        conn.execute(f'UPDATE ledger SET {pairs} WHERE entry_id=?',
+                     (*values.values(), row_id))
+        return
+    columns = list(values) + ['committed_at', 'batch_id', 'created_at']
+    row = list(values.values()) + ['', '', '']
+    conn.execute(
+        f'INSERT INTO ledger({",".join(columns)})'
+        f' VALUES ({",".join("?" * len(columns))})', row)
+
+
 def allocation_dict(row: tuple | list) -> dict:
     return {
         "allocation_id": row[0],

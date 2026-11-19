@@ -153,6 +153,10 @@ def service_warnings(data, rows):
 
     The in-memory OTA generation isn't available outside the server. Report that
     limitation explicitly instead of claiming its derived dates were inspected.
+
+    Detect an unknown service date from the internal formatter, not the screen
+    label: since the 2026-11-19 display policy (_service_date_labels) the screen
+    cell is blank for an unknown date, so the sentinel no longer survives there.
     """
     from datetime import date
     from webapp import ledger_design as design, read_scope

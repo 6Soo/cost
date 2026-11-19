@@ -656,6 +656,25 @@
       "name": "ota-evidence-compaction",
       "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
       "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
+    },
+    {
+      "name": "m6-ledger-merge",
+      "paths": ["app/db.py", "tools/migrate_to_ledger.py",
+                "tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py",
+                "tests/card_pipeline/test_ledger_parity.py",
+                "tests/card_pipeline/test_booked_predicate_pair.py",
+                "app/closed_period.py"],
+      "tests": ["tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py",
+                "tests/card_pipeline/test_ledger_parity.py",
+                "tests/card_pipeline/test_booked_predicate_pair.py",
+                "tests/card_pipeline/test_quarter_tab.py",
+                "webapp/tests/test_ledger_store.py",
+                "webapp/tests/test_ledger_apply.py",
+                "webapp/tests/test_refund_group_commit.py"]
     }
   ]
 }
