@@ -192,9 +192,9 @@ def policy_text(policy_dir=None):
     retired = retired_map(documents)
     exceptions = [canonical_rule(identity, sections, owners, retired).split('- 출처:',1)[0]
                   for identity in POLICY_EXCEPTION_IDS]
-    # Sections are trimmed and joined with one newline, exactly as the previous
-    # `split('### ')` + `'\n'.join` did. The join shape feeds the request digest, so
-    # trimming or re-joining differently would silently reshape the P2 prompt.
+    # Sections keep the legacy chunk text (marker stripped, trailing blank line included)
+    # and are joined with one newline, exactly as `split('### ')` + `'\n'.join` did. The
+    # join shape feeds the request digest, so restyling it would reshape the P2 prompt.
     return core + '\n' + '\n'.join(exceptions)
 
 
