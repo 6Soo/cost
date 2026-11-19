@@ -195,11 +195,6 @@ def _source_income(board, access, session, owner, tab_id):
                              visible_tabs=set() if owner else set(access.visible_tabs(session.user_id)))
 
 
-def _with_income(rows, source):
-    ids = {row.get('row_id') for row in rows}
-    return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
-
-
 def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
                   income_source: dict[str, Any] | None = None) -> dict[str, Any]:
     # The store's displayed amount/date projection is authoritative.  This
@@ -229,7 +224,7 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
     for trip in trips:
         rows = list(board.list_tab_rows(trip["tab_id"]))
         income = _source_income(board, access, session, owner, trip['tab_id'])
-        rows = _with_income(rows, income)
+        rows = ledger_query.merge_income(rows, income)
         summary = _trip_summary(board, trip, rows, income_source=income)
         summary['income_source'] = {key: value for key, value in income.items() if key != 'rows'}
         summaries.append(summary)
@@ -277,23 +272,6 @@ def _row_search(row: dict[str, Any], board: Any, *, owner: bool = False) -> str:
     return projection.search_text(row, owner=owner)
 
 
-def _refund_member_ids(board: Any, owner: bool) -> set:
-    """Transactions in a completed net-zero refund group (owner attribution).
-
-    The rule itself lives in ``refund_tab.member_ids``, the same helper the
-    legacy board and the refund tab use, so the two paths cannot disagree about
-    which rows belong to the refund tab.
-    """
-    if not owner or board is None:
-        return set()
-    try:
-        from . import refund_tab
-
-        return set(refund_tab.member_ids(board))
-    except Exception:
-        return set()
-
-
 def _sort_amount_text(row: dict[str, Any]) -> str:
     """The amount string ``plush_projection.ledger_row`` puts in its ``amount``.
 
@@ -312,7 +290,7 @@ def _ledger(access: Any, session: Any, board: Any,
             query: dict[str, list[str]], *, owner: bool) -> dict[str, Any]:
     trip, rows = _trip_for_query(board, access, session, owner, query)
     income = _source_income(board, access, session, owner, str(trip.get('tab_id') or ''))
-    rows = _with_income(rows, income)
+    rows = ledger_query.merge_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
     # RFND-022 / ITEM-011: a completed net-zero refund group belongs to the
@@ -327,7 +305,7 @@ def _ledger(access: Any, session: Any, board: Any,
     # happens to carry such a key from React and keep it on the legacy board,
     # so this bounds the exclusion the same way the legacy read does.
     if owner and str(trip.get("tab_id") or "") != "refunds":
-        excluded = _refund_member_ids(board, True)
+        excluded = ledger_query.refund_excluded_event_ids(board, True)
         if excluded:
             rows = [row for row in rows
                     if row.get("row_kind") == "income"
