@@ -63,7 +63,7 @@ pub const FUKUTAKE: OwnerException = OwnerException {
 
 pub const CARD3820_SINGAPORE: OwnerException = OwnerException {
     rule_id: "owner-card3820-singapore-20261012",
-    policy_ids: &["TRIP-070", "ITEM-037"],
+    policy_ids: &["TRIP-070"],
     origin: "app/classify.py:144-147,211-236",
     card_tail: Some("3820"),
     period: Some(("2026-09-19", "2026-09-24")),
@@ -74,7 +74,7 @@ pub const CARD3820_SINGAPORE: OwnerException = OwnerException {
 
 pub const CARD3820_RESIDUAL: OwnerException = OwnerException {
     rule_id: "owner-card3820-residual-20261012",
-    policy_ids: &["TRIP-071", "ITEM-038"],
+    policy_ids: &["TRIP-071"],
     origin: "app/classify.py:159-160,273-301",
     card_tail: Some("3820"),
     period: None,
