@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -66,6 +67,16 @@ def board_connection(tmp_path):
         'actor,created_at,client_request_id)'
         " VALUES ('card-aaa',1,'{}','{}','','save','owner','2026-10-07T14:48:18+00:00','r1')")
     return conn
+
+
+def _source_rows(conn: sqlite3.Connection) -> tuple:
+    """원본 4표 전체 열 스냅샷. 이관 전후 내용 보존 비교를 한 번에 한다."""
+    return (
+        conn.execute('SELECT * FROM board_rows ORDER BY row_id').fetchall(),
+        conn.execute('SELECT * FROM ledger_entries ORDER BY transaction_id').fetchall(),
+        conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(),
+        conn.execute('SELECT * FROM board_revisions ORDER BY row_id').fetchall(),
+    )
 
 
 def test_ledger_not_required_by_startup_gate_before_migration(tmp_path):
@@ -205,5 +216,40 @@ def test_duplicate_entry_id_is_reported_not_invented(tmp_path):
                          ('card-dup', 'expense', 'trip-A', 1, payload))
         with pytest.raises(SystemExit, match='MIGRATION_DUPLICATE_ENTRY_ID'):
             migrate_to_ledger.migrate(conn, apply=True)
+    finally:
+        conn.close()
+
+
+def test_partial_apply_failure_rolls_back_and_preserves_sources(tmp_path):
+    """적용 중 예외가 나도 부분 기입·스키마가 남지 않고 원본 4표 내용이 그대로다.
+
+    `migrate`는 SAVEPOINT를 스스로 열고 `except BaseException`에서 롤백한다. 두 번째
+    `ledger` INSERT 직전에 1행이 실제로 들어간 상태를 실제 연결에서 관찰한 뒤
+    실패시켜, 최소 1행 쓰기 이후의 롤백과 원본 보존을 고정한다.
+    """
+    conn = board_connection(tmp_path)
+    before = _source_rows(conn)
+    state = {'ledger_inserts': 0, 'rows_before_failure': None}
+
+    def faulting_execute(sql, parameters=()):
+        if ' '.join(str(sql).split()).upper().startswith('INSERT INTO LEDGER'):
+            state['ledger_inserts'] += 1
+            if state['ledger_inserts'] == 2:
+                state['rows_before_failure'] = conn.execute(
+                    'SELECT COUNT(*) FROM ledger').fetchone()[0]
+                raise RuntimeError('injected ledger write failure')
+        return conn.execute(sql, parameters)
+
+    fault = SimpleNamespace(execute=faulting_execute)
+    try:
+        with pytest.raises(RuntimeError, match='injected ledger write failure'):
+            migrate_to_ledger.migrate(fault, apply=True)
+        # 실패한 INSERT까지 실제로 시도됐고, 직전에 1행이 들어간 것이 관찰됐다.
+        assert state['ledger_inserts'] == 2
+        assert state['rows_before_failure'] == 1
+        # 롤백 뒤 원본 4표 내용은 시작과 같고 새 ledger 스키마도 남지 않았다.
+        assert _source_rows(conn) == before
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone() is None
     finally:
         conn.close()
