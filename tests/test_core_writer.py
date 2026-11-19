@@ -532,10 +532,10 @@ def test_audit_entries_and_reviews_do_not_invalidate_the_period_evidence(env, tm
 
 
 def test_period_evidence_takes_no_p2_periods_so_it_matches_the_cache_key(env, tmp_path, monkeypatch):
-    from tools.core_bridge import periods as bridge
+    from app import core_period_evidence as evidence
     seen = []
-    real = bridge.evidence_from_snapshot
-    monkeypatch.setattr(bridge, 'evidence_from_snapshot', lambda *args, **kw: seen.append((args, kw)) or real(*args, **kw))
+    real = evidence.evidence_from_snapshot
+    monkeypatch.setattr(evidence, 'evidence_from_snapshot', lambda *args, **kw: seen.append((args, kw)) or real(*args, **kw))
     conn, _ = _periods_env(env, tmp_path, [])
     facts = core_writer.periods_for(conn)
     (args, kw), = seen
