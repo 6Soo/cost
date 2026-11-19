@@ -75,6 +75,8 @@ def render_browser(render_ui):
     def open_ledger(page, query=""):
         page.goto(f"http://127.0.0.1:{port}/board?tab={trip}{query}")
         page.wait_for_selector(".cost-app-shell[data-role='owner']")
+        # Each page loads on demand, so the shell can render before the ledger chunk arrives.
+        page.wait_for_selector(".cost-ledger__summary")
 
     try:
         yield port, trip, make_page, open_ledger

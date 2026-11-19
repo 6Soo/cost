@@ -1,4 +1,5 @@
-import { StrictMode, Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Component, StrictMode, Suspense, lazy, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "./app/AppShell";
 import { featureRoute } from "./app/routes";
@@ -29,6 +30,21 @@ function pageFor(path: string, bootstrap: Bootstrap, search: URLSearchParams) {
   }
 }
 
+// A page chunk can fail to load (offline, stale deploy). Say so instead of unmounting the tree.
+class PageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  componentDidCatch(): void {}
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) {
+      return <main className="cost-main"><section className="cost-panel" role="alert"><h1>화면을 열 수 없습니다</h1><p>화면을 불러오지 못했습니다. 새로 고침해 주세요.</p></section></main>;
+    }
+    return this.props.children;
+  }
+}
+
 function RootApp() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +57,7 @@ function RootApp() {
   }, []);
   if (error) return <main className="cost-main"><section className="cost-panel" role="alert"><h1>화면을 열 수 없습니다</h1><p>{error}</p></section></main>;
   if (!bootstrap) return <main className="cost-main"><p role="status">COST 화면을 준비하는 중입니다…</p></main>;
-  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path} currentTripId={search.get("tab") || search.get("trip") || ""}><Suspense fallback={<main className="cost-main"><p role="status">화면을 준비하는 중입니다…</p></main>}>{pageFor(path, bootstrap, search)}</Suspense></AppShell>;
+  return <AppShell role={bootstrap.role} trips={bootstrap.trips} path={path} currentTripId={search.get("tab") || search.get("trip") || ""}><PageBoundary><Suspense fallback={<main className="cost-main"><p role="status">화면을 준비하는 중입니다…</p></main>}>{pageFor(path, bootstrap, search)}</Suspense></PageBoundary></AppShell>;
 }
 
 const rootElement = document.getElementById("root");
