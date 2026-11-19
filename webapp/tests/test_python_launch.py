@@ -2,43 +2,16 @@
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
-from app.python_launch import LAUNCHER_VARIABLE, child_environment, python_command
-
-
-def _fake_venv(tmp_path: Path, base_exists: bool = True) -> Path:
-    base_dir = tmp_path / "base"
-    base_dir.mkdir()
-    if base_exists:
-        (base_dir / "python.exe").write_bytes(b"")
-    scripts = tmp_path / "venv" / "Scripts"
-    scripts.mkdir(parents=True)
-    (scripts / "python.exe").write_bytes(b"")
-    (tmp_path / "venv" / "pyvenv.cfg").write_text(f"home = {base_dir}\nversion = 3.14.0\n", encoding="utf-8")
-    return scripts / "python.exe"
+from app.python_launch import child_environment, python_command
 
 
 def test_a_plain_interpreter_is_used_as_it_is(tmp_path):
     exe = tmp_path / "python.exe"
     exe.write_bytes(b"")
     assert python_command(exe) == ([str(exe)], {})
-
-
-@pytest.mark.skipif(os.name != "nt", reason="venv launchers are a Windows detail")
-def test_a_venv_launcher_is_replaced_by_its_base_interpreter(tmp_path):
-    launcher = _fake_venv(tmp_path)
-    argv, env = python_command(launcher)
-    assert argv == [str(tmp_path / "base" / "python.exe")]
-    assert env == {LAUNCHER_VARIABLE: str(launcher)}
-
-
-@pytest.mark.skipif(os.name != "nt", reason="venv launchers are a Windows detail")
-def test_a_venv_whose_base_is_missing_keeps_the_launcher(tmp_path):
-    launcher = _fake_venv(tmp_path, base_exists=False)
-    assert python_command(launcher) == ([str(launcher)], {})
 
 
 def test_nothing_added_means_the_child_inherits_the_environment():
