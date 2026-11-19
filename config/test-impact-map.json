@@ -139,8 +139,13 @@
     },
     {
       "name": "p2-offline-merchant-batch",
-      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py", "tests/test_p2_incremental.py", "platform_tests/windows/test_registration_task_script_parses.py"],
+      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py", "tests/test_p2_incremental.py", "platform_tests/windows/test_registration_task_script_parses.py", "docs/policy/item.md", "docs/policy/RETIRED_IDS.md"],
       "tests": ["tests/test_p2_batch.py", "tests/test_p2_incremental.py", "tests/test_frontier_agent_provider.py", "webapp/tests/test_classification_correction.py"]
+    },
+    {
+      "name": "p2-policy-context-consumers",
+      "paths": ["docs/policy/**", "docs/DECISION_POLICY.md"],
+      "tests": ["tests/test_p2_batch.py", "tests/test_p2_incremental.py", "tests/test_p2_policy_pack.py", "webapp/tests/test_preparation_cost_repair.py"]
     },
     {
       "name": "p2-tool-free-runtime",

@@ -126,7 +126,16 @@ def main(argv=None):
                           (p.startswith('docs/') or '/' not in p))
                           or (p.startswith('docs/') and p.lower().endswith('.png'))]
         code_paths = [p for p in paths if p not in document_paths]
-        targets, unknown = select_targets(code_paths, impact_map["groups"])
+        # A document can be a runtime input: docs/policy and DECISION_POLICY are
+        # parsed by P2. Paths the impact map explicitly claims select their tests
+        # even when they are not code, so a docs-only PR cannot report DOCS_ONLY
+        # while breaking the consumer that reads the document.
+        targets, unknown = select_targets(
+            [p for p in paths
+             if p not in document_paths or any(path_matches(p, pattern)
+                                               for group in impact_map["groups"]
+                                               for pattern in group["paths"])],
+            impact_map["groups"])
         deleted_unmapped = []
         if unknown:
             unknown, deleted_unmapped = split_deleted_unmapped(unknown, deleted_paths(args.base))
@@ -140,7 +149,7 @@ def main(argv=None):
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
         print(json.dumps({"status": "ERROR", "reason": str(exc)}, ensure_ascii=False))
         return 2
-    status = 'NO_CHANGES' if not paths else 'DOCS_ONLY' if not code_paths else "UNKNOWN_IMPACT" if unknown else "SELECTED"
+    status = 'NO_CHANGES' if not paths else 'DOCS_ONLY' if not code_paths and not targets else "UNKNOWN_IMPACT" if unknown else "SELECTED"
     payload = {
         "status": status,
         "unknown_files": unknown,

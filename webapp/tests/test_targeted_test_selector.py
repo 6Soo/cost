@@ -93,6 +93,17 @@ def test_document_only_and_empty_diffs_never_schedule_code_tests(monkeypatch, ca
         assert result['status'] == expected and result['pytest_commands'] == []
 
 
+def test_mapped_runtime_document_selects_its_consumers_instead_of_docs_only(monkeypatch, capsys):
+    """docs/policy is a P2 runtime input; a docs-only label hid a real regression."""
+    import json
+    monkeypatch.setattr(SELECTOR, 'changed_paths', lambda _, p=['docs/policy/item.md']: p)
+    assert SELECTOR.main(['--base', 'synthetic']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'SELECTED'
+    assert result['document_only_files'] == ['docs/policy/item.md']
+    assert 'tests/test_p2_batch.py' in result['pytest_commands'][0]
+
+
 def test_core_modules_have_real_safety_targets():
     import json
     config = json.loads(SELECTOR.MAP_PATH.read_text(encoding='utf-8'))
