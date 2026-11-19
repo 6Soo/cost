@@ -93,10 +93,10 @@ def _board_reader(board_path):
 def _evidence_key(board_path, manual) -> str:
     # P2 periods are neither in the key nor in the evidence: ai_inference rows are kept by the planner, so none is stored.
     # When the P2 write path moves to Rust, feed that row's own inputs to both here.
-    from tools.core_bridge import periods as bridge
+    from . import core_period_evidence as evidence
     return hashlib.sha256(json.dumps(
-        [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
-         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
+        [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, evidence.FACT_KEYS, evidence.EVENT_KEYS,
+         evidence.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
 
 
 def _configured() -> str:
@@ -107,14 +107,14 @@ def _configured() -> str:
 
 
 def period_facts(board_path, manual, core) -> tuple:
-    """(facts, key): booking-period evidence per transaction for `context.periods`, from the `periods` bridge.
+    """(facts, key): booking-period evidence per transaction for `context.periods`, from `core_period_evidence`.
 
     The reconciliation runs only when its input key (without the columns apply writes), the service-period
-    overrides or the bridge columns changed; otherwise the derived facts saved beside core.sqlite are reused, so
+    overrides or the evidence columns changed; otherwise the derived facts saved beside core.sqlite are reused, so
     an apply does not invalidate the evidence for the next one. Rust then re-judges only transactions whose
     evidence digest changed, so nothing is computed when a screen renders.
     """
-    from tools.core_bridge import periods as bridge
+    from . import core_period_evidence as evidence
     key = _evidence_key(board_path, manual)
     cache = Path(core).with_name(PERIODS_CACHE)
     try:
@@ -123,7 +123,7 @@ def period_facts(board_path, manual, core) -> tuple:
             return saved['facts'], key
     except (OSError, ValueError):
         pass
-    facts = bridge.evidence_from_snapshot(_period_snapshot(board_path), set(manual))
+    facts = evidence.evidence_from_snapshot(_period_snapshot(board_path), set(manual))
     scratch = cache.with_name(cache.name + '.tmp')
     scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
     os.replace(scratch, cache)

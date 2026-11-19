@@ -305,7 +305,7 @@ def _sort_amount_text(row: dict[str, Any]) -> str:
     """
     if row.get("google_income") and row.get("amount_missing"):
         return "미확인"
-    return projection.money(projection._display_amount(row))
+    return projection.money(ledger_query.display_amount(row))
 
 
 def _ledger(access: Any, session: Any, board: Any,
@@ -352,7 +352,8 @@ def _ledger(access: Any, session: Any, board: Any,
         # the whole DTO per comparison is O(n log n) projections and was the
         # single largest cost of this list at 5,000 rows.  The values are read
         # from the same fields ``ledger_row`` reads, so the order is identical:
-        # ``_display_date``/``_display_amount`` are the projection's own helpers.
+        # ``projection._display_date`` and ``ledger_query.display_amount`` are
+        # the same helpers the DTO uses.
         if sort.startswith("date"):
             return (projection._display_date(row), str(row.get("row_id") or ""))
         if sort.startswith("merchant"):

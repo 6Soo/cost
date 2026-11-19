@@ -412,6 +412,28 @@ def test_ledger_row_does_not_pair_krw_display_amount_with_source_currency():
     assert row["source_currency"] == "USD"
 
 
+def test_projection_amounts_use_the_shared_query_display_amount():
+    """SPEC §11.2.1 계약 1: the DTO and the trip summary read the same signed
+    display amount as the common query, including unreadable values."""
+    from webapp import ledger_query, plush_projection
+
+    rows = [
+        {"row_id": "r1", "row_kind": "expense", "amount_krw": 12000},
+        {"row_id": "r2", "row_kind": "expense", "amount_krw": 9000,
+         "display_amount_krw": 7000},
+        {"row_id": "r3", "row_kind": "expense", "amount_krw": "unreadable"},
+        {"row_id": "r4", "row_kind": "expense", "amount_krw": None},
+        {"row_id": "r5", "row_kind": "income", "amount_krw": "50000"},
+    ]
+    for row in rows:
+        assert plush_projection.ledger_row(row)["amount"] == plush_projection.money(
+            ledger_query.display_amount(row))
+    summary = plush_projection.trip_summary({"tab_id": "syn-trip"}, rows)
+    assert summary["expense"] == "19000"
+    assert summary["income"] == "50000"
+    assert summary["profit"] == "31000"
+
+
 def test_viewer_projection_uses_access_allowlist(bound_store, monkeypatch):
     store, access = bound_store
     access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)

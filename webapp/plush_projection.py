@@ -10,6 +10,8 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any, Iterable
 
+from . import ledger_query
+
 # 소유자 결정 2026-11-19: an income this ledger cannot confirm shows one em dash.
 # The board has no income rows at all (54 of 54 trips), so a word like "미확인"
 # would be a permanent sentence rather than a state that can change.
@@ -62,7 +64,8 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]],
                    and row.get("row_id") not in linked]
     google_rows = [row for row in rows
                    if row.get("row_kind") == "income" and row.get("google_income")]
-    expense = sum(_display_amount(row) for row in rows if row.get("row_kind") != "income")
+    expense = sum(ledger_query.display_amount(row) for row in rows
+                  if row.get("row_kind") != "income")
     if cost_income:
         # An unreadable COST amount is not a zero either (SPEC §11.2.1 계약 4,
         # GGL-014). Summing it would present a confirmed figure lower than what
@@ -71,14 +74,14 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]],
         if any(row.get("amount_missing") for row in cost_income):
             income = None
         else:
-            income = sum(_display_amount(row) for row in cost_income)
+            income = sum(ledger_query.display_amount(row) for row in cost_income)
     elif google_rows and trip.get("google_verified"):
         # Only a verified block may stand in for a missing COST figure, and only
         # when every row it relies on has a readable amount (GGL-014).
         if any(row.get("amount_missing") for row in google_rows):
             income = None
         else:
-            income = sum(_display_amount(row) for row in google_rows)
+            income = sum(ledger_query.display_amount(row) for row in google_rows)
     else:
         # No COST income and no verified Google block: unknown, never a
         # confirmed zero (SPEC §11.2.1 계약 4).
@@ -98,14 +101,6 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]],
         "closed": bool(trip.get("visual_closed") or trip.get("archived")),
         "archived": bool(trip.get("archived")),
     }
-
-
-def _display_amount(row: dict[str, Any]) -> int:
-    value = row.get("display_amount_krw", row.get("amount_krw", 0))
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        return 0
 
 
 def _display_date(row: dict[str, Any]) -> str:
@@ -148,7 +143,7 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
         "merchant": str(merchant or ""),
         "description": str(description or ""),
         "category": str(category or ""),
-        "amount": money(_display_amount(row)),
+        "amount": money(ledger_query.display_amount(row)),
         # amount is the board's won-denominated display amount.  A source
         # currency must never relabel the KRW amount (e.g. 135000 USD).
         "currency": "KRW",
