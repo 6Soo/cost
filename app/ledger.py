@@ -29,6 +29,10 @@ from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
 
 __all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
 
+# Board fields a person can correct that the ledger row also carries (CARD_EDITABLE minus `operator_note`,
+# which is a memo and never booked). `service_period` is not read here: no product path writes that override.
+MERGED_MANUAL_FIELDS = ("item", "description", "display_tab_id")
+
 
 def recordable_rows(rows):
     """Unique transactions that can be newly booked from a preview."""
@@ -104,6 +108,91 @@ def _decision_rows(store, batch_id: str, transaction_ids=None):
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
 
 
+def _manual_board_values(store, transaction_ids=None):
+    """`board_manual_overrides` values a person set, by field — a manual correction outranks an automatic one.
+
+    A decision (`review_decisions`) records item, description and tab together, so it is merged whole. A board
+    correction records one field at a time, so it is merged per field: an override of `item` must not carry a
+    stale `display_tab_id` from the payload over the transaction's own value. Only a field with a real manual
+    record *and* a non-empty payload value is returned — a record whose payload lacks that field says nothing
+    about it, and the pre-existing behaviour stays.
+    An old board file without a `field` column cannot say which field a person corrected, so it contributes
+    nothing (`app/manual_overrides.py:41-69` degrades the same way, as does `manual_period_rows`). A store with
+    no board tables at all (a card-only file) has no manual record either, so it contributes nothing rather
+    than failing the read (`preview` must keep working there).
+    """
+    from .manual_overrides import manual_fields
+
+    # No board file, no `field` column: nothing can be named, so nothing is merged.
+    tables = {r[0] for r in store.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name IN ('board_manual_overrides','board_rows')")}
+    if len(tables) < 2:
+        return {}
+    columns = {r[1] for r in store.conn.execute('PRAGMA table_info(board_manual_overrides)')}
+    if 'field' not in columns:
+        return {}
+    # The row's values live in `payload_json`; a file whose `board_rows` lacks that column has no value to
+    # name either, so nothing is merged rather than failing the read.
+    if 'payload_json' not in {r[1] for r in store.conn.execute('PRAGMA table_info(board_rows)')}:
+        return {}
+    wanted: set[tuple[str, str]] = set()
+    for row_id, field in manual_fields(store.conn):
+        tid = str(row_id or '')
+        if not tid.startswith('card-') or field not in MERGED_MANUAL_FIELDS:
+            continue
+        if transaction_ids is not None and tid[5:] not in transaction_ids:
+            continue
+        wanted.add((tid[5:], field))
+    if not wanted:
+        return {}
+    values: dict[str, dict] = {}
+    for tid in sorted({tid for tid, _ in wanted}):
+        found_row = store.conn.execute('SELECT payload_json FROM board_rows WHERE row_id=?',
+                                       ('card-' + tid,)).fetchone()
+        if not found_row:
+            continue
+        try:
+            payload = json.loads(found_row[0])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        found = {field: payload[field] for wanted_tid, field in wanted
+                 if wanted_tid == tid and payload.get(field) not in (None, '')}
+        if found:
+            values[tid] = found
+    return values
+
+
+def _tab_is_not_a_trip(tab) -> bool:
+    """A quarter-cost tab, the refunds tab and the unassigned tab are destinations, never trips."""
+    if not tab:
+        return True
+    if tab in ("unclassified", REFUND_TAB):
+        return True
+    from .quarter_tab import parse_tab
+    return parse_tab(tab) is not None
+
+
+def _board_override_exists(store, row_id: str, field: str) -> bool:
+    """A real manual override of `field`, or False when the file cannot name one.
+
+    False when there is no board file (a card-only file) and when the table is an old row-id-only shape with no
+    `field` column — that shape cannot say which field a person corrected, and `exists_sql` would raise
+    `no such column` on it.
+    """
+    from .manual_overrides import exists_sql as manual_exists_sql
+    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                              " AND name='board_manual_overrides'").fetchone():
+        return False
+    if 'field' not in {r[1] for r in store.conn.execute(
+            'PRAGMA table_info(board_manual_overrides)')}:
+        return False
+    return bool(store.conn.execute(
+        'SELECT ' + manual_exists_sql(store.conn, '?', field), (row_id,)).fetchone()[0])
+
+
 def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
                      duplicate_of=None, exclusion=None, hold=None):
     """Common source/review guards that must block every path into ledger_entries."""
@@ -153,6 +242,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
                               include_verified_full_refunds=include_verified_full_refunds,
                               transaction_ids=transaction_ids)
     decisions = _decision_rows(store, batch_id, transaction_ids)
+    # A person's board correction outranks the automatic columns, field by field (DECISION_POLICY §3.2 item 1).
+    manual_values = _manual_board_values(store, transaction_ids)
     if include_verified_full_refunds:
         # A counterpart may have a user decision in another import batch.
         batch_ids = {r[0] for r in store.conn.execute(
@@ -189,14 +280,20 @@ def preview(store, batch_id: str, *, trip_validator=None,
          direction, item, description, tab, trip_id, revision, decided,
          state, classification_source, conflict_reason, parse_error, duplicate_of) = row
         decision = decisions.get(transaction_id)
+        manual = manual_values.get(transaction_id) or {}
         entry = {
             "transaction_id": transaction_id, "source_hash": source_hash,
             "merchant": merchant, "amount_krw": amount_krw,
             "occurred_on": booked_dates.get(transaction_id, approval_date), "transaction_direction": direction,
-            "item": (decision or {}).get("item", item) or "",
-            "description": (decision or {}).get("description", description) or "",
-            "display_tab_id": (decision or {}).get("display_tab_id", tab) or "",
-            "trip_id": trip_id, "revision": revision,
+            "item": manual.get("item") or (decision or {}).get("item", item) or "",
+            "description": manual.get("description") or (decision or {}).get("description", description) or "",
+            "display_tab_id": manual.get("display_tab_id") or (decision or {}).get("display_tab_id", tab) or "",
+            # A board correction of the attribution moves the row with it: `project` refuses a trip that
+            # disagrees with the tab, and the refunds and quarter tabs carry no trip at all. Without a
+            # manual tab the stored pair is kept as it was.
+            "trip_id": ("" if _tab_is_not_a_trip(manual.get("display_tab_id"))
+                        else manual["display_tab_id"]) if manual.get("display_tab_id") else trip_id,
+            "revision": revision,
             "decided": bool(decided), "classification_state": state,
             "already_booked": transaction_id in booked_ids,
             "duplicate_of": duplicate_of or "",
@@ -658,17 +755,26 @@ def _committed_group_replay(store, payload_sha, current_digest, current):
 
 
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
-    """Persist the refund-tab classification applied by a verified pair preview."""
+    """Persist the refund-tab classification applied by a verified pair preview.
+
+    A person's own answer stays. `classification_source` being `user_*` is one trace; `decided_at` is another
+    (`app/review.py` writes both together, but a restored or older row can carry only the timestamp). A board
+    correction of the attribution counts as well — it is the same person's decision recorded elsewhere.
+    """
     link = entry.get("refund_link") or {}
     if (link.get("inferred") or link.get("status") != "full"
             or link.get("net_krw") != 0 or entry.get("transaction_id") != transaction_id):
         return
     current = store.conn.execute(
-        "SELECT classification_source FROM transactions WHERE transaction_id=?",
+        "SELECT classification_source, decided_at FROM transactions WHERE transaction_id=?",
         (transaction_id,),
     ).fetchone()
     if not current or (str(current[0] or "").startswith("user_")
                        and current[0] != "user_completed_period"):
+        return
+    if current[1] is not None:
+        return
+    if _board_override_exists(store, 'card-' + transaction_id, 'display_tab_id'):
         return
     store.conn.execute(
         "UPDATE transactions SET classification_state='classified',"
