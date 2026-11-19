@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from webapp import ledger_board, ledger_query
+from webapp import ledger_board, ledger_query, plush_projection as projection
 from webapp.tests.test_ledger_parity_spec_11_2_1 import (  # noqa: F401 - shared fixtures
     bound_store, make_expense, make_trip, react_ledger,
 )
@@ -112,10 +112,11 @@ def test_unverified_google_block_shows_rows_but_never_confirms_income(bound_stor
     assert [str(r.get("row_id")) for r in legacy_google] == [r["id"] for r in react_google], (
         legacy_google, react_google)
     assert len(react_google) == 1, react_google
-    # Neither path confirms the block as income.
+    # Neither path confirms the block as income. 소유자 결정 2026-11-19 ②: an
+    # income this ledger cannot confirm is one em dash.
     assert body["income_source"]["verified"] is False, body["income_source"]
     assert body["source_totals"]["filtered"]["google_verified"] == "False"
-    assert body["trip"]["income"] == "미확인", body["trip"]
+    assert body["trip"]["income"] == projection.UNKNOWN_INCOME, body["trip"]
 
 
 def ledger_board_owner_rows(tab, query, kind):

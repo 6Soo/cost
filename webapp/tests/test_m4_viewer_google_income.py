@@ -26,6 +26,7 @@ from urllib.parse import urlencode
 import pytest
 
 from webapp import access_control, ledger_board as board_mod, plush_api
+from webapp import plush_projection as projection
 from webapp.ledger_store import LedgerStore
 
 OWNER = "syn-viewer-owner"
@@ -341,8 +342,9 @@ def test_no_cost_income_and_no_google_grant_shows_unknown_not_zero(viewer_board)
 
     status, react = _react(env)
     assert status == 200
-    assert react["trip"]["income"] == "미확인"
-    assert react["trip"]["profit"] == "미확인"
+    # 소유자 결정 2026-11-19 ②: an income this ledger cannot confirm is one em dash.
+    assert react["trip"]["income"] == projection.UNKNOWN_INCOME
+    assert react["trip"]["profit"] == projection.UNKNOWN_INCOME
 
 
 def test_no_cost_income_with_verified_google_grant_uses_the_google_figure(viewer_board):
@@ -392,8 +394,9 @@ def test_no_cost_income_with_unverified_google_stays_unknown(viewer_board, monke
 
     status, react = _react(env)
     assert status == 200
-    assert react["trip"]["income"] == "미확인"
-    assert react["trip"]["profit"] == "미확인"
+    # 소유자 결정 2026-11-19 ②: an income this ledger cannot confirm is one em dash.
+    assert react["trip"]["income"] == projection.UNKNOWN_INCOME
+    assert react["trip"]["profit"] == projection.UNKNOWN_INCOME
 
 
 def test_viewer_bank_correction_matches_the_display_amount(viewer_board, monkeypatch):

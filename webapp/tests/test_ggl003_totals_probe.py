@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from webapp import ledger_design, ledger_query
+from webapp import ledger_design, ledger_query, plush_projection as projection
 from webapp.tests.test_ledger_parity_spec_11_2_1 import (  # noqa: F401 - shared fixtures
     bound_store, grant_viewer_tabs, legacy_kpi, legacy_owner, make_trip, react_ledger,
 )
@@ -243,9 +243,10 @@ def test_unverified_google_without_cost_income_stays_unknown(bound_store, income
     status, body = react_ledger(store, tab, kind="income")
     assert status == 200, body
     # No COST income and the Google block is unverified: the summary is unknown,
-    # never a confirmed 0 or 1,000.
-    assert body["trip"]["income"] == "미확인", body["trip"]
-    assert body["trip"]["profit"] == "미확인", body["trip"]
+    # never a confirmed 0 or 1,000. 소유자 결정 2026-11-19 ②: an income this
+    # ledger cannot confirm is one em dash (plush_projection.UNKNOWN_INCOME).
+    assert body["trip"]["income"] == projection.UNKNOWN_INCOME, body["trip"]
+    assert body["trip"]["profit"] == projection.UNKNOWN_INCOME, body["trip"]
     assert body["filtered_total"] == "0", body["filtered_total"]
     source = body["source_totals"]["filtered"]
     assert source["income"] == "0", source
