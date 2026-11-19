@@ -248,6 +248,23 @@ def _capture_directory(capture_root, logical_fingerprint):
     raise RuntimeError("CAPTURE_DIRECTORY_EXHAUSTED")
 
 
+def _same_file(candidate, snapshot):
+    """True when ``candidate`` names the same file as ``snapshot``, by any spelling.
+
+    ``_key`` compares resolved path strings, which separates a hard link (own
+    directory entry) and the ``\\\\?\\`` prefix (literal prefix). ``samefile``
+    compares device and inode instead, so both aliases match one file. A path
+    that does not exist cannot be the snapshot, and the exact error differs by
+    platform, so any ``OSError`` answers False: the caller fails closed.
+    """
+    if _key(candidate) == _key(snapshot):
+        return True
+    try:
+        return os.path.samefile(candidate, snapshot)
+    except OSError:
+        return False
+
+
 def _portal_content_fingerprints(snapshot, logical_fingerprint, databases, error):
     """Index-aligned content fingerprints for every database the event builder reads.
 
@@ -261,9 +278,15 @@ def _portal_content_fingerprints(snapshot, logical_fingerprint, databases, error
     The capture copied exactly one file, so any *different* registered database
     would be a source this capture cannot vouch for. That fails explicitly
     instead of quietly degrading to path-based lineage.
+
+    A registered path naming the same *file* is not a second database. Two
+    spellings reach one file that ``_key`` alone cannot match: a hard link (its
+    own directory entry, so ``realpath`` keeps it distinct) and the ``\\\\?\\``
+    extended-length prefix (``_key`` compares the literal string). Both are
+    therefore decided by file identity, and only a different file is refused.
     """
     paths = [Path(item).resolve() for item in (databases or [])]
-    if {_key(item) for item in paths} - {_key(snapshot)}:
+    if any(not _same_file(item, snapshot) for item in paths):
         # The offending path is customer-adjacent, so only the fact is reported.
         raise error("MULTI_DATABASE_FINGERPRINT_UNSUPPORTED")
     if not paths:

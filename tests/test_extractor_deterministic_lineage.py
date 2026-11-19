@@ -301,3 +301,64 @@ def test_a_database_the_capture_did_not_copy_fails_explicitly(tmp_path):
     assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
     # Only an identical path (one real source) is accepted.
     assert _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, snapshot], BridgeError)
+
+
+def test_a_hard_link_to_the_snapshot_is_the_same_database(tmp_path):
+    """A hard link is one file under a second directory entry, not a second source."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    alias = tmp_path / "alias.sqlite"
+    os.link(snapshot, alias)
+    # samefile proves the aliasing premise; a platform without hard links cannot
+    # answer this question, and pytest skips only after that is established.
+    assert os.path.samefile(snapshot, alias)
+    assert os.path.realpath(alias) != os.path.realpath(snapshot), (
+        "a hard link only reaches this test's code path when realpath keeps it distinct")
+    assert _portal_content_fingerprints(
+        snapshot, "f" * 64, [snapshot, alias], BridgeError) == {
+        "0": "f" * 64, "1": "f" * 64}
+
+
+def test_an_extended_prefix_naming_the_snapshot_is_the_same_database(tmp_path):
+    """``\\\\?\\<path>`` names the snapshot itself; the prefix only changes the spelling."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    given = "\\\\?\\" + str(snapshot.resolve())
+    assert _portal_content_fingerprints(
+        snapshot, "f" * 64, [snapshot, given], BridgeError) == {
+        "0": "f" * 64, "1": "f" * 64}
+
+
+def test_a_registered_path_that_does_not_exist_is_refused_not_raised(tmp_path):
+    """A missing path cannot be the snapshot, and the refusal must survive any OSError."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    missing = tmp_path / "gone.sqlite"
+    assert not missing.exists()
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, missing], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
+
+
+def test_a_different_file_with_identical_bytes_is_still_refused(tmp_path):
+    """Content equality is not identity: two separate files stay unsupported."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    twin = tmp_path / "twin.sqlite"
+    twin.write_bytes(b"synthetic")
+    assert os.path.samefile(snapshot, twin) is False
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, twin], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
