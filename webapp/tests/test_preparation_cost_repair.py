@@ -190,6 +190,8 @@ def test_p2_keeps_evidenced_preparation_lodging_exception(setup):
 def test_p2_reads_only_revised_preparation_rules_and_keeps_lodging_exception():
     from app.p2_case import policy_context
     policy=policy_context()
-    assert '일반 준비기간 추론은 폐지한다' in policy['trip']
+    # TRIP-043 and DATE-039 are retired into PROC-004 and TRIP-042
+    # (docs/policy/RETIRED_IDS.md), so P2 now reads them there.
+    assert '일반 준비기간 추론은 폐지한다' in policy['process']
     assert '모든 카드 비용 항목은 가장 가까운 다음 검증 여행의 준비 비용으로 추론' not in policy['trip']
-    assert 'TRIP-042' in policy['trip'] and 'DATE-039' in policy['date']
+    assert 'TRIP-042' in policy['trip']

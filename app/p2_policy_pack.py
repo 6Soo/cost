@@ -36,7 +36,7 @@ PREFIX = {'process': 'PROC', 'trip': 'TRIP', 'item': 'ITEM',
 CATALOG_FINGERPRINTS = {
     'process': frozenset({'90ce7738', '6b6ae0a3'}),
     'trip': frozenset({'6b5ef2bc', '07731f3f'}),
-    'item': frozenset({'5017ea98', 'e9f9e593'}),
+    'item': frozenset({'5017ea98', 'e9f9e593', 'd7c12140'}),
     'date': frozenset({'485a9484', '02994727'}),
     'link': frozenset({'8b20f0b9', '9be56e17'}),
     'refund': frozenset({'ebb80d90', '8b7ff394'}),
@@ -80,6 +80,19 @@ APPROVED_POLICY_REVISIONS = {
         'date': '78eb22eeb41b14bdefb4caba49021fe0cbe119bf',
         'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
         'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
+    },
+    # 2026-11-19 consolidation (686 active + 81 retired). Every PINNED ID still
+    # exists; three are now canonical for a merged pair and the unpinned
+    # TRIP-043/DATE-039 bodies are gone, their requirement stated by PROC-004
+    # and TRIP-042. The item catalog keeps its pinned set under a new fingerprint.
+    'consolidated-20261119': {
+        'CORE': 'a17db97863de0090ce8448f9c603ff2c6939095d',
+        'process': '9a93886dcb4d0b48da733f0f5aa90d223ddc8e35',
+        'trip': '7c7ef870a3f35836dcd0b59691dd1238a71fd842',
+        'item': 'ba527ad386e0083107a171717c560f5d76deb75e',
+        'date': 'ca95a4cd057ea87748473d9aa8a14c2b1d97269c',
+        'link': 'bcf49439f980596107c5c88b767bd31e8f15c041',
+        'refund': '266c17a31a4b75d537431ab2986f4454db360c33',
     },
 }
 
