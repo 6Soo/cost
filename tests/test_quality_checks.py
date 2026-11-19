@@ -697,6 +697,19 @@ def test_core_change_requires_cargo_steps():
     assert other["rust_required"] is False and "cargo-test" not in other["steps"]
 
 
+def test_rust_toolchain_install_waits_for_a_plan_that_runs_checks():
+    # The plan only reads the diff through git, so a toolchain installed before
+    # it was paid for by DOCS_ONLY, NO_CHANGES and REUSED runs that never build.
+    workflow = (ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+    plan_at = workflow.index("      - name: Select checks")
+    rust_at = workflow.index("      - name: Install pinned Rust toolchain")
+    assert plan_at < rust_at
+    rust_step = workflow[rust_at:workflow.index("      - ", rust_at + 1)]
+    assert "steps.plan.outputs.reuse != 'true'" in rust_step
+    assert "steps.plan.outputs.status == 'SELECTED'" in rust_step
+    assert "steps.plan.outputs.status == 'AUDIT'" in rust_step
+
+
 def test_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
     monkeypatch.setattr(quality, "find_cargo", lambda: None)
     with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
