@@ -68,6 +68,19 @@ APPROVED_POLICY_REVISIONS = {
         'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
         'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
     },
+    # b95815e9 recorded the 2026-11-19 owner decision as one line inside
+    # PROC-013. PROC-013 is not pinned, so the reduced packet text is unchanged;
+    # only the process blob hash moved. Registered so the checked-out snapshot
+    # stays an approved revision instead of silently degrading to the full packet.
+    'main-20261119c': {
+        'CORE': '79819f0c9882abedd651a6266f5d330fb31170e4',
+        'process': '20831694fe2d33c76b3a882dac5deb7c16666644',
+        'trip': '67eb76e0995517417c7a9c43bdc3e3064982ab7f',
+        'item': '7837c56b42dfdcbe6cf67e27146a25d84c0161a0',
+        'date': '78eb22eeb41b14bdefb4caba49021fe0cbe119bf',
+        'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
+        'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
+    },
 }
 
 
