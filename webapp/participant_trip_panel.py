@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import html
 import os
 from urllib.parse import urlencode
 
-
-def _esc(value) -> str:
-    return html.escape("" if value is None else str(value), quote=True)
+from .pages import esc as _esc
 
 
 def connect_button() -> str:

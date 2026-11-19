@@ -1,13 +1,10 @@
 """Read-only, accessible rendering for COST ↔ Google expense amount groups."""
 from __future__ import annotations
 
-import html
 import hashlib
 from collections.abc import Mapping, Sequence
 
-
-def _esc(value: object) -> str:
-    return html.escape("" if value is None else str(value), quote=True)
+from .pages import esc as _esc
 
 
 def _group_dom_id(annotation: Mapping[str, object]) -> str:
