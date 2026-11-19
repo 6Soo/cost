@@ -91,6 +91,13 @@ from .ledger_store_allocation_validation import (
     normalize_plan_for_compare,
     validate_allocation_plan,
 )
+from .ledger_operation_requests import (
+    OWNER_PROFILE_DOMAIN,
+    RECEIPT_APPLY_DOMAIN,
+    ensure_unified_journal,
+    insert_operation_request,
+    journal_is_unified,
+)
 from .ledger_store_schema import (
     INDEX_SQL,
     SCHEMA_SQL,
@@ -99,6 +106,7 @@ from .ledger_store_schema import (
     _ensure_trip_tab_columns,
     _ensure_ledger_outbox_evidence,
     _ensure_receipt_apply_tables,
+    execute_schema_sql,
 )
 from .operator_ledger import LedgerError, OperatorLedger
 from .owner_metadata import company_name_default
@@ -289,7 +297,15 @@ class LedgerStore:
         self._process_run_id = _PROCESS_RUN_ID
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
-        self.conn.executescript(SCHEMA_SQL)
+        # The request journal format is decided by what the offline conversion
+        # tool left behind, never by this opener: legacy init must not create
+        # the unified table, and a unified reopen must not recreate the legacy
+        # tables (it only restores a missing compatibility view).
+        self._request_journal_unified = journal_is_unified(self.conn)
+        if self._request_journal_unified:
+            ensure_unified_journal(self.conn)
+        execute_schema_sql(self.conn,
+                           unified_request_journal=self._request_journal_unified)
         self.conn.executescript(INDEX_SQL)
         _ensure_ledger_outbox_evidence(self.conn)
         _ensure_receipt_apply_tables(self.conn)
@@ -4647,10 +4663,11 @@ class LedgerStore:
         disagree with the change it describes is worse than none, because it is
         read as if it were reliable.
         """
-        self.conn.execute(
-            "INSERT INTO owner_profile_requests(client_request_id, input_digest,"
-            " result_json, created_at) VALUES (?,?,?,?)",
-            (client_request_id, digest, _canonical(result), created_at))
+        insert_operation_request(
+            self.conn, unified=self._request_journal_unified,
+            domain=OWNER_PROFILE_DOMAIN, request_id=client_request_id,
+            input_digest=digest, result_json=_canonical(result),
+            created_at=created_at)
         self.conn.execute(
             "INSERT INTO owner_profile_history(revision, change_kind, prev_json,"
             " new_json, actor, created_at, client_request_id)"
@@ -6139,10 +6156,11 @@ class LedgerStore:
 
                 result_body = {"request_id": request_id, "outcome": "applied",
                                "results": results}
-                self.conn.execute(
-                    "INSERT INTO receipt_apply_requests(request_id,request_hash,result_json,created_at)"
-                    " VALUES (?,?,?,?)",
-                    (request_id, request_hash, _canonical(result_body), created_at))
+                insert_operation_request(
+                    self.conn, unified=self._request_journal_unified,
+                    domain=RECEIPT_APPLY_DOMAIN, request_id=request_id,
+                    input_digest=request_hash, result_json=_canonical(result_body),
+                    created_at=created_at)
                 self._commit_write()
             except SaveError:
                 self._rollback_write()
