@@ -131,6 +131,72 @@ def _calls_playwright(node: ast.AST) -> bool:
     return False
 
 
+def _called_names(node: ast.AST) -> set[str]:
+    """Names of functions invoked from `node`, without executing anything.
+
+    A test that opens a browser through `self._page()` never mentions
+    `sync_playwright` in its own body, so the detection must follow the helper.
+    """
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            func = child.func
+            if isinstance(func, ast.Name):
+                names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                names.add(func.attr)
+    return names
+
+
+def _scoped_functions(tree: ast.Module) -> dict[tuple[str, ...], dict[str, ast.AST]]:
+    """Function definitions grouped by scope: () is module level, ("Class",) is a class body."""
+    scopes: dict[tuple[str, ...], dict[str, ast.AST]] = {}
+
+    def walk(body: list[ast.stmt], path: tuple[str, ...]) -> None:
+        scope = scopes.setdefault(path, {})
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope[node.name] = node
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, (*path, node.name))
+
+    walk(tree.body, ())
+    return scopes
+
+
+# A test may reach Playwright through a chain of helpers (`_page` -> `_open` ...).
+# Four hops covers the current test suites; the fixpoint below also stops on its own.
+# A name already in the browser set is never re-added, so self-recursive helpers terminate.
+BROWSER_HELPER_DEPTH = 4
+
+
+def _browser_function_names(scopes: dict[tuple[str, ...], dict[str, ast.AST]]) -> dict[tuple[str, ...], set[str]]:
+    """Per scope, the function names that reach Playwright directly or through helpers."""
+    browser = {path: {name for name, node in funcs.items() if _calls_playwright(node)}
+               for path, funcs in scopes.items()}
+    for _ in range(BROWSER_HELPER_DEPTH):
+        changed = False
+        for path, funcs in scopes.items():
+            for name, node in funcs.items():
+                if name in browser[path]:
+                    continue
+                if any(_resolves_to_browser(callee, path, browser)
+                       for callee in _called_names(node)):
+                    browser[path].add(name)
+                    changed = True
+        if not changed:
+            break
+    return browser
+
+
+def _resolves_to_browser(name: str, path: tuple[str, ...], browser: dict[tuple[str, ...], set[str]]) -> bool:
+    """Look a helper name up in the class scope, then its enclosing scopes, then module level."""
+    for end in range(len(path), -1, -1):
+        if name in browser.get(path[:end], ()):
+            return True
+    return False
+
+
 def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]:
     cases: set[str] = set()
     for target in targets:
@@ -147,6 +213,13 @@ def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]
         requested_parts = node_part.split("::") if node_part else []
         module_name = file_part[:-3].replace("/", ".")
         browser_module = source_path.name.endswith("_browser.py")
+        browser_helpers = _browser_function_names(_scoped_functions(tree))
+
+        def reaches_browser(node: ast.AST, class_path: tuple[str, ...]) -> bool:
+            # Direct call/import in this body, or any helper it calls that opens a browser.
+            return _calls_playwright(node) or any(
+                _resolves_to_browser(callee, class_path, browser_helpers)
+                for callee in _called_names(node))
 
         def visit(body: list[ast.stmt], class_path: tuple[str, ...] = (), inherited_browser: bool = False) -> None:
             for node in body:
@@ -155,18 +228,19 @@ def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]
                         (isinstance(base, ast.Name) and base.id.endswith("BrowserFixture"))
                         or (isinstance(base, ast.Attribute) and base.attr.endswith("BrowserFixture"))
                         for base in node.bases)
+                    child_path = (*class_path, node.name)
                     starts_browser = any(
                         isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
                         and method.name in {"setUp", "setUpClass", "setup_method", "setup_class"}
-                        and _calls_playwright(method)
+                        and reaches_browser(method, child_path)
                         for method in node.body)
-                    visit(node.body, (*class_path, node.name),
+                    visit(node.body, child_path,
                           inherited_browser or is_browser_fixture or starts_browser)
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                     if requested_parts and (requested_parts[-1] != node.name
                             or (len(requested_parts) > 1 and list(class_path) != requested_parts[:-1])):
                         continue
-                    if browser_module or inherited_browser or _calls_playwright(node):
+                    if browser_module or inherited_browser or reaches_browser(node, class_path):
                         qualified = "::".join((module_name, *class_path, node.name))
                         cases.add(qualified)
 

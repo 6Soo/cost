@@ -127,3 +127,8 @@ def test_bounded_subprocess_stdin_and_actual_output_cap(tmp_path):
         _run_bounded([sys.executable, '-c', 'import time; time.sleep(15)'],
                      cwd=tmp_path, env=dict(os.environ), timeout=.1)
     assert time.monotonic() - started < 5
+
+
+# The descendant-lifecycle boundary needs Windows Job Objects. Its test lives in
+# platform_tests/windows/ and runs on the dedicated windows-2022 job; keeping a
+# copy here would assert on a Linux host and fail every P2 change.

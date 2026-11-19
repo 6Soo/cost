@@ -164,6 +164,43 @@ def test_selected_browser_module_parse_error_fails_closed(tmp_path):
         quality.collect_browser_tests(["test_broken_browser.py"], root=tmp_path)
 
 
+def test_browser_resolved_through_class_helper_requires_the_test():
+    # Regression for the CI mismatch: the test never mentions sync_playwright;
+    # its class helper `_page` does, so Chromium must be installed before it runs.
+    targets = ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_state.py"]
+    cases = quality.collect_browser_tests(targets)
+    assert len([c for c in cases if c.startswith("webapp.tests.test_ledger_design::")]) == 29
+    assert len([c for c in cases if c.startswith("webapp.tests.test_ledger_design_state::")]) == 12
+    assert ("webapp.tests.test_ledger_design::DesignScreenTests::"
+            "test_the_font_is_really_loaded_in_the_browser") in cases
+    selected = ("webapp/tests/test_ledger_design.py::DesignScreenTests::"
+                "test_the_font_is_really_loaded_in_the_browser")
+    assert quality.collect_browser_tests([selected]) == [
+        "webapp.tests.test_ledger_design::DesignScreenTests::test_the_font_is_really_loaded_in_the_browser"]
+
+
+def test_browser_helper_chain_is_followed_and_cycles_terminate(tmp_path):
+    module = tmp_path / "test_nested_helpers.py"
+    module.write_text(
+        "class HelperChainTests:\n"
+        "    def _page(self):\n"
+        "        return self._open()\n"
+        "    def _open(self):\n"
+        "        from playwright.sync_api import sync_playwright\n"
+        "        return sync_playwright().start()\n"
+        "    def test_renders_through_helper(self):\n"
+        "        self._page()\n"
+        "    def _loop_a(self):\n"
+        "        return self._loop_b()\n"
+        "    def _loop_b(self):\n"
+        "        return self._loop_a()\n"
+        "    def test_helper_cycle_is_not_a_browser(self):\n"
+        "        self._loop_a()\n",
+        encoding="utf-8")
+    cases = quality.collect_browser_tests(["test_nested_helpers.py"], root=tmp_path)
+    assert cases == ["test_nested_helpers::HelperChainTests::test_renders_through_helper"]
+
+
 def test_unittest_browser_setup_makes_selected_cases_required():
     target = "webapp/tests/test_global_and_filter_totals.py"
     cases = quality.collect_browser_tests([target])

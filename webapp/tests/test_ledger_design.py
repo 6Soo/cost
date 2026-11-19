@@ -50,8 +50,8 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('#trip-reservations').count(), 1)
                 page.locator('#trip-reservations > summary').click()
                 self.assertTrue(page.locator('#trip-reservations').evaluate('e=>e.open'))
-                self.assertIn('trip=trip-demo-a', page.locator('#trip-reservations iframe').get_attribute('src'))
-                self.assertTrue(page.locator('#trip-reservations iframe').is_visible())
+                # The details toggle asynchronously assigns the iframe source.
+                page.locator('#trip-reservations iframe[src*="trip=trip-demo-a"]').wait_for(state='visible')
                 page.close()
 
     def test_manual_expense_dialog_preserves_errors_and_saves_selected_trip(self):

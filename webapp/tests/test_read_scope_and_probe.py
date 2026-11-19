@@ -33,6 +33,10 @@ class LivenessProbeTests(unittest.TestCase):
         os.environ["WEBLEDGER_DB"] = str(Path(self.tmp) / "probe.sqlite")
         self.store = LedgerStore(Path(os.environ["WEBLEDGER_DB"]), seed_demo=False)
         self.access = access_control.attach_to_ledger_store(self.store)
+        # The board store is process-global.  Restore whatever was bound before:
+        # leaving this test's empty store bound made later tests read an empty
+        # trip list (sheets_export's trip validation then refused a real tab).
+        self._prev_store = board_mod._STORE
         board_mod.bind_store(self.store)
         self.server = board_mod.serve(port=0, with_worker=False, seed_demo=False)
         self.port = self.server.server_address[1]
@@ -41,6 +45,7 @@ class LivenessProbeTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
+        board_mod.bind_store(self._prev_store)
         if self._prev_db is None:
             os.environ.pop("WEBLEDGER_DB", None)
         else:
