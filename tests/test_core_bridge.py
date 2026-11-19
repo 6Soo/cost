@@ -205,3 +205,109 @@ def test_handle_reports_python_sha_unavailable_instead_of_an_empty_sha(monkeypat
     monkeypatch.setattr(cli, 'python_sha', lambda root=None: '')
     response = cli.handle('plan', {})
     assert not response['ok'] and response['error']['code'] == 'PYTHON_SHA_UNAVAILABLE'
+
+
+PROTOCOL = ROOT / 'docs' / 'core-bridge-protocol.md'
+
+
+def test_protocol_document_lists_every_registered_command_and_no_ghost_command():
+    """The documented command table is the registry; a new command without a row is an undocumented contract."""
+    text = PROTOCOL.read_text(encoding='utf-8')
+    table = text.split('## 명령', 1)[1].split('## 합성 골든', 1)[0]
+    rows = set(re.findall(r'^\| `([a-z][a-z-]*)`', table, re.M))
+    assert rows == set(commands.COMMANDS), sorted(set(commands.COMMANDS) ^ rows)
+
+
+def test_protocol_document_matches_the_cli_usage_line():
+    text = (ROOT / 'tools' / 'core_bridge' / 'cli.py').read_text(encoding='utf-8')
+    listed = re.search(r'usage: cli\.py <(.+)>', text).group(1).split('|')
+    rows = set(re.findall(r'^\| `([a-z][a-z-]*)`', PROTOCOL.read_text(encoding='utf-8'), re.M))
+    assert set(listed) <= rows and set(commands.COMMANDS) <= rows
+
+
+COMMON_CODES = ('COMMAND_UNKNOWN', 'REQUEST_NOT_JSON', 'PYTHON_SHA_UNAVAILABLE', 'COMMAND_FAILED')
+# Codes the CLI produces itself or raises as `f"{key.upper()}_REQUIRED"`, which a static grep cannot see.
+CLI_CODES = {'COMMAND_UNKNOWN', 'REQUEST_NOT_JSON', 'PYTHON_SHA_UNAVAILABLE', 'COMMAND_FAILED',
+             'OTA_EVIDENCE_REQUIRED', 'OUT_REQUIRED', 'NEW_REQUIRED', 'BASE_REQUIRED'}
+# Backticked upper-snake tokens in the envelope section that are names, not error codes.
+NOT_CODES = {'AREAS', 'DEPLOYED_COMMIT'}
+
+
+def _documented_error_codes():
+    """Upper-snake tokens in the protocol text's error-code catalogue (the envelope section) only.
+
+    Reading the whole document would pick up prose names such as a release-file name, so the
+    guard is pinned to the part that declares the codes.
+    """
+    text = PROTOCOL.read_text(encoding='utf-8')
+    section = text.split('응답 봉투', 1)[1].split('## 입력의 공통 규칙', 1)[0]
+    return set(re.findall(r'`([A-Z][A-Z0-9_]{2,})`', section)) - NOT_CODES
+
+
+def test_protocol_document_lists_the_error_codes_the_bridge_can_return():
+    """A code the bridge raises but the document omits leaves callers without a contract for it.
+
+    Both directions are guarded: an undocumented raised code fails, and so does a documented
+    code that nothing can produce (a ghost code in the table callers code against). The
+    `<KEY>_REQUIRED` form is raised dynamically, so its concrete keys are named in CLI_CODES;
+    no code ending in `_REQUIRED` is exempt from the ghost check.
+    """
+    raised = set()
+    for name in ('commands.py', 'cli.py', 'ota_input.py', 'extract_baseline.py'):
+        source = (ROOT / 'tools' / 'core_bridge' / name).read_text(encoding='utf-8')
+        raised.update(re.findall(r"(?:BridgeError\(|raise error\(|_fail\()\s*[\"']([A-Z][A-Z0-9_]+)", source))
+        raised.update(re.findall(r"(?:raise error\(|_fail\()f?[\"']([A-Z][A-Z0-9_]+)\{", source))
+    raised |= CLI_CODES
+    documented = _documented_error_codes()
+    assert raised - documented == set(), sorted(raised - documented)
+    ghosts = documented - raised
+    assert ghosts == set(), sorted(ghosts)
+    for common in COMMON_CODES:
+        assert common in documented
+
+
+def test_protocol_document_lists_every_golden_area():
+    documented = set(re.findall(r'`([a-z_]+)`', PROTOCOL.read_text(encoding='utf-8')))
+    assert set(golden.AREAS) <= documented, sorted(set(golden.AREAS) - documented)
+
+
+def test_candidates_reports_eligible_cards_pair_checks_and_search_without_links():
+    from tools.core_bridge.cli import handle
+    from tools.core_bridge.golden import _card, _event
+    event = _event('syn-e1', item='숙박비', reservation_status='confirmed')
+    card = _card('syn-t1', source_hash='syn-hash-syn-t1')
+    response = handle('candidates', {'scenario': SCENARIO, 'events': [event], 'transactions': [card]}, sha='')
+    assert response['ok'], response
+    body = response['result']['events']
+    assert len(body) == 1 and body[0]['ota_event_id'] == 'syn-e1'
+    assert body[0]['eligible'] == ['syn-t1']
+    assert set(body[0]['pair_check']) == {'syn-t1'}
+    assert body[0]['search']['status'] == 'CANDIDATES_FOUND'
+    assert 'links' not in response['result']
+
+
+def test_refund_group_reports_the_batch_selection_and_group_check_without_writing():
+    from tools.core_bridge.cli import handle
+    from tools.core_bridge.golden import _row
+    rows = [_row('syn-p1', 'AGODA'), _row('syn-r1', 'AGODA')]
+    request = {'kind': 'refund_group', 'scenario': {'rows': rows}, 'batch_id': 'syn-batch',
+               'entries': [{'transaction_id': 'syn-p1'}, {'transaction_id': 'syn-r1'}]}
+    response = handle('links', request, sha='')
+    assert response['ok'], response
+    result = response['result']
+    assert set(result) == {'selected', 'entries', 'group_check', 'links', 'group_exclusions', 'scope'}
+    assert [entry['bucket'] for entry in result['entries']] == ['ready', 'ready']
+    assert result['group_check'] == ''
+
+
+@pytest.mark.parametrize('op', ['stay_trip', 'booking_trip'])
+def test_trip_scoping_ops_read_the_tab_id_that_the_database_rows_carry(op):
+    """`trips` rows from a real board carry `tab_id`; the ops that scope a stay are pinned to that shape."""
+    from tools.core_bridge.cli import handle
+    from tools.core_bridge.golden import TRIPS, _row
+    tabs = [dict(trip, tab_id=trip['trip_id']) for trip in TRIPS]
+    request = {'op': op, 'row': _row('syn-p1', 'AGODA'), 'trips': tabs,
+               'check_in': '2026-10-01', 'check_out': '2026-10-03'}
+    response = handle('trips', request, sha='')
+    assert response['ok'], response
+    assert response['result']['tab_id'] == 'T-A'
