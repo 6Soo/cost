@@ -1,4 +1,6 @@
 """Build-path containment and real-session gate for the opt-in UI."""
+import gzip
+
 from io import BytesIO
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -91,6 +93,37 @@ def test_assets_have_correct_mime_and_never_fall_back_to_html(dist):
     assert handler.wfile.getvalue() == b"export {}"
     _, missing = call("/ui/assets/missing.js", dist)
     assert missing.status == 404
+
+
+def test_hashed_assets_are_cached_and_compressed_for_accepting_clients(tmp_path):
+    root = tmp_path / "dist"
+    (root / "assets").mkdir(parents=True)
+    (root / "index.html").write_text('<main id="root"></main>', encoding="utf-8")
+    payload = ("export const value = 1;\n" * 200).encode()
+    (root / "assets" / "app-abc123.js").write_bytes(payload)
+    handler = Handler()
+    handler.headers["Accept-Encoding"] = "gzip"
+    plush_ui.dispatch(handler, urlsplit("/ui/assets/app-abc123.js"),
+                      board=SimpleNamespace(require_session=lambda h, c: object()), dist=root)
+    assert handler.response_headers["Content-Encoding"] == "gzip"
+    assert handler.response_headers["Vary"] == "Accept-Encoding"
+    assert handler.response_headers["Cache-Control"] == "public, max-age=31536000, immutable"
+    assert len(handler.wfile.getvalue()) < len(payload)
+    assert gzip.decompress(handler.wfile.getvalue()) == payload
+
+
+def test_shell_stays_uncached_and_uncompressed(tmp_path):
+    root = tmp_path / "dist"
+    (root / "assets").mkdir(parents=True)
+    shell = '<main id="root"></main>' + ("<div></div>" * 200)
+    (root / "index.html").write_text(shell, encoding="utf-8")
+    handler = Handler()
+    handler.headers["Accept-Encoding"] = "gzip"
+    plush_ui.dispatch(handler, urlsplit("/ui/board?tab=synthetic"),
+                      board=SimpleNamespace(require_session=lambda h, c: object()), dist=root)
+    assert handler.response_headers["Cache-Control"] == "no-store"
+    assert "Content-Encoding" not in handler.response_headers
+    assert handler.wfile.getvalue() == shell.encode()
 
 
 @pytest.mark.parametrize("path", [
