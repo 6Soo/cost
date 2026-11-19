@@ -35,12 +35,15 @@ class GitHubAPI:
         self.token = token
 
     def _get(self, url: str) -> tuple[bytes, str]:
+        if not url.startswith(API + "/"):
+            raise ValueError("UNEXPECTED_GITHUB_API_URL")
         request = urllib.request.Request(url, headers={
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {self.token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cost-quality-evidence-reuse",
         })
+        # Artifact downloads redirect to an already signed storage URL.
+        request.add_unredirected_header("Authorization", f"Bearer {self.token}")
         with urllib.request.urlopen(request, timeout=15) as response:
             return response.read(MAX_ARTIFACT_BYTES + 1), response.headers.get("Content-Type", "")
 
