@@ -1,27 +1,5 @@
-# COST 시작 안내
+# COST 시작 안내 — 기존 링크 호환
 
-> 2026-11-10부터 실행 정본은 [통합 명세](SPEC.md)와 [판정 규칙집](DECISION_POLICY.md) 두 문서다. 이 파일은 옛 링크를 위해 남긴 안내판이다.
+현재 실행 문서는 [문서 지도](README.md)에서 **작업에 필요한 것만** 선택한다. 현재 상태는 [session_handoff.md](session_handoff.md), 시스템 목표·경량화 로드맵은 [SPEC.md](SPEC.md), 금융 판정은 [규칙집](DECISION_POLICY.md)이 정본이다.
 
-전체 경로는 [문서 지도](README.md)에서 찾는다. 상태를 표시하는 문서는 현재 상태·작업판·운영 기록이며, 설계와 과거 실행 계획의 미완료 표시는 자동 작업 지시가 아니다.
-
-## 읽는 순서
-
-1. [작업 지침](../AGENTS.md) — 한 쪽짜리 규칙과 문서 지도.
-2. [통합 명세](SPEC.md) — 목적, 처리 원칙, 로드맵, 보호 경계.
-3. [현재 상태](session_handoff.md) 맨 위 절 — 지금 단계와 남은 일.
-4. 판정을 다루는 작업이면 [판정 규칙집](DECISION_POLICY.md)과 해당 영역의 `docs/policy/` 파일.
-5. 배포가 필요하면 [운영 기록](operations.md) 맨 위 절.
-
-## 문서의 역할
-
-| 구분 | 정본 |
-| --- | --- |
-| 무엇을 만들고 어떤 순서로 하는가 | [통합 명세](SPEC.md) |
-| 지출을 어떻게 판정하는가 | [판정 규칙집](DECISION_POLICY.md), `docs/policy/` |
-| 현재 구현·배포·미결 | [현재 상태](session_handoff.md) |
-| 실제 릴리스와 실행 증거 | [운영 기록](operations.md) |
-| 구현 작업의 배정과 진행 | [중간 관리자 지침](agents/MANAGER.md), [작업판](agents/BOARD.md) |
-| 반복 작업의 절차 | [절차서](playbooks/README.md) |
-| 과거 명세·인계·실험 | [보관함](history/README.md), [과거 명세](history/specs-20261110/README.md) — 근거 기록이며 작업 지시가 아니다 |
-
-과거 명세에 남은 "미구현·READY·ACTIVE" 표시로 작업을 시작하지 않는다. 과거 명세에 흩어져 있던 판정 규칙은 규칙집으로 옮겼고, 각 규칙의 "출처"가 원래 위치를 가리킨다.
+이 파일은 과거 링크를 위한 안내이며 별도 규칙·작업 큐를 만들지 않는다. [예전 시작 안내 원문](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/COST_V3_START_HERE.md)은 Git 이력에 보존된다.
