@@ -26,7 +26,7 @@ python -m tools.core_bridge <명령>               # -I 없이 레포 루트에�
 
 - **모든 명령에 공통:** `COMMAND_UNKNOWN`, `REQUEST_NOT_JSON`, `PYTHON_SHA_UNAVAILABLE`, `COMMAND_FAILED`(예외 종류만 `detail`로).
 - **명령별 입력 검사:** `DB_OR_SCENARIO_REQUIRED`(DB·시나리오 둘 다 없음), `DB_REQUIRED`(`snapshot`), `DB_NOT_FOUND`, `HOST_OR_REPORT_REQUIRED`(`facts`), `LINKS_KIND_INVALID`, `TRIPS_OP_INVALID`, `PLAN_WROTE_DATA`(`plan`이 읽기 전용 DB를 썼다), `EXTRACT_KIND_INVALID`.
-- **보호 경로 파일 캡처(`ota-input`·`extract-baseline`·`extract-baseline-compare`):** `<KEY>_REQUIRED`(누락된 입력 키마다, 예: `OTA_EVIDENCE_REQUIRED`·`OUT_REQUIRED`·`DB_REQUIRED`, `extract-baseline-compare`의 `BASE_REQUIRED`·`NEW_REQUIRED`), `DB_IS_LIVE`, `OUT_INSIDE_REPO`, `OUT_NOT_PROTECTED`, `OUT_EXISTS`, `PATH_INSIDE_REPO`, `PATH_NOT_PROTECTED`, `FILE_NOT_FOUND`, `MANIFEST_NOT_PROTECTED`, `MANIFEST_INVALID`, `FORMAT_INVALID`, `OUTPUT_MANIFEST_MISMATCH`.
+- **보호 경로 파일 캡처(`ota-input`·`extract-baseline`·`extract-baseline-compare`):** `<KEY>_REQUIRED`(누락된 입력 키마다, 예: `OTA_EVIDENCE_REQUIRED`·`OUT_REQUIRED`·`DB_REQUIRED`, `extract-baseline-compare`의 `BASE_REQUIRED`·`NEW_REQUIRED`), `DB_IS_LIVE`, `OUT_INSIDE_REPO`, `OUT_NOT_PROTECTED`, `OUT_EXISTS`, `PATH_INSIDE_REPO`, `PATH_NOT_PROTECTED`, `FILE_NOT_FOUND`, `MANIFEST_NOT_PROTECTED`, `MANIFEST_INVALID`, `FORMAT_INVALID`, `OUTPUT_MANIFEST_MISMATCH`, `MULTI_DATABASE_FINGERPRINT_UNSUPPORTED`(등록된 DB 경로가 캡처한 파일과 다른 파일일 때. 하드 링크·`\\?\` 별칭처럼 같은 파일을 가리키는 표기는 통과한다).
 
 ## 입력의 공통 규칙
 
