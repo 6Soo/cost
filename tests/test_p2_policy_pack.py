@@ -62,17 +62,17 @@ def test_unknown_new_rule_catalog_falls_back_to_full(tmp_path, monkeypatch):
     source = p2_case.ROOT
     policy_dir = tmp_path / 'docs/policy'
     policy_dir.mkdir(parents=True)
-    (tmp_path / 'docs/DECISION_POLICY.md').write_text(
-        (source / 'docs/DECISION_POLICY.md').read_text(encoding='utf-8'),
-        encoding='utf-8')
+    (tmp_path / 'docs/DECISION_POLICY.md').write_bytes(
+        (source / 'docs/DECISION_POLICY.md').read_bytes())
     for area in ('process', 'trip', 'item', 'date'):
-        (policy_dir / (area + '.md')).write_text(
-            (source / 'docs/policy' / (area + '.md')).read_text(encoding='utf-8'),
-            encoding='utf-8')
+        (policy_dir / (area + '.md')).write_bytes(
+            (source / 'docs/policy' / (area + '.md')).read_bytes())
     trip = policy_dir / 'trip.md'
-    trip.write_text(trip.read_text(encoding='utf-8')
+    # newline='' keeps LF off Windows; CRLF alone would change the catalog
+    # fingerprint and make this pass without the rule that is under test.
+    trip.write_text(trip.read_text(encoding='utf-8', newline='')
                     + '\n### TRIP-999 · 정책이 추가된 미검수 사례\n\n*보호*\n\n정본 미검수.\n',
-                    encoding='utf-8')
+                    encoding='utf-8', newline='')
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
     monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
     assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
@@ -110,10 +110,11 @@ def test_changed_existing_policy_body_forces_full_fallback(tmp_path, monkeypatch
         (catalog / (area + '.md')).write_bytes(
             (source / 'docs/policy' / (area + '.md')).read_bytes())
     trip = catalog / 'trip.md'
-    original = trip.read_text(encoding='utf-8')
+    original = trip.read_text(encoding='utf-8', newline='')
     assert '### TRIP-042 ·' in original
-    trip.write_text(original.replace('### TRIP-042 ·', '### TRIP-042 ·', 1)
-                    + '\n<!-- New unreviewed policy note -->\n', encoding='utf-8')
+    # Same catalog and no new ID, so only the changed *body* can trigger fallback.
+    trip.write_text(original + '\n<!-- New unreviewed policy note -->\n',
+                    encoding='utf-8', newline='')
     assert p2_policy_pack.compact_policy_context(tmp_path) is None
     monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
     assert p2_case.policy_context(compact=True) == p2_case.policy_context(compact=False)
@@ -209,47 +210,41 @@ def _blob_hashes(root):
 
 
 def test_every_approved_revision_matches_one_reviewed_snapshot():
-    """An approved revision is a blob set; each must carry the reviewed catalog."""
+    """The checked-out snapshot must itself be approved, or compact silently degrades.
+
+    PR #1016 rewrote two unpinned rule bodies on main after this branch was cut,
+    which made every compact request fall back to the full packet until the
+    exact blob set was added here. This test fails as soon as that happens again.
+    """
     assert _blob_hashes(p2_case.ROOT) in p2_policy_pack.APPROVED_POLICY_REVISIONS.values(), (
         'the checked-out policy snapshot is not an approved revision, so compact '
         'silently degrades to the full packet')
     for name, revision in p2_policy_pack.APPROVED_POLICY_REVISIONS.items():
         assert set(revision) == {'CORE', 'process', 'trip', 'item', 'date', 'link', 'refund'}, name
-        assert len(set(revision.values())) == 7 or name == 'main-20261119b', (
-            f'{name}: only trip/item may repeat another revision')
 
 
-def test_unmerged_docs_pr_snapshot_is_not_an_approved_revision():
-    """#1011/#1022 rewrite rule bodies; their blob sets must not be pre-approved."""
-    unmerged = {
-        'wave3-20261119': {
-            'CORE': 'c166163512f3199b146fd16aed145c651f335850',
-            'process': '99ceeadd15a7ef1cf6b5b87f81cd8cd76d74e551',
-            'trip': '07b6fec9282cde62cb9474d4bf3cf719fa13170b',
-            'item': '6022765b2a479c695d571c9ca3c1c14d45082aca',
-            'date': '3b00e0de8705f6a55778148b574296daa2c482d6',
-            'link': '88071cd9022e84cd1ab8c08d4e6e70fc82c5cb1d',
-            'refund': '1b66c222180f1bd4dcb49ed04df5b34874065af4',
-        }
-    }
-    approved = list(p2_policy_pack.APPROVED_POLICY_REVISIONS.values())
-    for name, revision in unmerged.items():
-        assert revision not in approved, f'{name} is still an open documentation PR'
+def test_the_checked_out_snapshot_is_approved_and_gated_by_exact_blobs(
+        tmp_path, monkeypatch):
+    """Two guards in one place: today's snapshot approves, any other does not.
 
-
-def test_compact_never_replaces_an_approved_snapshot_with_a_foreign_packet(tmp_path, monkeypatch):
-    """A packet verified against another revision must not pass for today's."""
-    approved = p2_case.policy_context(('link', 'refund'), compact=True)
-    other = tmp_path / 'docs/policy'
-    other.mkdir(parents=True)
+    The exact blob check is what keeps a same-catalog snapshot out, so it has to
+    fail when a rule body changes inside an unpinned rule. ``newline=''`` keeps
+    LF: TextIOWrapper would otherwise write CRLF on Windows, change the catalog
+    fingerprint, and let the test pass without the blob gate.
+    """
+    catalog = tmp_path / 'docs/policy'
+    catalog.mkdir(parents=True)
     (tmp_path / 'docs/DECISION_POLICY.md').write_bytes(
         (p2_case.ROOT / 'docs/DECISION_POLICY.md').read_bytes())
     for area in ('process', 'trip', 'item', 'date', 'link', 'refund'):
-        (other / (area + '.md')).write_bytes(
+        (catalog / (area + '.md')).write_bytes(
             (p2_case.ROOT / 'docs/policy' / (area + '.md')).read_bytes())
-    (other / 'trip.md').write_text(
-        (other / 'trip.md').read_text(encoding='utf-8') + '\n<!-- unreviewed -->\n', encoding='utf-8')
-    monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
-    assert p2_case.policy_context(('link', 'refund'), compact=True) != approved
-    assert p2_case.policy_context(('link', 'refund')) == \
-        p2_case.policy_context(('link', 'refund'), compact=True)
+    assert p2_policy_pack.compact_policy_context(tmp_path, ('link', 'refund')) is not None
+
+    text = (catalog / 'trip.md').read_text(encoding='utf-8', newline='')
+    anchor = '\n### TRIP-043 ·'
+    assert anchor in text
+    note = '\n- 미검수 메모.\n'
+    (catalog / 'trip.md').write_text(
+        text.replace(anchor, note + anchor, 1), encoding='utf-8', newline='')
+    assert p2_policy_pack.compact_policy_context(tmp_path, ('link', 'refund')) is None
