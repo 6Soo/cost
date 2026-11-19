@@ -197,10 +197,16 @@ def service_metadata(conn, transaction_id):
         raw = row['classification_basis'].split(' · P2_METADATA ', 1)[1]
         meta, _ = json.JSONDecoder().raw_decode(raw)
         execution = meta['execution']
+        # The model name is not checked (owner decision 2026-11-19: a stored
+        # period is not filtered by which agent model produced it). The provider
+        # is still required to be `codex`, because P2 runs only through the Codex
+        # CLI (frontier_agent_provider), so a `claude/opus` execution is refused
+        # here and its period is dropped. Forged metadata stays rejected by the
+        # source hash, raw digest, revision, item and the change_log check below.
         if (meta['source_hash'] != row['source_hash'] or meta['raw_digest'] != _digest(row['raw_row_json'])
                 or meta['decision_revision'] != row['revision'] or meta['item'] != row['item']
                 or execution.get('kind') != 'connected_agent' or execution.get('provider') != 'codex'
-                or execution.get('model') != 'gpt-6.1-sol' or not execution.get('run_id')):
+                or not execution.get('run_id')):
             return {}
         start, end = meta['service_start'], meta['service_end']
         if not start or not end or not 0 <= (date.fromisoformat(end)-date.fromisoformat(start)).days <= 366:
