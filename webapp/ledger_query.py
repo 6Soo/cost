@@ -19,14 +19,6 @@ from typing import Any
 KIND_ALIASES = {"in": "income", "ex": "expense"}
 VALID_KINDS = {"", "income", "expense"}
 
-# Stored-read status -> the source label clients already render.
-_ANNOTATED_PERIOD_SOURCES = {
-    "verified": "decision",
-    "unknown": "decision",
-    "inferred": "decision_inferred",
-}
-
-
 def normalize_kind(kind: Any) -> str:
     value = str(kind or "").strip()
     return KIND_ALIASES.get(value, value)
@@ -87,24 +79,6 @@ def apply_refund_exclusion(rows: list[dict[str, Any]], excluded_ids: set) -> lis
     return [row for row in rows
             if kind_bucket(row) == "income"
             or row.get("source_event_id") not in excluded_ids]
-
-
-def refund_tab_rows(store: Any, owner: bool) -> list[dict[str, Any]]:
-    """Refund-tab display rows by board row ID (RFND-022 / ITEM-011).
-
-    The completed net-zero groups excluded from general expenses are exactly
-    the rows this tab serves, with their original signs preserved.  Owner-only,
-    matching the refund attribution scope; the legacy group view keeps its own
-    render.  Reads the same expense projection the refund attribution uses.
-    """
-    members = refund_excluded_event_ids(store, owner)
-    if not members:
-        return []
-    from . import ledger_board as board
-
-    rows = [row for row in board._expense_rows()
-            if row.get("source_event_id") in members]
-    return project_rows(store, rows)
 
 
 def google_income(store: Any, access: Any, session: Any, owner: bool,
@@ -284,10 +258,6 @@ def display_totals(rows: list[dict[str, Any]], *, google_verified: bool = False,
     }
 
 
-def signed_sum(rows: list[dict[str, Any]]) -> int:
-    return sum(display_amount(row) for row in rows)
-
-
 def confirmed_income(rows: list[dict[str, Any]], *, linked: set | None = None,
                      google_verified: bool = False,
                      google_total: int | None = None,
@@ -324,51 +294,6 @@ def confirmed_income(rows: list[dict[str, Any]], *, linked: set | None = None,
         google_total = sum(display_amount(row) for row in rows
                            if row.get("google_income"))
     return int(google_total or 0), True
-
-
-def period_for_row(row: dict[str, Any], store: Any) -> tuple[str, str]:
-    """(period, period_source) with the existing stored/manual/evidence priority.
-
-    Mirrors ``ledger_design._read_period(verified=False)``: a person's value wins,
-    then the stored Rust decision (inferred only on screen), then the evidence
-    index.  source is 'row'|'manual'|'decision'|'decision_inferred'|'computed'.
-    Degrades to the stored service_period when the evidence path is unavailable.
-
-    When the row already carries :func:`plush_periods.annotate` output, that
-    stored read is authoritative: it rejects a record whose source identity
-    changed, so a stale or explicitly blank period is reported as unknown here
-    too instead of being re-inferred for the screen.
-    """
-    if row.get("google_income"):
-        return "", ""
-    if "_plush_period" in row:
-        value = str(row.get("_plush_period") or "")
-        if row.get("_plush_period_manual_blank") is True:
-            return value, "manual"
-        if row.get("_plush_period_status") == "stale":
-            return "", ""
-        status = row.get("_plush_period_status")
-        if status in _ANNOTATED_PERIOD_SOURCES:
-            return value, _ANNOTATED_PERIOD_SOURCES[status]
-        if value:
-            return value, "row"
-        return "", ""
-    stored_period = str(row.get("service_period") or "").strip()
-    try:
-        from . import ledger_stay_evidence, read_scope
-        from app import core_writer
-
-        stored = read_scope.remember("stored_periods", core_writer.load_stored_periods)
-        manual = (read_scope.remember("manual_period_rows",
-                                      lambda: ledger_stay_evidence.manual_period_rows(store))
-                  if stored is not None else set())
-        index = read_scope.remember("ledger_stay_evidence",
-                                    lambda: ledger_stay_evidence.stay_index(store))
-        return ledger_stay_evidence.read_period(
-            row, stored, manual,
-            lambda: ledger_stay_evidence.period_for(row, index), export=False)
-    except Exception:
-        return stored_period, ("row" if stored_period else "")
 
 
 _GOOGLE_MATCH_LABELS = {

@@ -106,22 +106,6 @@ def trip_profit(income_total: int, expense_total: int) -> int:
     return income_total - expense_total
 
 
-def fallback_trip_totals(
-    tab_id: str,
-    *,
-    incomes: List[Dict[str, Any]],
-    expenses: List[Dict[str, Any]],
-) -> Dict[str, int]:
-    """Calculate fallback totals from static demo lists."""
-    inc = trip_income_total(tab_id, rows=incomes)
-    exp = trip_expense_total(tab_id, rows=expenses)
-    return {
-        "income": inc,
-        "expense": exp,
-        "profit": trip_profit(inc, exp),
-    }
-
-
 def trip_totals(
     tab_id: str,
     *,

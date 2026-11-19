@@ -126,23 +126,8 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
         live_nav=nav_region(tab_id, query, kind, archived),
     )
 
-_CURRENT_YEAR = 2026
 _FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
                   "var t=d.querySelector('.prev-q>summary, a');if(t)t.focus()}},0)")
-
-
-def _quarter_of(trip):
-    try:
-        day = date.fromisoformat(trip.get("starts_on") or "")
-    except (TypeError, ValueError):
-        return None
-    return day.year, (day.month - 1) // 3 + 1
-
-
-def _quarter_groups(trips):
-    """The quarters the previous trips fall in, plus the 1st and 2nd quarter of the current year."""
-    found = {_quarter_of(t) for t in trips} - {None}
-    return sorted(found | {(_CURRENT_YEAR, 1), (_CURRENT_YEAR, 2)})
 
 
 def _nav_region_inner(tab_id: str, query: str = "", kind: str = "",
@@ -558,29 +543,6 @@ def _source_preview_html(trip) -> str:
         f"<p class='muted'><code>{board.esc(sheet)}</code> · {len(items)}행</p>"
         f"<ul class='src-list'>{''.join(items)}</ul>"
         f"</section>")
-
-
-def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
-    # One GET form owns the search and the filter, so submitting, refreshing and
-    # going back all land on the same URL state.
-    from . import ui_icons as _icons
-    return (
-        "<form class='bar' method='get' action='/board' id='q-form'>"
-        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
-        f"{f'<input type=hidden name=arch value={board.esc(archived)}>' if archived else ''}"
-        "<button class='icon' id='btn-menu' type='button' aria-label='전체 메뉴 열기'"
-        f" aria-controls='nav' aria-expanded='false'>{_icons.icon('menu')}</button>"
-        "<label class='sr' for='q'>거래 검색</label>"
-        "<input id='q' name='q' type='search' placeholder='용도·내용·메모·예약번호 검색'"
-        f" value='{board.esc(query)}' autocomplete='off'>"
-        "<label class='sr' for='kind'>구분 필터</label>"
-        "<select id='kind' name='kind' onchange='this.form.submit()'>"
-        f"<option value=''>전체</option><option value='in'{' selected' if kind == 'in' else ''}>수입만</option>"
-        f"<option value='ex'{' selected' if kind == 'ex' else ''}>지출만</option></select>"
-        f"<button class='btn' type='submit' id='q-go'>{_icons.icon('search')}검색</button>"
-        + (f"<a class='btn' id='q-clear' href='/board?{state_query(tab_id)}'>{_icons.icon('rotate-ccw')}지우기</a>"
-           if (query or kind) else "")
-        + "</form>")
 
 
 def _net_income_summary(value, prefix=''):
@@ -2336,10 +2298,6 @@ def _participant_trip_panel(tab_id: str, controls: dict) -> str:
         return ''
     from . import participant_trip_panel
     return participant_trip_panel.shell(trip_id=tab_id)
-
-
-def _participant_trip_state(tab_id: str):
-    return None
 
 
 def panel_part(row_id: str, *, back: str = "/board", error: str = "",
