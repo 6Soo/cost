@@ -646,4 +646,3 @@ def test_drained_accepts_live_gateway_and_rejects_stale_status(tmp_path):
                              active={'8751': 0}, generation='g1'))
     with pytest.raises(ValueError, match='DRAIN_TIMEOUT'):
         drained(route, status, 0.3)
-
