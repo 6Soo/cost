@@ -291,8 +291,9 @@ def test_periodic_flush_and_storage_failure_never_raise_into_request(tmp_path):
     counts.close()
 
     blocker = tmp_path / "not-a-directory"
-    blocker.write_text("x", encoding="utf-8")
     broken = RequestCounts(blocker / "counts.json", start_flusher=False)
+    # Block the write after startup, when every platform has read a missing snapshot.
+    blocker.write_text("x", encoding="utf-8")
     request = broken.observe_begin("/api", "GET")
     assert broken.observe_finish(request, 200)
     assert not broken.flush()

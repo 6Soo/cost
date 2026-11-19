@@ -67,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PORT,
         help="Bind port. Default 8751.",
     )
+    parser.add_argument(
+        "--request-metrics",
+        action="store_true",
+        help="Forward the opt-in content-free HTTP request counters to "
+             "run_candidate. Off by default: no metrics file is created "
+             "unless this is passed.",
+    )
     return parser
 
 
@@ -306,19 +313,22 @@ def main(argv=None) -> int:
             print("refused [ENTRY]: 실행 조건을 만족하지 않아요.", file=sys.stderr)
             return 2
 
-        rc = run_candidate.main(
-            [
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--data-root",
-                str(root),
-                "--environment",
-                "production",
-                "--no-worker",
-            ]
-        )
+        candidate_argv = [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--data-root",
+            str(root),
+            "--environment",
+            "production",
+            "--no-worker",
+        ]
+        # Explicit opt-in only (#1001): the counter code and its default-off
+        # behavior live in run_candidate; this launcher just forwards the ask.
+        if args.request_metrics:
+            candidate_argv.append("--request-metrics")
+        rc = run_candidate.main(candidate_argv)
         try:
             return int(rc)
         except Exception:
