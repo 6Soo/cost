@@ -58,10 +58,13 @@ CREATE TABLE IF NOT EXISTS ota_portal_rows(
 CREATE TABLE IF NOT EXISTS ota_catalog_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
+'''
+SCHEDULED_ROWS_DDL = '''
 CREATE TABLE IF NOT EXISTS ota_scheduled_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
- payload_json BLOB NOT NULL,PRIMARY KEY(revision_id,row_no));
+ payload_json BLOB NOT NULL,PRIMARY KEY(revision_id,row_no))
 '''
+PORTAL_SCHEDULE_GENERATION = 'portal_schedule_generation'
 
 
 def encoded(value):
@@ -117,6 +120,86 @@ def is_store(path):
         return True
 
 
+def _columns(conn, table):
+    return tuple(row[1] for row in conn.execute(f'PRAGMA table_info({table})'))
+
+
+def _unified_portal_rows(conn):
+    unified = 'scheduled_conflict_json' in _columns(conn, 'ota_portal_rows')
+    if unified and _columns(conn, 'ota_scheduled_rows'):
+        raise ValueError('OTA_PORTAL_LAYOUT_MIXED')
+    return unified
+
+
+def _scheduled_conflict(base_payload, scheduled_payload):
+    base = unpacked(base_payload)
+    scheduled = unpacked(scheduled_payload)
+    if (not isinstance(base, dict) or not isinstance(scheduled, dict)
+            or 'conflict_json' in base or 'conflict_json' not in scheduled):
+        raise ValueError('OTA_PORTAL_PROJECTION_MISMATCH')
+    conflict = scheduled.pop('conflict_json')
+    if encoded(base) != encoded(scheduled):
+        raise ValueError('OTA_PORTAL_PROJECTION_MISMATCH')
+    return encoded(conflict)
+
+
+def merge_portal_projections(conn, *, apply=False):
+    """Validate or merge stored scheduled rows on an offline copy."""
+    if conn.in_transaction:
+        raise ValueError('OTA_PORTAL_TRANSACTION_ALREADY_OPEN')
+    conn.execute('BEGIN IMMEDIATE' if apply else 'BEGIN')
+    try:
+        schema = conn.execute(
+            "SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
+        if not schema or schema[0] != SCHEMA:
+            raise ValueError('OTA_STORE_SCHEMA_MISMATCH')
+        legacy = ('revision_id', 'row_no', 'payload_json')
+        portal_columns = _columns(conn, 'ota_portal_rows')
+        scheduled_columns = _columns(conn, 'ota_scheduled_rows')
+        if portal_columns == (*legacy, 'scheduled_conflict_json') and not scheduled_columns:
+            return {'status': 'ALREADY_UNIFIED', 'rows_merged': 0}
+        if portal_columns != legacy or scheduled_columns != legacy:
+            raise ValueError('OTA_PORTAL_LAYOUT_UNSUPPORTED')
+
+        dependent = conn.execute(
+            "SELECT 1 FROM sqlite_schema WHERE (type='trigger' AND tbl_name IN "
+            "('ota_portal_rows','ota_scheduled_rows')) OR "
+            "(type='view' AND lower(sql) LIKE '%ota_scheduled_rows%') LIMIT 1").fetchone()
+        inbound = conn.execute(
+            "SELECT 1 FROM sqlite_schema s JOIN pragma_foreign_key_list(s.name) f "
+            "WHERE s.type='table' AND lower(f.[table])='ota_scheduled_rows' LIMIT 1").fetchone()
+        if dependent or inbound:
+            raise ValueError('OTA_PORTAL_LAYOUT_UNSUPPORTED')
+
+        rows = []
+        for revision, ordinal, base, scheduled in conn.execute(
+                'SELECT s.revision_id,s.row_no,p.payload_json,s.payload_json '
+                'FROM ota_scheduled_rows s LEFT JOIN ota_portal_rows p '
+                'ON p.revision_id=s.revision_id AND p.row_no=s.row_no'):
+            if base is None:
+                raise ValueError('OTA_PORTAL_BASE_ROW_MISSING')
+            rows.append((_scheduled_conflict(base, scheduled), revision, ordinal))
+
+        if apply:
+            conn.execute('ALTER TABLE ota_portal_rows ADD COLUMN scheduled_conflict_json TEXT')
+            conn.executemany('UPDATE ota_portal_rows SET scheduled_conflict_json=? '
+                             'WHERE revision_id=? AND row_no=?', rows)
+            conn.execute('DROP TABLE ota_scheduled_rows')
+            _bump_portal_schedule_generation(conn)
+            conn.commit()
+        return {'status': 'APPLIED' if apply else 'PREVIEW', 'rows_merged': len(rows)}
+    finally:
+        if conn.in_transaction:
+            conn.rollback()
+
+
+def _bump_portal_schedule_generation(conn):
+    conn.execute(
+        'INSERT INTO ota_store_meta(key,value) VALUES(?,1) '
+        'ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1',
+        (PORTAL_SCHEDULE_GENERATION,))
+
+
 # 변경 감시 표식에 쓰는 표. import·재색인이 쓰는 모든 표의 최대 rowid가 새 행마다 늘어난다.
 _STATE_TABLES = ('ota_raw_entries', 'ota_raw_blobs', 'ota_messages', 'ota_mail_origins', 'ota_bookings',
                  'ota_booking_evidence', 'ota_reservation_observations', 'ota_row_seen', 'ota_portal_rows',
@@ -149,16 +232,21 @@ def commit_state(path):
             if 'ota_row_seen' in present:
                 # _seen()이 같은 판 재관측 때 last_revision만 UPDATE하며 seen_count가 늘어난다.
                 parts.append(list(conn.execute('SELECT count(*),total(seen_count) FROM ota_row_seen').fetchone()))
+            generation = conn.execute('SELECT value FROM ota_store_meta WHERE key=?',
+                                      (PORTAL_SCHEDULE_GENERATION,)).fetchone()
+            if generation:
+                parts.append([PORTAL_SCHEDULE_GENERATION, generation[0]])
             return sha(encoded(parts))
     except (OSError, sqlite3.Error) as error:
         logging.getLogger(__name__).warning('OTA 커밋 상태 표식을 읽지 못해 바이트 해시로 대신합니다: %s %s', path, error)
         return None
 
 
-def _current_rows(conn, table, kind):
+def _current_rows(conn, table, kind, *, scheduled_only=False):
+    predicate = 'AND r.scheduled_conflict_json IS NOT NULL ' if scheduled_only else ''
     return conn.execute('SELECT s.ordinal,s.source_id,r.* FROM ' + table + ' r '
         'JOIN ota_sources s ON s.current_revision=r.revision_id WHERE s.kind=? '
-        'ORDER BY s.ordinal,r.row_no', (kind,)).fetchall()
+        + predicate + 'ORDER BY s.ordinal,r.row_no', (kind,)).fetchall()
 
 
 def _entries(conn, revision):
@@ -180,21 +268,33 @@ def _entries(conn, revision):
     return entries
 
 
+def _has_scheduled_rows(conn, revision, unified):
+    if unified:
+        return conn.execute('SELECT 1 FROM ota_portal_rows WHERE revision_id=? '
+                            'AND scheduled_conflict_json IS NOT NULL LIMIT 1', (revision,)).fetchone()
+    return conn.execute('SELECT 1 FROM ota_scheduled_rows WHERE revision_id=? LIMIT 1',
+                        (revision,)).fetchone()
+
+
 def portal_rows(path, outer_index, *, scheduled=False):
     with closing(connect_read(path)) as conn:
         source_locators = {row['source_id']: row['locator'] for row in conn.execute(
             "SELECT source_id,locator FROM ota_sources WHERE kind='portal_database'")}
         # 출처별 원래 ID와 그룹 경계를 유지한다. 파일 하나로 합쳐도 숫자 ID를 섞지 않는다.
-        table = 'ota_scheduled_rows' if scheduled else 'ota_portal_rows'
+        unified_schedule = scheduled and _unified_portal_rows(conn)
+        table = 'ota_scheduled_rows' if scheduled and not unified_schedule else 'ota_portal_rows'
         available = conn.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone()
         if available:
-            rows = [{**unpacked(row['payload_json']), 'database':f'{outer_index}:{row["source_id"]}',
-                     '_source_locator': source_locators[row['source_id']]}
-                    for row in _current_rows(conn, table, 'portal_database')]
+            rows = []
+            for row in _current_rows(conn, table, 'portal_database', scheduled_only=unified_schedule):
+                payload = unpacked(row['payload_json'])
+                if unified_schedule:
+                    payload['conflict_json'] = json.loads(row['scheduled_conflict_json'])
+                rows.append({**payload, 'database':f'{outer_index}:{row["source_id"]}',
+                             '_source_locator': source_locators[row['source_id']]})
             if scheduled:
                 for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal"):
-                    if conn.execute('SELECT 1 FROM ota_scheduled_rows WHERE revision_id=? LIMIT 1',
-                                    (source['current_revision'],)).fetchone():
+                    if _has_scheduled_rows(conn, source['current_revision'], unified_schedule):
                         continue
                     rows.extend({**row, 'database':f'{outer_index}:{source["source_id"]}'}
                                 for row in _scheduled_details(_entries(conn, source['current_revision'])))
@@ -383,7 +483,14 @@ class OtaStore:
         self.conn.execute('PRAGMA journal_mode=WAL')
         self.conn.row_factory = sqlite3.Row
         self._fact_cache = {}
+        try:
+            unified = _unified_portal_rows(self.conn)
+        except ValueError:
+            self.conn.close()
+            raise
         self.conn.executescript(DDL)
+        if not unified:
+            self.conn.execute(SCHEDULED_ROWS_DDL)
         current = self.conn.execute("SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
         if current and current[0] != SCHEMA:
             self.conn.close()
@@ -630,12 +737,19 @@ class OtaStore:
         with self.atomic():
             source, revision, inserted = self._revision('portal_database', path, entries)
             if inserted:
-                self.conn.executemany('INSERT INTO ota_portal_rows VALUES(?,?,?)',
-                                      [(revision, n, packed(row)) for n, row in enumerate(rows)])
+                scheduled = _scheduled_details(entries)
+                if _unified_portal_rows(self.conn):
+                    self.conn.executemany(
+                        'INSERT INTO ota_portal_rows VALUES(?,?,?,?)',
+                        ((revision, n, packed(row), encoded(scheduled[n]['conflict_json']))
+                         for n, row in enumerate(rows)))
+                else:
+                    self.conn.executemany('INSERT INTO ota_portal_rows VALUES(?,?,?)',
+                                          [(revision, n, packed(row)) for n, row in enumerate(rows)])
+                    self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
+                        [(revision, n, packed(row)) for n, row in enumerate(scheduled)])
                 self.conn.executemany('INSERT INTO ota_catalog_rows VALUES(?,?,?)',
                                       [(revision, n, packed(row)) for n, row in enumerate(catalog)])
-                self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
-                    [(revision, n, packed(row)) for n, row in enumerate(_scheduled_details(entries))])
                 for n, row in enumerate(entries['bookings']):
                     self._evidence(row['provider'], row['booking_number'], revision,
                                    'bookings:' + str(n), 'portal', row)
@@ -643,14 +757,33 @@ class OtaStore:
 
     def rebuild_scheduled_index(self):
         """기존 통합 DB의 보존 원문에서 예정일 대사 조회용 행을 한 번 만든다."""
+        unified = _unified_portal_rows(self.conn)
         with self.atomic():
-            for row in self.conn.execute("SELECT current_revision FROM ota_sources WHERE kind='portal_database'"):
-                revision = row[0]
-                if self.conn.execute('SELECT 1 FROM ota_scheduled_rows WHERE revision_id=? LIMIT 1', (revision,)).fetchone():
+            if not self.conn.in_transaction:
+                self.conn.execute('BEGIN IMMEDIATE')
+            changed = False
+            for (revision,) in self.conn.execute(
+                    "SELECT current_revision FROM ota_sources WHERE kind='portal_database'"):
+                if _has_scheduled_rows(self.conn, revision, unified):
                     continue
-                entries = _entries(self.conn, revision)
-                self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
-                    [(revision, n, packed(item)) for n, item in enumerate(_scheduled_details(entries))])
+                scheduled = _scheduled_details(_entries(self.conn, revision))
+                if not unified:
+                    self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
+                        [(revision, n, packed(item)) for n, item in enumerate(scheduled)])
+                    continue
+                for n, item in enumerate(scheduled):
+                    base = self.conn.execute(
+                        'SELECT payload_json FROM ota_portal_rows WHERE revision_id=? AND row_no=?',
+                        (revision, n)).fetchone()
+                    if not base:
+                        raise ValueError('OTA_PORTAL_BASE_ROW_MISSING')
+                    conflict = _scheduled_conflict(base[0], encoded(item))
+                    self.conn.execute(
+                        'UPDATE ota_portal_rows SET scheduled_conflict_json=? '
+                        'WHERE revision_id=? AND row_no=?', (conflict, revision, n))
+                    changed = True
+            if changed:
+                _bump_portal_schedule_generation(self.conn)
 
     def import_reference(self, path):
         raw = json.loads(Path(path).read_text(encoding='utf-8'))
