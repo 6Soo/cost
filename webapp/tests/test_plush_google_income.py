@@ -20,6 +20,7 @@ def test_google_income_appears_without_creating_board_rows(bound_store, income_c
     # summary's income is the COST figure the legacy KPI shows; the verified
     # Google block is separate evidence, reported through income_source.
     assert result['trip']['income'] == str(existing_income), result['trip']
+    assert result['source_totals']['overall']['google_income'] == '1000'
     assert result['income_source']['available'] is True
     assert store.conn.total_changes == before
     status, detail = call('/api/plush/row?id='+google[0]['id'], 'syn-owner', store)

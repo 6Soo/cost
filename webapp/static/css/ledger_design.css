@@ -402,6 +402,9 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--c-
 .a-in{color:var(--c-accent-text);font-weight:500}
 .a-ex{font-weight:500}
 .a-neg{color:var(--neg);font-weight:500}
+/* An unreadable amount (SPEC §11.2.1 계약 4 / GGL-014) is the word 미확인, not
+   a figure, so it is neutral and carries no sign colour. */
+.a-unknown{color:var(--mut);font-weight:500}
 .tag{display:inline-block;font-size:var(--t-caption);line-height:17px;padding:0 6px;border:1px solid var(--line);
  border-radius:var(--r-sm);color:var(--mut);font-weight:500}
 .tag.in{border-color:var(--c-accent-text);background:var(--grn-lt);color:var(--c-accent-text)}

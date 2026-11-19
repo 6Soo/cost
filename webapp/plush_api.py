@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, quote, unquote
 
 from . import ledger_google_match
 from . import ledger_periods as period_rows
+from . import ledger_query
 from . import plush_projection as projection
 
 
@@ -194,19 +195,6 @@ def _source_income(board, access, session, owner, tab_id):
                              visible_tabs=set() if owner else set(access.visible_tabs(session.user_id)))
 
 
-def _confirmed_total(rows: list[dict[str, Any]]) -> str:
-    """The confirmed KRW total of a row set, with Google and unreadable amounts out.
-
-    GGL-003: internal COST income and Google income are never summed, so a Google
-    row never contributes to a total. GGL-014 / SPEC §11.2.1 계약 4: an amount the
-    source could not read is not a zero, so it is left out of the total instead of
-    silently making the figure smaller than it claims to be.
-    """
-    return projection.money(sum(
-        projection._display_amount(row) for row in rows
-        if not row.get("google_income") and not row.get("amount_missing")))
-
-
 def _with_income(rows, source):
     ids = {row.get('row_id') for row in rows}
     return [*rows, *(row for row in source['rows'] if row['row_id'] not in ids)]
@@ -220,8 +208,12 @@ def _trip_summary(board: Any, trip: dict[str, Any], rows: list[dict[str, Any]],
         rows = [board.projected(row) for row in rows]
     # GGL-003: the summary keeps COST and Google income apart. The verified flag
     # the source block reports is the only thing that lets Google stand in.
+    # R06: a linked bank evidence row is not a second income, so the same
+    # exclusion the baseline (store.tab_totals) applies is applied here; without
+    # it the summary would disagree with the legacy KPI on the same tab.
     verified_trip = dict(trip, google_verified=bool((income_source or {}).get("verified")))
-    summary = projection.trip_summary(verified_trip, rows)
+    summary = projection.trip_summary(
+        verified_trip, rows, linked=ledger_query.linked_bank_ids(_board_instance(board)))
     from . import ledger_board
 
     summary["title"] = ledger_board.trip_display_label(trip)
@@ -409,6 +401,12 @@ def _ledger(access: Any, session: Any, board: Any,
             period=period, period_source=period_source,
             period_label=compact, period_label_full=full,
             google_match=match_status.get(str(row.get('row_id') or ''))))
+    google_verified = bool(income.get("verified"))
+    linked = ledger_query.linked_bank_ids(_board_instance(board))
+    filtered_totals = ledger_query.display_totals(
+        rows, google_verified=google_verified, linked=linked)
+    overall_totals = ledger_query.display_totals(
+        kind_rows, google_verified=google_verified, linked=linked)
     return {
         "trip": _trip_summary(board, trip, all_rows, income_source=income),
         "income_source": {key: value for key, value in income.items() if key != 'rows'},
@@ -416,13 +414,15 @@ def _ledger(access: Any, session: Any, board: Any,
         "total_count": len(rows),
         "page": page,
         "page_size": page_size,
-        # GGL-003/GGL-014: a Google amount is never summed into a COST total. The
-        # legacy screen keeps the Google block out of its own 합계, so a total
-        # that added it would make the two entry paths disagree. An unreadable
-        # amount is excluded rather than counted as zero (SPEC §11.2.1 계약 4).
-        "filtered_total": _confirmed_total(rows),
-        "total": _confirmed_total(kind_rows),
+        # GGL-003: the 조회 합계 keeps its sources apart. filtered_total/total
+        # are string money over the same row set and carry the COST figure; the
+        # Google block is reported separately in source_totals, never added in.
+        # An unreadable amount is excluded rather than counted as zero
+        # (SPEC §11.2.1 계약 4), which is what display_totals already does.
+        "filtered_total": filtered_totals["total"],
+        "total": overall_totals["total"],
         "closed": closed,
+        "source_totals": {"filtered": filtered_totals, "overall": overall_totals},
     }
 
 
