@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from queue import Queue
 from types import SimpleNamespace
 import time
 import subprocess
@@ -77,9 +78,28 @@ def test_child_past_its_time_limit_is_stopped(tmp_path, monkeypatch):
 
 def _shared_runs(monkeypatch, key, outcomes):
     """Replace the child with `outcomes` (one per run: a value or an exception), each after `release` is set."""
-    monkeypatch.setattr(ota_payment_review, '_SHARED', {})
-    monkeypatch.setattr(ota_payment_review, 'current_input_key', lambda board: key[0])
     calls, release = [], threading.Event()
+    waiter_arrivals = Queue()
+
+    class SharedRuns(dict):
+        def __setitem__(self, identity, entry):
+            done = entry['done']
+            waiting = set()
+            lock = threading.Lock()
+
+            def wait(timeout=None):
+                with lock:
+                    thread_id = threading.get_ident()
+                    if thread_id not in waiting:
+                        waiting.add(thread_id)
+                        waiter_arrivals.put(thread_id)
+                return done.wait(timeout)
+
+            entry['done'] = SimpleNamespace(wait=wait, set=done.set, is_set=done.is_set)
+            super().__setitem__(identity, entry)
+
+    monkeypatch.setattr(ota_payment_review, '_SHARED', SharedRuns())
+    monkeypatch.setattr(ota_payment_review, 'current_input_key', lambda board: key[0])
 
     def run(board, *, cancel_event=None):
         calls.append(board)
@@ -90,7 +110,18 @@ def _shared_runs(monkeypatch, key, outcomes):
         return outcome
 
     monkeypatch.setattr(ota_payment_review, '_reconcile_in_child', run)
-    return calls, release
+    return calls, release, waiter_arrivals
+
+
+def _release_after_waiters(threads, release, waiter_arrivals):
+    try:
+        for _ in threads[1:]:
+            waiter_arrivals.get(timeout=5)
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(10)
+    assert not any(thread.is_alive() for thread in threads)
 
 
 def _in_threads(count, work):
@@ -111,16 +142,10 @@ def _in_threads(count, work):
 def test_callers_with_the_same_input_key_share_one_child(tmp_path, monkeypatch):
     key = ['k1']
     first, second = {'data': 1}, {'data': 2}
-    calls, release = _shared_runs(monkeypatch, key, [first, second])
+    calls, release, waiters = _shared_runs(monkeypatch, key, [first, second])
     board = SimpleNamespace(path=tmp_path / 'board.sqlite')
     threads, answers = _in_threads(3, lambda: ota_payment_review.reconcile_in_child(board))
-    deadline = time.monotonic() + 5
-    while not calls and time.monotonic() < deadline:
-        time.sleep(.01)
-    time.sleep(.2)
-    release.set()
-    for thread in threads:
-        thread.join(10)
+    _release_after_waiters(threads, release, waiters)
     assert len(calls) == 1 and all(answer is first for answer in answers)
     assert ota_payment_review.reconcile_in_child(board) is first and len(calls) == 1
     key[0] = 'k2'
@@ -129,30 +154,18 @@ def test_callers_with_the_same_input_key_share_one_child(tmp_path, monkeypatch):
 
 def test_a_cancelled_run_is_redone_by_its_waiter_and_a_failed_one_is_reported(tmp_path, monkeypatch):
     result = {'data': 1}
-    calls, release = _shared_runs(monkeypatch, ['k'], [
+    calls, release, waiters = _shared_runs(monkeypatch, ['k'], [
         ota_payment_review.OtaReconcileCancelled('the reconciliation was cancelled'), result])
     board = SimpleNamespace(path=tmp_path / 'board.sqlite')
     threads, answers = _in_threads(2, lambda: ota_payment_review.reconcile_in_child(board))
-    deadline = time.monotonic() + 5
-    while not calls and time.monotonic() < deadline:
-        time.sleep(.01)
-    time.sleep(.2)
-    release.set()
-    for thread in threads:
-        thread.join(10)
+    _release_after_waiters(threads, release, waiters)
     assert len(calls) == 2
     assert sorted(type(answer).__name__ for answer in answers) == ['OtaReconcileCancelled', 'dict']
 
-    calls, release = _shared_runs(monkeypatch, ['k'], [
+    calls, release, waiters = _shared_runs(monkeypatch, ['k'], [
         ota_payment_review.OtaReconcileChildError('the reconciliation process timed out after 1800 s')])
     threads, answers = _in_threads(2, lambda: ota_payment_review.reconcile_in_child(board))
-    deadline = time.monotonic() + 5
-    while not calls and time.monotonic() < deadline:
-        time.sleep(.01)
-    time.sleep(.2)
-    release.set()
-    for thread in threads:
-        thread.join(10)
+    _release_after_waiters(threads, release, waiters)
     assert len(calls) == 1
     assert all(isinstance(answer, ota_payment_review.OtaReconcileChildError) and 'timed out' in str(answer)
                for answer in answers)
@@ -160,7 +173,7 @@ def test_a_cancelled_run_is_redone_by_its_waiter_and_a_failed_one_is_reported(tm
 
 def test_inputs_that_moved_during_the_run_are_not_reused(tmp_path, monkeypatch):
     key = ['k']
-    calls, release = _shared_runs(monkeypatch, key, [{'data': 1}, {'data': 2}])
+    calls, release, _waiters = _shared_runs(monkeypatch, key, [{'data': 1}, {'data': 2}])
     release.set()
     board = SimpleNamespace(path=tmp_path / 'board.sqlite')
     real = ota_payment_review._reconcile_in_child
