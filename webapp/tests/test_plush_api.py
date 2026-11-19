@@ -265,6 +265,96 @@ def test_card_transactions_keep_krw_amount_and_follow_all_cursor_pages(
     assert first["foreign_currency"] == "USD"
 
 
+def test_p08_synthetic_1000_rows_are_server_paged_filtered_and_under_200ms(bound_store, monkeypatch):
+    """SPEC 성능(P-08): 1,000행 합성 자료의 서버 페이지·필터와 p95 200ms(네트워크 제외).
+
+    #993 잔여 수락 프로브. 전체 페이지를 걸어 중복·누락 없이 순서가 유지되는지,
+    필터가 원천 조회로 전달되고 총건수가 필터 결과를 세는지, in-process 핸들러
+    p95가 200ms 미만인지 본다. 합성 원천만 쓰고 운영 DB·실제 공급자 호출은 없다.
+    """
+    from collections import Counter
+    from math import ceil
+    from time import perf_counter_ns
+
+    store, _ = bound_store
+    items = [
+        {
+            "transaction_id": f"m4-synthetic-{index:04d}",
+            "approval_date": f"2026-11-{1 + index % 28:02d}",
+            "amount_krw": -(index + 1) if index % 7 == 0 else index + 1,
+            "merchant": "합성 가맹점",
+            "description": "식사 synthetic-match" if index % 10 == 0 else "교통 synthetic-other",
+            "classification_state": "classified",
+        }
+        for index in range(1000)
+    ]
+    source_calls = []
+
+    def matching(search):
+        return [item for item in items
+                if not search or search.casefold() in item["description"].casefold()]
+
+    monkeypatch.setattr("webapp.ledger_board._get_card_db_path", lambda: "m4-synthetic-card-db")
+
+    def year_summary(*, year, search, **_kwargs):
+        return {"months": {11: len(matching(search))}, "undated_count": 0}
+
+    def list_for_month(*, year, month, cursor, per_page, search, **_kwargs):
+        rows = matching(search)
+        offset = int(cursor) if cursor else 0
+        page = rows[offset:offset + per_page]
+        end = offset + len(page)
+        source_calls.append((search, cursor, per_page, len(rows)))
+        return {"items": page, "has_more": end < len(rows),
+                "cursor": str(end) if end < len(rows) else None}
+
+    monkeypatch.setattr("webapp.card_transactions.year_summary", year_summary)
+    monkeypatch.setattr("webapp.card_transactions.list_for_month", list_for_month)
+
+    observed_ids = []
+    durations_ns = []
+    for page in range(1, 11):
+        started = perf_counter_ns()
+        status, body = call(
+            f"/api/plush/transactions?view=cards&period=2026-11&page={page}&page_size=100",
+            "syn-owner", store,
+        )
+        durations_ns.append(perf_counter_ns() - started)
+        assert status == 200
+        assert body["total_count"] == 1000
+        assert body["page"] == page
+        assert body["page_size"] == 100
+        assert len(body["rows"]) == 100
+        observed_ids.extend(row["id"] for row in body["rows"])
+
+    expected_ids = [item["transaction_id"] for item in items]
+    assert observed_ids == expected_ids
+    assert all(count == 1 for count in Counter(observed_ids).values())
+
+    filtered_ids = []
+    for page in (1, 2):
+        status, body = call(
+            f"/api/plush/transactions?view=cards&period=2026-11&page={page}&page_size=50&q=synthetic-match",
+            "syn-owner", store,
+        )
+        assert status == 200
+        assert body["total_count"] == 100
+        assert body["page"] == page
+        assert len(body["rows"]) == 50
+        filtered_ids.extend(row["id"] for row in body["rows"])
+
+    expected_filtered_ids = [item["transaction_id"] for item in items
+                             if "synthetic-match" in item["description"]]
+    assert filtered_ids == expected_filtered_ids
+    assert all(count == 1 for count in Counter(filtered_ids).values())
+    assert all(entry[0] == "synthetic-match" for entry in source_calls if entry[3] == 100)
+
+    p95_ms = sorted(durations_ns)[ceil(0.95 * len(durations_ns)) - 1] / 1_000_000
+    print(f"P-08 synthetic API probe: rows=1000, pages=10, filtered_rows={len(filtered_ids)}, "
+          f"p95_api_ms={p95_ms:.3f}; in-process handler only, excluding HTTP network and browser rendering")
+    assert p95_ms < 200
+
+
 def test_card_list_displays_assigned_travel_and_quarter_names(bound_store, monkeypatch):
     from copy import deepcopy
 
@@ -320,6 +410,28 @@ def test_ledger_row_does_not_pair_krw_display_amount_with_source_currency():
     assert row["currency"] == "KRW"
     assert row["source_amount"] == "100"
     assert row["source_currency"] == "USD"
+
+
+def test_projection_amounts_use_the_shared_query_display_amount():
+    """SPEC §11.2.1 계약 1: the DTO and the trip summary read the same signed
+    display amount as the common query, including unreadable values."""
+    from webapp import ledger_query, plush_projection
+
+    rows = [
+        {"row_id": "r1", "row_kind": "expense", "amount_krw": 12000},
+        {"row_id": "r2", "row_kind": "expense", "amount_krw": 9000,
+         "display_amount_krw": 7000},
+        {"row_id": "r3", "row_kind": "expense", "amount_krw": "unreadable"},
+        {"row_id": "r4", "row_kind": "expense", "amount_krw": None},
+        {"row_id": "r5", "row_kind": "income", "amount_krw": "50000"},
+    ]
+    for row in rows:
+        assert plush_projection.ledger_row(row)["amount"] == plush_projection.money(
+            ledger_query.display_amount(row))
+    summary = plush_projection.trip_summary({"tab_id": "syn-trip"}, rows)
+    assert summary["expense"] == "19000"
+    assert summary["income"] == "50000"
+    assert summary["profit"] == "31000"
 
 
 def test_viewer_projection_uses_access_allowlist(bound_store, monkeypatch):

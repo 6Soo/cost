@@ -3,7 +3,7 @@
 `plush_api._ledger` builds one list and derives every figure from it:
 
     rows          = list_tab_rows(tab)            # the store's rows for this tab
-    rows          = _with_income(rows, income)    # + the Google income block
+    rows          = ledger_query.merge_income(rows, income)    # + the Google income block
     rows          = projected(rows)               # the store's display correction
     [exclusion]   = refund_tab.member_ids, owner only, refunds tab excepted
     all_rows      = rows                          # <- the trip summary's input
@@ -157,7 +157,7 @@ def test_the_exclusion_applies_to_every_page_not_only_the_first(mixed_tab):
 
 
 def test_a_google_block_is_excluded_from_totals_and_the_summary(mixed_tab, monkeypatch, tmp_path):
-    """`_with_income` adds rows; neither the totals nor the summary may count them."""
+    """`ledger_query.merge_income` adds rows; neither the totals nor the summary may count them."""
     store, tab = mixed_tab
     from webapp import google_ledger_page as page
     from webapp.tests.test_google_canonical_workflow import healthy_snapshot
