@@ -1,3 +1,7 @@
 -r requirements.txt
 pytest>=8.0,<10
+# The synthetic P2 response-schema tests validate answers with Draft202012Validator.
+# Without it the checks raise ImportError and the worker boundary test records
+# 'ai_retry' instead of failing on the decision it is meant to check.
+jsonschema>=4.23,<5
 playwright>=1.50,<2
