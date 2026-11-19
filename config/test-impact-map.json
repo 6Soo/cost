@@ -413,8 +413,8 @@
     },
     {
       "name": "ota-p2-review-routing",
-      "paths": ["app/ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_routing.py"],
-      "tests": ["tests/card_pipeline/test_ota_p2_routing.py"],
+      "paths": ["app/ota_p2_routing.py", "app/ota_p2_candidates.py", "tests/card_pipeline/test_ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_candidates.py"],
+      "tests": ["tests/card_pipeline/test_ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_candidates.py"],
       "reason": "DECISION_POLICY 3.0/LINK-044 mandatory P2 review routing of unmatched verified OTA charges: obligation, candidate MATCH/MISMATCH/UNKNOWN signals, and the split between a completed unverified review and a failed or not-run review"
     },
     {
