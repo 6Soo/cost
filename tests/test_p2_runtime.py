@@ -209,7 +209,46 @@ def test_p2_period_reaches_existing_preview_and_actual_stay_label(setup, monkeyp
     assert ledger_stay_evidence.period_for(row, ledger_stay_evidence.stay_index(setup)) == ''
 
 
-@pytest.mark.parametrize('mutation', ['source', 'revision', 'item', 'run_id'])
+def _stored_execution(setup, tid):
+    basis = setup.conn.execute('SELECT classification_basis FROM transactions WHERE transaction_id=?', (tid,)).fetchone()[0]
+    meta, _ = json.JSONDecoder().raw_decode(basis.split(' · P2_METADATA ', 1)[1])
+    return basis, meta
+
+
+def _rewrite_metadata(setup, tid, mutate):
+    """Rewrite every stored copy of the metadata, so only the mutation under test differs.
+
+    Both the transaction basis and the audit row are rewritten together: a
+    reader must reject the mutation itself, not merely a disagreement between
+    the two copies.
+    """
+    basis, meta = _stored_execution(setup, tid)
+    mutate(meta)
+    rewritten = basis.split(' · P2_METADATA ', 1)[0] + ' · P2_METADATA ' + json.dumps(meta, ensure_ascii=False, sort_keys=True)
+    entry = setup.conn.execute("SELECT entry_id,detail_json FROM change_log WHERE kind='card.classification_corrected' AND subject=? ORDER BY entry_id DESC LIMIT 1", (tid,)).fetchone()
+    detail = json.loads(entry[1])
+    detail['p2_metadata'] = meta
+    detail['execution'] = meta['execution']
+    detail['after']['classification_basis'] = rewritten
+    setup.conn.execute('UPDATE transactions SET classification_basis=? WHERE transaction_id=?', (rewritten, tid))
+    setup.conn.execute('UPDATE change_log SET detail_json=? WHERE entry_id=?', (json.dumps(detail, ensure_ascii=False, sort_keys=True), entry[0]))
+
+
+@pytest.mark.parametrize('model', ['gpt-6.1-sol', 'gpt-6.2-sol', 'gpt-4', '', None])
+def test_saved_period_is_not_gated_on_model_name(setup, model):
+    # Owner decision 2026-11-19: any connected-agent model is allowed, so only
+    # the model name may differ and the stored period must still be shown.
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request)
+    answer = response(request, bundle)
+    answer['results'][0]['item'] = '숙박비'
+    ai_classification.apply(setup.conn, trips, request, answer, bundle=bundle, request_id='model-check')
+    tid = request['cases'][0]['transaction_id']
+    _rewrite_metadata(setup, tid, lambda meta: meta['execution'].update(model=model))
+    assert ai_classification.service_metadata(setup.conn, tid)['service_period']
+
+
+@pytest.mark.parametrize('mutation', ['source', 'digest', 'revision', 'item', 'run_id', 'provider', 'basis'])
 def test_stale_or_forged_saved_period_is_not_displayed(setup, mutation):
     request, trips = prepared(setup)
     bundle = p2_case.assemble(setup.conn, trips, request)
@@ -220,10 +259,16 @@ def test_stale_or_forged_saved_period_is_not_displayed(setup, mutation):
     assert ai_classification.service_metadata(setup.conn, tid)['service_period']
     if mutation == 'source':
         setup.conn.execute("UPDATE transactions SET source_hash='changed'")
+    elif mutation == 'digest':
+        setup.conn.execute("UPDATE transactions SET raw_row_json='{\"changed\":1}'")
     elif mutation == 'revision':
         setup.conn.execute('UPDATE transactions SET revision=revision+1')
     elif mutation == 'item':
         setup.conn.execute("UPDATE transactions SET item='식비'")
+    elif mutation == 'run_id':
+        _rewrite_metadata(setup, tid, lambda meta: meta['execution'].update(run_id=''))
+    elif mutation == 'provider':
+        _rewrite_metadata(setup, tid, lambda meta: meta['execution'].update(provider='other'))
     else:
         setup.conn.execute("UPDATE transactions SET classification_basis=replace(classification_basis,'synthetic','forged')")
     assert ai_classification.service_metadata(setup.conn, tid) == {}
