@@ -19,7 +19,7 @@
 
 ## 과거 자료와 호환 경로
 
-- [Git 이력의 이전 인계 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/session_handoff.md) · [이전 작업판 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/BOARD.md) · [이전 관리자 지침](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/MANAGER.md)
+- [Git 이력의 이전 인계 원문](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/session_handoff.md) · [이전 작업판 원문](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/agents/BOARD.md) · [이전 관리자 지침](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/agents/MANAGER.md)
 - [과거 기록·명세 보관함](history/README.md) · [기존 경량화 정적 감사](audits/repository-lightweight-review-20261118.md)
 - [작업판 호환 안내](agents/BOARD.md) · [관리자 문서 호환 안내](agents/MANAGER.md) · [옛 시작 안내](COST_V3_START_HERE.md)
 

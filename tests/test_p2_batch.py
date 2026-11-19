@@ -119,6 +119,26 @@ def test_stage2_item_mapping_is_conservative(item, names, expected):
     assert layer1.normalize_item(item, names, ['교통비', '수수료', '입장료']) == expected
 
 
+def test_policy_text_follows_retired_ids_instead_of_crashing():
+    """The consolidated catalogs retire ITEM-037/038/044; the batch must still build.
+
+    A docs-only consolidation can delete a section that a consumer names by ID,
+    and the selector's DOCS_ONLY shortcut meant no test ran. This pins both the
+    resolved text and the hard failure for an ID that exists in neither place.
+    """
+    text = layer1.policy_text()
+    assert text
+    for identity in ('ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-050'):
+        assert f'### {identity} ·' in text
+    for canonical in ('TRIP-070', 'TRIP-071', 'DATE-054'):
+        assert f'### {canonical} ·' in text
+    assert layer1.retired_ids()['ITEM-037'][0] == 'TRIP-070'
+    assert layer1.retired_ids()['ITEM-038'][0] == 'TRIP-071'
+    assert layer1.retired_ids()['ITEM-044'][0] == 'DATE-054'
+    with pytest.raises(LookupError, match='POLICY_RULE_ID_UNRESOLVED: ITEM-999'):
+        layer1.policy_section('ITEM-999')
+
+
 def test_batch_runs_with_empty_cwd_and_rejects_tool_events(monkeypatch):
     monkeypatch.setattr(layer1.provider,'_executable',lambda:'synthetic.exe')
     batch=[{'merchant_id':'one'}]
