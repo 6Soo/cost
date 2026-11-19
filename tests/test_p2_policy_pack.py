@@ -242,7 +242,9 @@ def test_the_checked_out_snapshot_is_approved_and_gated_by_exact_blobs(
     assert p2_policy_pack.compact_policy_context(tmp_path, ('link', 'refund')) is not None
 
     text = (catalog / 'trip.md').read_text(encoding='utf-8', newline='')
-    anchor = '\n### TRIP-043 ·'
+    # Any rule outside PINNED works as the anchor; TRIP-043 was retired by the
+    # 2026-11-19 consolidation, so name a rule that stays canonically defined.
+    anchor = '\n### TRIP-002 ·'
     assert anchor in text
     note = '\n- 미검수 메모.\n'
     (catalog / 'trip.md').write_text(

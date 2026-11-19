@@ -125,14 +125,57 @@ def merchants(rows):
     return inputs, targets
 
 
+POLICY_AREAS = ('process', 'trip', 'item', 'date', 'link', 'refund', 'record', 'source', 'google', 'income', 'receipt')
+RETIRED_ROW = re.compile(r'(?m)^\| `([A-Z]+-\d{3})` \|[^|]*\|[^|]*\|[^|]*\| \[`([A-Z]+-\d{3})`\]\(\./([a-z]+)\.md\) \|$')
+
+
+def policy_sections():
+    """Map every current `### <ID>` section to its full text, read from the live catalogs."""
+    sections = {}
+    for area in POLICY_AREAS:
+        path = ROOT/'docs/policy'/(area+'.md')
+        if not path.is_file():
+            continue
+        for section in re.split(r'(?m)(?=^### [A-Z]+-\d{3})', path.read_text(encoding='utf-8'))[1:]:
+            identity = section.split('### ', 1)[1].split(' ', 1)[0]
+            sections.setdefault(identity, (area, section.split('- 출처:',1)[0]))
+    return sections
+
+
+def retired_ids():
+    """Read the 폐지·통합 mapping so a consumer may keep citing a retired rule ID."""
+    path = ROOT/'docs/policy/RETIRED_IDS.md'
+    if not path.is_file():
+        return {}
+    return {old: (canonical, area) for old, canonical, area in
+            RETIRED_ROW.findall(path.read_text(encoding='utf-8'))}
+
+
+def policy_section(identity, sections=None, retired=None):
+    """Return the current text of `identity`, following one retired-ID mapping hop.
+
+    The policy catalogs retire a rule ID when an identical judgement moves to a
+    canonical ID (RETIRED_IDS.md). Consumers still name the old ID, so this
+    resolves it instead of failing; an unknown ID is a hard error, never an
+    empty clause silently dropped from the prompt.
+    """
+    sections = policy_sections() if sections is None else sections
+    retired = retired_ids() if retired is None else retired
+    found = sections.get(identity)
+    if found:
+        return found[1]
+    target = retired.get(identity)
+    if target and target[0] in sections:
+        return sections[target[0]][1]
+    raise LookupError(f'POLICY_RULE_ID_UNRESOLVED: {identity}')
+
+
 def policy_text():
     text = (ROOT/'docs/DECISION_POLICY.md').read_text(encoding='utf-8')
     core = text.split('### 3.3 항목',1)[1].split('### 3.4',1)[0]
-    item = (ROOT/'docs/policy/item.md').read_text(encoding='utf-8')
-    exceptions = []
-    for identity in ('ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-037', 'ITEM-038', 'ITEM-044', 'ITEM-050'):
-        section = next(s for s in item.split('### ') if s.startswith(identity))
-        exceptions.append(section.split('- 출처:',1)[0])
+    sections, retired = policy_sections(), retired_ids()
+    exceptions = [policy_section(identity, sections, retired) for identity in (
+        'ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-037', 'ITEM-038', 'ITEM-044', 'ITEM-050')]
     return core + '\n' + '\n'.join(exceptions)
 
 

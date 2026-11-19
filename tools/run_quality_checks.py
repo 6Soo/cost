@@ -73,9 +73,11 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
     if not normalized:
         return {"status": "NO_CHANGES", "changed_paths": [], "steps": []}
     if not code:
-        return {"status": "DOCS_ONLY", "changed_paths": normalized, "document_paths": docs,
-                "steps": ["documentation-diff-and-links"]}
-
+        if not (selector_payload.get("unknown_files") or []):
+            return {"status": "DOCS_ONLY", "changed_paths": normalized, "document_paths": docs,
+                    "steps": ["documentation-diff-and-links"]}
+    # A document the impact map claims is a runtime input (docs/policy is parsed
+    # by P2), so its consumers must run even though no code path changed.
     unknown = selector_payload.get("unknown_files")
     commands = selector_payload.get("pytest_commands")
     if not isinstance(unknown, list) or not isinstance(commands, list):
