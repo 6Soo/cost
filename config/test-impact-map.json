@@ -658,6 +658,21 @@
       "tests": ["tests/card_pipeline/test_operational_backup_scope.py", "tests/card_pipeline/test_reserve_trips.py"]
     },
     {
+      "name": "ota-portal-projection-layout",
+      "paths": [
+        "app/ota_store.py",
+        "tools/merge_ota_portal_projections.py",
+        "tests/card_pipeline/test_merge_ota_portal_projections.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_merge_ota_portal_projections.py",
+        "tests/card_pipeline/test_ota_store.py",
+        "tests/card_pipeline/test_ota_store_commit_state.py",
+        "tests/card_pipeline/test_sync_ota_store.py",
+        "tests/card_pipeline/test_compact_ota_evidence.py"
+      ]
+    },
+    {
       "name": "ota-evidence-compaction",
       "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
       "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
