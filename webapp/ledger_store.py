@@ -94,9 +94,8 @@ from .ledger_store_allocation_validation import (
 from .ledger_operation_requests import (
     OWNER_PROFILE_DOMAIN,
     RECEIPT_APPLY_DOMAIN,
-    ensure_unified_journal,
     insert_operation_request,
-    journal_is_unified,
+    request_journal_shape,
 )
 from .ledger_store_schema import (
     INDEX_SQL,
@@ -106,7 +105,6 @@ from .ledger_store_schema import (
     _ensure_trip_tab_columns,
     _ensure_ledger_outbox_evidence,
     _ensure_receipt_apply_tables,
-    execute_schema_sql,
 )
 from .operator_ledger import LedgerError, OperatorLedger
 from .owner_metadata import company_name_default
@@ -298,14 +296,11 @@ class LedgerStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         # The request journal format is decided by what the offline conversion
-        # tool left behind, never by this opener: legacy init must not create
-        # the unified table, and a unified reopen must not recreate the legacy
-        # tables (it only restores a missing compatibility view).
-        self._request_journal_unified = journal_is_unified(self.conn)
-        if self._request_journal_unified:
-            ensure_unified_journal(self.conn)
-        execute_schema_sql(self.conn,
-                           unified_request_journal=self._request_journal_unified)
+        # tool left behind. CREATE TABLE IF NOT EXISTS is a no-op while a
+        # compatibility view owns the name, so the original schema script runs
+        # unmodified in both formats; a mixed shape is refused, not repaired.
+        self._request_journal_unified = request_journal_shape(self.conn) == "unified"
+        self.conn.executescript(SCHEMA_SQL)
         self.conn.executescript(INDEX_SQL)
         _ensure_ledger_outbox_evidence(self.conn)
         _ensure_receipt_apply_tables(self.conn)

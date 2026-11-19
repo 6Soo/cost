@@ -7,15 +7,15 @@ by `(domain, request_id)`, so the same request id in two domains is two
 records, never a collision.
 
 The legacy names survive as read-only compatibility views with the legacy
-column names, so existing SELECT call sites work unchanged in both formats.
-Writes branch through `insert_operation_request`. Legacy init never creates
-the unified table; a unified reopen never recreates the legacy tables. Only
-the offline conversion tool (`tools/merge_ledger_operation_requests.py`)
-switches a database from one format to the other.
+column names, so existing SELECT call sites work unchanged in both formats,
+and `CREATE TABLE IF NOT EXISTS` on those names is a no-op while the views
+exist — the original schema initialization runs unmodified in both formats.
+Writes branch through `insert_operation_request`. Only the offline conversion
+tool (`tools/merge_ledger_operation_requests.py`) switches formats; the opener
+detects the shape from one sqlite_master read and refuses a mixed shape
+instead of guessing or repairing it.
 """
 from __future__ import annotations
-
-import sqlite3
 
 OWNER_PROFILE_DOMAIN = "owner_profile"
 RECEIPT_APPLY_DOMAIN = "receipt_apply"
@@ -47,8 +47,6 @@ CREATE VIEW IF NOT EXISTS receipt_apply_requests AS
 
 COMPAT_VIEW_SQL = (OWNER_PROFILE_VIEW_SQL, RECEIPT_APPLY_VIEW_SQL)
 
-UNIFIED_JOURNAL_SQL = UNIFIED_TABLE_SQL + "".join(COMPAT_VIEW_SQL)
-
 _LEGACY_INSERT_SQL = {
     OWNER_PROFILE_DOMAIN:
         "INSERT INTO owner_profile_requests(client_request_id, input_digest,"
@@ -59,21 +57,24 @@ _LEGACY_INSERT_SQL = {
 }
 
 
-def journal_is_unified(conn) -> bool:
-    """True when the unified physical table owns the request journal."""
-    return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (UNIFIED_TABLE,)).fetchone() is not None
+def request_journal_shape(conn) -> str:
+    """'legacy' or 'unified'; any mixed or unknown shape is a refusal.
 
-
-def ensure_unified_journal(conn) -> None:
-    """Create the unified table and compatibility views, idempotently.
-
-    Called by the offline conversion tool and by a unified-mode reopen (which
-    restores a missing view without ever recreating a legacy table). Legacy
-    init must not call this: creating the table is what switches formats.
+    The unified marker and BOTH compatibility views must agree. A legacy
+    database may still be missing one or both journal tables (schema not run
+    yet), but a half-converted database is never opened on a guess.
     """
-    conn.executescript(UNIFIED_JOURNAL_SQL)
+    kinds = dict(conn.execute(
+        "SELECT name, type FROM sqlite_master WHERE name IN (?,?,?)",
+        (UNIFIED_TABLE, "owner_profile_requests", "receipt_apply_requests")))
+    marker = kinds.get(UNIFIED_TABLE)
+    owner = kinds.get("owner_profile_requests")
+    receipt = kinds.get("receipt_apply_requests")
+    if marker == "table" and owner == "view" and receipt == "view":
+        return "unified"
+    if marker is None and owner in (None, "table") and receipt in (None, "table"):
+        return "legacy"
+    raise RuntimeError("REQUEST_JOURNAL_MIXED_SHAPE")
 
 
 def insert_operation_request(conn, *, unified: bool, domain: str, request_id: str,

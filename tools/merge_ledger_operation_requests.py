@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """owner_profile_requests + receipt_apply_requests → ledger_operation_requests 오프라인 병합.
 
-기본은 dry-run이다. `--apply`를 줘야 쓴다. 운영 DB에 직접 쓰지 않는다:
-명시된 오프라인 사본만 변환하고, 키·응답·시각 100% 대조가 통과한 뒤에만
-옛 두 이름을 호환 읽기 뷰로 남긴다(물리 2→1). 운영 경로·별칭은 거부한다.
+기본은 무쓰기 예행이다. 닫힌 사본을 `mode=ro&immutable=1`로 읽기만 하며
+체크포인트·SAVEPOINT·DDL을 하지 않는다. `-wal`/`-shm`/`-journal`이 있으면
+바이트 보존을 위해 거부한다(닫힌 사본만 대상). `--apply`는 `mode=rw`(생성 없음)로
+열고 BEGIN IMMEDIATE 뒤 스냅숏·검증·배타 백업(`open xb`, 기본
+`<db>.pre-merge-backup`)·INSERT/DROP/뷰 검증을 같은 트랜잭션에서 하고 커밋한다.
+실패는 롤백과 백업 보존으로 끝내며 파일 바이트를 덮어쓰지 않는다.
+
+예행과 적용은 소스 저널의 형태(테이블/뷰/혼합)·NULL·중복 키를 공통 검증하고,
+두 저널이 모두 비었으면 NO_DATA로 거부한다. 운영 경로·별칭(심링크/정션/하드링크)은
+거부한다. 출력은 집계와 고정 코드뿐이며 응답 원문·traceback은 내보내지 않는다.
 
     python -I tools/merge_ledger_operation_requests.py --db <사본 경로>           # 예행
     python -I tools/merge_ledger_operation_requests.py --db <사본 경로> --apply   # 적용
-
-적용 전 보호 백업(`<db>.pre-merge-backup`)을 만들고, 변환 중 실패하면 백업에서
-복원한다. 백업은 덮어쓰지 않는다. 두 저널이 모두 비었으면 NO_DATA로 거부한다
-(양성 증거 없는 일치는 통과가 아니다). 출력은 집계와 고정 코드뿐이며
-응답 원문·traceback은 내보내지 않는다.
 """
 from __future__ import annotations
 
@@ -34,7 +36,7 @@ from webapp.ledger_operation_requests import (  # noqa: E402
     RECEIPT_APPLY_DOMAIN,
     UNIFIED_TABLE_SQL,
     insert_operation_request,
-    journal_is_unified,
+    request_journal_shape,
 )
 
 EXIT_OK = 0
@@ -43,26 +45,26 @@ EXIT_REFUSED = 2
 CODE_INVALID_ARGUMENT = "INVALID_ARGUMENT"
 CODE_DB_NOT_FOUND = "DB_NOT_FOUND"
 CODE_PATH_REFUSED = "PATH_REFUSED"
+CODE_SIDECAR_PRESENT = "SIDECAR_PRESENT"
 CODE_DB_BUSY = "DB_BUSY"
 CODE_BACKUP_EXISTS = "BACKUP_EXISTS"
 CODE_ALREADY_UNIFIED = "ALREADY_UNIFIED"
 CODE_LEGACY_SHAPE = "LEGACY_SHAPE"
 CODE_NO_DATA = "NO_DATA"
+CODE_SOURCE_INVALID = "SOURCE_INVALID"
 CODE_VERIFY_FAILED = "VERIFY_FAILED"
 CODE_IO_ERROR = "IO_ERROR"
 CODE_INTERNAL_ERROR = "INTERNAL_ERROR"
 
-_SIDECARS = ("-wal", "-shm")
-_SAVEPOINT = "cost_request_journal_merge"
+_SIDECARS = ("-wal", "-shm", "-journal")
 
 
 class _CliError(Exception):
     """A refusal reduced to a stable, printable code."""
 
-    def __init__(self, code: str, **extra):
+    def __init__(self, code: str):
         super().__init__(code)
         self.code = code
-        self.extra = extra
 
 
 def _norm(path: Path) -> str:
@@ -70,7 +72,7 @@ def _norm(path: Path) -> str:
 
 
 def _check_path(raw: str) -> Path:
-    """Refuse production paths and aliases before anything is opened for write."""
+    """Refuse production paths and aliases before anything is opened."""
     if not raw or not raw.strip():
         raise _CliError(CODE_INVALID_ARGUMENT)
     absolute = Path(os.path.abspath(raw))
@@ -103,66 +105,39 @@ def _check_path(raw: str) -> Path:
     return resolved
 
 
-def _backup_path(raw: str | None, db: Path) -> Path:
-    backup = Path(raw) if raw else Path(str(db) + ".pre-merge-backup")
-    if _norm(Path(os.path.abspath(backup))) == _norm(db):
-        raise _CliError(CODE_PATH_REFUSED)
+def _check_source_shape(conn) -> None:
+    """Common shape validation for preview and apply: fail closed on mixed."""
     try:
-        if _norm(backup.resolve()) == _norm(db):
-            raise _CliError(CODE_PATH_REFUSED)
-    except OSError:
-        raise _CliError(CODE_PATH_REFUSED) from None
-    return backup
-
-
-def _create_backup(db: Path, backup: Path) -> None:
-    if backup.exists() or any(Path(str(backup) + s).exists() for s in _SIDECARS):
-        raise _CliError(CODE_BACKUP_EXISTS)
-    try:
-        shutil.copy2(db, backup)
-        for suffix in _SIDECARS:
-            side = Path(str(db) + suffix)
-            if side.exists():
-                shutil.copy2(side, Path(str(backup) + suffix))
-    except OSError:
-        raise _CliError(CODE_IO_ERROR) from None
-
-
-def _restore_backup(db: Path, backup: Path) -> bool:
-    try:
-        shutil.copy2(backup, db)
-        for suffix in _SIDECARS:
-            source = Path(str(backup) + suffix)
-            target = Path(str(db) + suffix)
-            if source.exists():
-                shutil.copy2(source, target)
-            elif target.exists():
-                target.unlink()
-        return True
-    except OSError:
-        return False
-
-
-def _check_legacy_shape(conn) -> None:
-    if journal_is_unified(conn):
+        shape = request_journal_shape(conn)
+    except RuntimeError:
+        raise _CliError(CODE_LEGACY_SHAPE) from None
+    if shape == "unified":
         raise _CliError(CODE_ALREADY_UNIFIED)
-    for name in ("owner_profile_requests", "receipt_apply_requests"):
-        row = conn.execute(
-            "SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
-        if row is None or row[0] != "table":
-            raise _CliError(CODE_LEGACY_SHAPE)
+    kinds = dict(conn.execute(
+        "SELECT name, type FROM sqlite_master WHERE name IN"
+        " ('owner_profile_requests','receipt_apply_requests')"))
+    if (kinds.get("owner_profile_requests") != "table"
+            or kinds.get("receipt_apply_requests") != "table"):
+        raise _CliError(CODE_LEGACY_SHAPE)
 
 
 def _snapshot_journal(conn) -> dict:
+    """Read both source journals, refusing NULL fields and duplicate keys."""
     rows = {}
-    for request_id, digest, result_json, created_at in conn.execute(
-            "SELECT client_request_id, input_digest, result_json, created_at"
-            " FROM owner_profile_requests"):
-        rows[(OWNER_PROFILE_DOMAIN, request_id)] = (digest, result_json, created_at)
-    for request_id, digest, result_json, created_at in conn.execute(
-            "SELECT request_id, request_hash, result_json, created_at"
-            " FROM receipt_apply_requests"):
-        rows[(RECEIPT_APPLY_DOMAIN, request_id)] = (digest, result_json, created_at)
+    for domain, sql in (
+            (OWNER_PROFILE_DOMAIN,
+             "SELECT client_request_id, input_digest, result_json, created_at"
+             " FROM owner_profile_requests"),
+            (RECEIPT_APPLY_DOMAIN,
+             "SELECT request_id, request_hash, result_json, created_at"
+             " FROM receipt_apply_requests")):
+        for request_id, digest, result_json, created_at in conn.execute(sql):
+            if (request_id is None or digest is None
+                    or result_json is None or created_at is None):
+                raise _CliError(CODE_SOURCE_INVALID)
+            if (domain, request_id) in rows:
+                raise _CliError(CODE_SOURCE_INVALID)
+            rows[(domain, request_id)] = (digest, result_json, created_at)
     return rows
 
 
@@ -198,94 +173,97 @@ def _verify_views(conn, snapshot: dict) -> None:
         raise _CliError(CODE_VERIFY_FAILED)
 
 
-def convert(conn, *, apply: bool) -> dict:
-    """Merge the two journals inside one SAVEPOINT; dry-run rolls it all back."""
-    _check_legacy_shape(conn)
-    snapshot = _snapshot_journal(conn)
-    if not snapshot:
-        raise _CliError(CODE_NO_DATA)
-    before_counts = _other_table_counts(conn)
-    conn.execute(f"SAVEPOINT {_SAVEPOINT}")
+def _create_backup(db: Path, backup: Path) -> None:
+    """Exclusive creation only: an existing backup is never overwritten."""
     try:
-        conn.execute(UNIFIED_TABLE_SQL)
-        for (domain, request_id), (digest, result_json, created_at) in sorted(snapshot.items()):
-            insert_operation_request(
-                conn, unified=True, domain=domain, request_id=request_id,
-                input_digest=digest, result_json=result_json, created_at=created_at)
-        _verify_unified(conn, snapshot)
-        conn.execute("DROP TABLE owner_profile_requests")
-        conn.execute("DROP TABLE receipt_apply_requests")
-        for statement in COMPAT_VIEW_SQL:
-            conn.execute(statement)
-        _verify_views(conn, snapshot)
-        if _other_table_counts(conn) != before_counts:
-            raise _CliError(CODE_VERIFY_FAILED)
-        if apply:
-            conn.execute(f"RELEASE SAVEPOINT {_SAVEPOINT}")
-        else:
-            conn.execute(f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}")
-            conn.execute(f"RELEASE SAVEPOINT {_SAVEPOINT}")
-        return {
-            "status": "APPLIED" if apply else "PREVIEW",
-            "owner_profile_requests": sum(
-                1 for domain, _ in snapshot if domain == OWNER_PROFILE_DOMAIN),
-            "receipt_apply_requests": sum(
-                1 for domain, _ in snapshot if domain == RECEIPT_APPLY_DOMAIN),
-            "verified": True,
-        }
-    except BaseException:
-        conn.execute(f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}")
-        conn.execute(f"RELEASE SAVEPOINT {_SAVEPOINT}")
-        raise
+        with open(backup, "xb") as out:
+            with open(db, "rb") as src:
+                shutil.copyfileobj(src, out)
+            out.flush()
+            os.fsync(out.fileno())
+    except FileExistsError:
+        raise _CliError(CODE_BACKUP_EXISTS) from None
+    except OSError:
+        raise _CliError(CODE_IO_ERROR) from None
+
+
+def _counts(snapshot: dict, status: str) -> dict:
+    return {
+        "status": status,
+        "owner_profile_requests": sum(
+            1 for domain, _ in snapshot if domain == OWNER_PROFILE_DOMAIN),
+        "receipt_apply_requests": sum(
+            1 for domain, _ in snapshot if domain == RECEIPT_APPLY_DOMAIN),
+    }
+
+
+def _preview(db: Path) -> dict:
+    """Write-free read of a closed copy: no checkpoint, no DDL, no journal."""
+    conn = sqlite3.connect(db.as_uri() + "?mode=ro&immutable=1",
+                           uri=True, isolation_level=None)
+    try:
+        _check_source_shape(conn)
+        snapshot = _snapshot_journal(conn)
+        if not snapshot:
+            raise _CliError(CODE_NO_DATA)
+        return _counts(snapshot, "PREVIEW")
+    finally:
+        conn.close()
+
+
+def _apply(db: Path, backup: Path) -> dict:
+    conn = sqlite3.connect(db.as_uri() + "?mode=rw",
+                           uri=True, isolation_level=None, timeout=5.0)
+    try:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            raise _CliError(CODE_DB_BUSY) from None
+        try:
+            _check_source_shape(conn)
+            snapshot = _snapshot_journal(conn)
+            if not snapshot:
+                raise _CliError(CODE_NO_DATA)
+            before_counts = _other_table_counts(conn)
+            _create_backup(db, backup)
+            conn.execute(UNIFIED_TABLE_SQL)
+            for (domain, request_id), (digest, result_json, created_at) in sorted(snapshot.items()):
+                insert_operation_request(
+                    conn, unified=True, domain=domain, request_id=request_id,
+                    input_digest=digest, result_json=result_json, created_at=created_at)
+            _verify_unified(conn, snapshot)
+            conn.execute("DROP TABLE owner_profile_requests")
+            conn.execute("DROP TABLE receipt_apply_requests")
+            for statement in COMPAT_VIEW_SQL:
+                conn.execute(statement)
+            _verify_views(conn, snapshot)
+            if _other_table_counts(conn) != before_counts:
+                raise _CliError(CODE_VERIFY_FAILED)
+            conn.execute("COMMIT")
+            return _counts(snapshot, "APPLIED")
+        except BaseException:
+            # Rollback undoes the conversion; the backup is preserved as
+            # evidence. Never copy old bytes over a live database file.
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
 
 
 def _run(argv) -> dict:
     parser = argparse.ArgumentParser(description="offline request journal merge")
     parser.add_argument("--db", required=True, help="대상 오프라인 사본 SQLite 파일")
-    parser.add_argument("--apply", action="store_true", help="실제로 쓴다(기본은 예행)")
-    parser.add_argument("--backup", help="보호 백업 경로(기본: <db>.pre-merge-backup)")
-    parser.add_argument("--report", help="집계 결과 JSON을 남길 경로")
+    parser.add_argument("--apply", action="store_true", help="실제로 쓴다(기본은 무쓰기 예행)")
     args = parser.parse_args(argv)
 
     db = _check_path(args.db)
-    backup = _backup_path(args.backup, db)
-    conn = sqlite3.connect(str(db), isolation_level=None, timeout=5.0)
-    backup_created = False
-    try:
-        try:
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            wal = Path(str(db) + "-wal")
-            if wal.exists() and wal.stat().st_size > 0:
-                raise _CliError(CODE_DB_BUSY)
-            if args.apply:
-                # Refuse before creating a backup when the shape is wrong or
-                # there is nothing to convert, so a refusal leaves no artifacts.
-                _check_legacy_shape(conn)
-                if not _snapshot_journal(conn):
-                    raise _CliError(CODE_NO_DATA)
-                _create_backup(db, backup)
-                backup_created = True
-            result = convert(conn, apply=args.apply)
-        except BaseException as exc:
-            if backup_created:
-                conn.close()
-                conn = None
-                restored = _restore_backup(db, backup)
-                code = exc.code if isinstance(exc, _CliError) else CODE_INTERNAL_ERROR
-                raise _CliError(code, backup_restored=restored) from None
-            raise
-    finally:
-        if conn is not None:
-            conn.close()
-
-    if args.report:
-        try:
-            Path(args.report).write_text(
-                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        except OSError:
-            result["report_error"] = CODE_IO_ERROR
-    return result
+    for suffix in _SIDECARS:
+        if os.path.lexists(str(db) + suffix):
+            raise _CliError(CODE_SIDECAR_PRESENT)
+    if not args.apply:
+        return _preview(db)
+    return _apply(db, Path(str(db) + ".pre-merge-backup"))
 
 
 def main(argv=None) -> int:
@@ -295,9 +273,7 @@ def main(argv=None) -> int:
     try:
         result = _run(argv)
     except _CliError as exc:
-        payload = {"status": "ERROR", "reason": exc.code}
-        payload.update(exc.extra)
-        print(json.dumps(payload, ensure_ascii=False))
+        print(json.dumps({"status": "ERROR", "reason": exc.code}, ensure_ascii=False))
         return EXIT_REFUSED
     except Exception:
         print(json.dumps({"status": "ERROR", "reason": CODE_INTERNAL_ERROR},

@@ -5,8 +5,6 @@ Verbatim extraction preserving exact DDL, defaults, and column check semantics.
 """
 from __future__ import annotations
 
-import sqlite3
-
 from app.db import LEDGER_SCHEMA_SQL  # noqa: F401  re-exported, one canonical DDL
 
 SCHEMA_SQL = """
@@ -398,28 +396,6 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
 """
 
 
-def execute_schema_sql(conn, *, unified_request_journal: bool = False) -> None:
-    """Run SCHEMA_SQL, skipping the legacy owner-profile request DDL when unified.
-
-    SCHEMA_SQL itself stays byte-identical (a test pins it to its base commit);
-    the skip happens at execution time. In unified mode `owner_profile_requests`
-    is a compatibility view over `ledger_operation_requests`, and recreating it
-    as a table would split the journal back into two physical stores.
-    """
-    if not unified_request_journal:
-        conn.executescript(SCHEMA_SQL)
-        return
-    buffer = ""
-    for line in SCHEMA_SQL.splitlines(keepends=True):
-        buffer += line
-        if not sqlite3.complete_statement(buffer):
-            continue
-        statement, buffer = buffer, ""
-        if "CREATE TABLE IF NOT EXISTS owner_profile_requests" in statement:
-            continue
-        conn.execute(statement)
-
-
 def ensure_ledger_schema(conn) -> None:
     """Create the M6 unified `ledger` table and its indexes, additively.
 
@@ -441,16 +417,15 @@ def _ensure_ledger_outbox_evidence(conn) -> None:
         conn.execute("ALTER TABLE ledger_outbox ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT '[]'")
 
 
-_RECEIPT_APPLY_REQUEST_DDL = """
+def _ensure_receipt_apply_tables(conn) -> None:
+    """Create the receipt apply idempotency and evidence journal without rewriting SCHEMA_SQL."""
+    conn.executescript("""
     CREATE TABLE IF NOT EXISTS receipt_apply_requests (
         request_id TEXT PRIMARY KEY,
         request_hash TEXT NOT NULL,
         result_json TEXT NOT NULL,
         created_at TEXT NOT NULL
     );
-"""
-
-_RECEIPT_APPLY_EVIDENCE_DDL = """
     CREATE TABLE IF NOT EXISTS receipt_apply_sources (
         candidate_id TEXT PRIMARY KEY,
         source_identity TEXT NOT NULL UNIQUE,
@@ -472,22 +447,7 @@ _RECEIPT_APPLY_EVIDENCE_DDL = """
         evidence_json TEXT NOT NULL,
         created_at TEXT NOT NULL
     );
-"""
-
-
-def _ensure_receipt_apply_tables(conn) -> None:
-    """Create the receipt apply evidence journal without rewriting SCHEMA_SQL.
-
-    The request journal itself is created only in legacy mode. In unified mode
-    `receipt_apply_requests` is a compatibility view over the unified table and
-    must not be recreated as a physical table on reopen.
-    """
-    from .ledger_operation_requests import journal_is_unified
-
-    sql = _RECEIPT_APPLY_EVIDENCE_DDL
-    if not journal_is_unified(conn):
-        sql = _RECEIPT_APPLY_REQUEST_DDL + sql
-    conn.executescript(sql)
+    """)
 
 
 # Kept apart from SCHEMA_SQL, which a test pins to its base commit.
