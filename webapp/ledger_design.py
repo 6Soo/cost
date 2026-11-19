@@ -2503,9 +2503,18 @@ def _matches(row: dict, needle: str) -> bool:
     return text in hay.casefold()
 
 
-def _summary_totals(rows_in, rows_ex):
-    """Compute displayed amounts through the board's current amount hook."""
-    return (sum(board._shown_amount(r) for r in rows_in),
+def _summary_totals(rows_in, rows_ex, linked=None):
+    """Compute displayed amounts through the board's current amount hook.
+
+    ``linked`` is the R06 set: the summary's unfiltered income figure already
+    excludes a linked bank evidence row, so the whole/search totals next to it
+    must exclude it too or one screen states two different COST incomes.
+    """
+    if linked is None:
+        linked = ledger_query.linked_bank_ids(board._active_store())
+    counted = [r for r in rows_in if r.get("row_id") not in linked
+               and not r.get("google_income")]
+    return (sum(board._shown_amount(r) for r in counted),
             sum(board._shown_amount(r) for r in rows_ex),
             len(rows_in), len(rows_ex))
 
@@ -2515,8 +2524,9 @@ def _totals_kw(query, shown_in, shown_ex, whole_in, whole_ex) -> dict:
     if not query:
         return {}
 
-    return {"filtered": _summary_totals(shown_in, shown_ex),
-            "whole": _summary_totals(whole_in, whole_ex)}
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    return {"filtered": _summary_totals(shown_in, shown_ex, linked),
+            "whole": _summary_totals(whole_in, whole_ex, linked)}
 
 
 def _STORE_missing() -> bool:

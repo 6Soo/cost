@@ -197,3 +197,33 @@ def test_row_list_headers_exclude_a_linked_bank_row(linked_store):
     assert listed, mobile_html[:400]
     shown_mobile = int(listed.group(1).replace("원", "").replace("−", "-").replace(",", ""))
     assert shown_mobile == baseline, (shown_mobile, baseline)
+
+
+def test_search_totals_exclude_a_linked_bank_row(linked_store):
+    """F2 with a search on: the whole/result totals must not re-add the linked row.
+
+    ``_summary_html`` excludes the linked row from its unfiltered figure, but the
+    filtered branch prints ``whole``/``filtered`` from ``_summary_totals``, which
+    summed every income row.  One search turned 전체 총수입 back into 2,000,000
+    next to the same 1,000,000 the KPI showed.
+    """
+    from webapp import ledger_board
+
+    store, tab, _linked_id = linked_store
+    baseline = store.tab_totals(tab)["income"]
+    previous = ledger_board._STORE
+    ledger_board.bind_store(store)
+    try:
+        ledger_board._ROLE_LOCAL.role = "owner"
+        ledger_board._ROLE_LOCAL.session = None
+        incomes, expenses, _whole_in, _whole_ex = ledger_design._selected_rows(tab, "", "")
+        kwargs = ledger_design._totals_kw("건", incomes, expenses, incomes, expenses)
+        summary = ledger_design._summary_html(
+            incomes, expenses, recorded_income_count=len(incomes), **kwargs)
+    finally:
+        ledger_board.bind_store(previous)
+
+    whole = re.search(r"전체 총수입</i><b>([^<]+)</b>", summary)
+    assert whole, summary[:400]
+    shown = int(whole.group(1).replace("원", "").replace("−", "-").replace(",", ""))
+    assert shown == baseline, (shown, baseline)
