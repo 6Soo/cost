@@ -673,6 +673,18 @@
       ]
     },
     {
+      "name": "ota-catalog-projection-audit",
+      "paths": [
+        "tools/measure_ota_catalog_projection.py",
+        "tests/test_measure_ota_catalog_projection.py"
+      ],
+      "tests": [
+        "tests/test_measure_ota_catalog_projection.py",
+        "tests/card_pipeline/test_merge_ota_portal_projections.py",
+        "tests/card_pipeline/test_ota_store.py"
+      ]
+    },
+    {
       "name": "ota-evidence-compaction",
       "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
       "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
