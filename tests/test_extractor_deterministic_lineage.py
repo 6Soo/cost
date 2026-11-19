@@ -322,17 +322,31 @@ def test_a_hard_link_to_the_snapshot_is_the_same_database(tmp_path):
         "0": "f" * 64, "1": "f" * 64}
 
 
-def test_an_extended_prefix_naming_the_snapshot_is_the_same_database(tmp_path):
-    """``\\\\?\\<path>`` names the snapshot itself; the prefix only changes the spelling."""
+def test_an_extended_prefix_is_decided_by_file_identity_not_by_spelling(tmp_path):
+    """``\\?\\<path>`` is Windows path syntax; the assertion must follow the platform.
+
+    On Windows the prefix is an alias of the same file, so it must be accepted.
+    On POSIX the prefix is literal characters, so the name does not exist and the
+    caller must refuse it -- refusing is the correct answer there, not a defect.
+    Asserting either one on both platforms would state a false fact about the
+    other, which is why this checks the platform's own truth instead of skipping.
+    """
     from tools.core_bridge.extract_baseline import _portal_content_fingerprints
     from tools.core_bridge.commands import BridgeError
 
     snapshot = tmp_path / "snapshot.sqlite"
     snapshot.write_bytes(b"synthetic")
     given = "\\\\?\\" + str(snapshot.resolve())
-    assert _portal_content_fingerprints(
-        snapshot, "f" * 64, [snapshot, given], BridgeError) == {
-        "0": "f" * 64, "1": "f" * 64}
+    if os.name == "nt":
+        assert _portal_content_fingerprints(
+            snapshot, "f" * 64, [snapshot, given], BridgeError) == {
+            "0": "f" * 64, "1": "f" * 64}
+    else:
+        # The literal name has no file behind it; a missing path is never the snapshot.
+        assert not os.path.exists(given)
+        with pytest.raises(BridgeError) as raised:
+            _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, given], BridgeError)
+        assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
 
 
 def test_a_registered_path_that_does_not_exist_is_refused_not_raised(tmp_path):
