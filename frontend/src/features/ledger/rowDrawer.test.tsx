@@ -108,11 +108,31 @@ test('a read-only owner row still shows the reservation number, it is not an edi
   expect(await screen.findByText('SYNTH-PNR-8')).toBeTruthy();
 });
 
-test('a viewer never receives the owner detail block and sees no evidence section', async () => {
+test('a viewer sees no evidence section when the server sends an empty detail', async () => {
   vi.mocked(getJSON).mockResolvedValue(detail({ detail: {} }));
   render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'viewer', csrf: '', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
   await screen.findByText('수정 이력');
   expect(screen.queryByRole('heading', { name: '예약·증빙 근거' })).toBeNull();
+});
+
+/**
+ * Defense in depth (SPEC §13#10). The server already refuses to send `detail`
+ * to a viewer, so the test above only proves the happy path. This one hands a
+ * viewer a response that *does* carry the stored reservation number — a
+ * regression in the projection, an over-eager cache, or a proxy could produce
+ * that — and requires the screen to still withhold it. Without the client-side
+ * owner gate this test fails; with it the value never reaches the DOM.
+ */
+test('a viewer is not shown the reservation number even if a response carries it', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    detail: { reservation_no: 'SYNTH-PNR-LEAK', evidence_type: '카드', source_merchant: '합성 원문 가맹점' },
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'viewer', csrf: '', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  await screen.findByText('수정 이력');
+  expect(screen.queryByRole('heading', { name: '예약·증빙 근거' })).toBeNull();
+  expect(screen.queryByText('SYNTH-PNR-LEAK')).toBeNull();
+  const dialog = screen.getByRole('dialog');
+  expect(dialog.textContent ?? '').not.toContain('SYNTH-PNR-LEAK');
 });
 
 test('submits only server-advertised allocation fields plus concurrency identifiers', async () => {

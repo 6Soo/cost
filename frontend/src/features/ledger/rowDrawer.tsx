@@ -284,9 +284,14 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
   const writeActions = actions.filter((action) => action.method === 'POST');
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
-  // The viewer's response has no `detail` (the server omits it), so this is
-  // empty for a viewer by construction, not by a client-side role test.
-  const evidence = evidenceEntries(detail?.detail);
+  /* Two independent gates, on purpose (defense in depth — SPEC §13#10):
+     1. the server sends `detail` only to the owner, so a viewer's response has
+        nothing to print;
+     2. this screen also refuses to print it unless the session is the owner.
+     Either gate alone would be enough today; if a future projection change,
+     a cache, or a proxy ever handed a viewer a populated `detail`, the client
+     gate still keeps the stored reservation number off a viewer's screen. */
+  const evidence = bootstrap.role === 'owner' ? evidenceEntries(detail?.detail) : [];
 
   return (
     <Drawer open={Boolean(rowId)} title={title} description={detail ? `${humanDate(detail.row.date)} · ${detail.row.category}` : undefined} onOpenChange={(open) => { if (!open) onClose(); }}>
