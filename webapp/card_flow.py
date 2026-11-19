@@ -1731,7 +1731,7 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
-        from app.partial_refund import refund_links, is_numbered_partial, partial_group_exclusion
+        from app.partial_refund import refund_links
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
@@ -1772,29 +1772,25 @@ class CardFlow:
             if not members & ids:
                 continue
             if include_verified_full_refunds:
-                # A verified, exactly zero-net group may span several source
-                # files. The ledger preview pulls EVERY member and commits
-                # them atomically. Never treat inferred or held groups as safe.
+                # A verified group may span several source files. The ledger preview
+                # pulls EVERY member and commits them atomically. The shared rule
+                # decides whether this group is recordable at all, so a change to it
+                # cannot leave this screen disagreeing with the ledger.
+                from app.partial_refund import recordable_group_for
+                group_members, group_links = recordable_group_for(self.board.conn, members)
+                verified = bool(group_links) and group_members == set(members)
                 refunds_in_group = members & set(refund_ids)
-                trusted_full = bool(refunds_in_group) and all(
-                    (rid in verified_links
-                     and not verified_links[rid].get('inferred')
-                     and verified_links[rid].get('status') == 'full'
-                     and verified_links[rid].get('net_krw') == 0)
-                    for rid in refunds_in_group)
+                # A fully offset group always books to the refund tab; trip and
+                # classification placeholders must not stop it.
+                trusted_full = verified and all(
+                    link.get('status') == 'full' and link.get('net_krw') == 0
+                    for link in group_links.values())
                 allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
                 # A numbered partial refund inherits its original's trip or quarter cost
-                # through the ledger's pair rules; it never goes to the refund tab.
-                trusted_partial = bool(refunds_in_group) and all(
-                    rid in verified_links and is_numbered_partial(verified_links[rid])
-                    for rid in refunds_in_group)
-                # Only a group that spans files; PROC-072 completed periods and unclean cancels come first.
-                if trusted_partial and not members <= ids:
-                    trusted_partial = not partial_group_exclusion(
-                        self.board.conn, verified_links[next(iter(refunds_in_group))]['original_id'])
-                else:
-                    trusted_partial = False
-                if trusted_partial and not trusted_full:
+                # through the ledger's pair rules; it never goes to the refund tab, and
+                # only a group that spans files is extended here.
+                trusted_partial = verified and not trusted_full and not members <= ids
+                if trusted_partial:
                     if (not members & set(active)
                             and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
                                     for tid in members)):
