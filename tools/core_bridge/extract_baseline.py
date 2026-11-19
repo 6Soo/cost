@@ -248,6 +248,53 @@ def _capture_directory(capture_root, logical_fingerprint):
     raise RuntimeError("CAPTURE_DIRECTORY_EXHAUSTED")
 
 
+def _same_file(candidate, snapshot):
+    """True when ``candidate`` names the same file as ``snapshot``, by any spelling.
+
+    ``_key`` compares resolved path strings, which separates a hard link (own
+    directory entry) and the ``\\\\?\\`` prefix (literal prefix). ``samefile``
+    compares device and inode instead, so both aliases match one file. A path
+    that does not exist cannot be the snapshot, and the exact error differs by
+    platform, so any ``OSError`` answers False: the caller fails closed.
+    """
+    if _key(candidate) == _key(snapshot):
+        return True
+    try:
+        return os.path.samefile(candidate, snapshot)
+    except OSError:
+        return False
+
+
+def _portal_content_fingerprints(snapshot, logical_fingerprint, databases, error):
+    """Index-aligned content fingerprints for every database the event builder reads.
+
+    ``app.ota_payments._portal_events`` looks a database's fingerprint up by its
+    outer database index (``"0"``, ``"1"``, ...). A single fixed ``"0"`` key is
+    correct only while exactly one database is registered; the second database
+    would then get no fingerprint and fall back to a path-derived lineage,
+    silently losing determinism. Every registered index therefore gets the
+    fingerprint of the same content.
+
+    The capture copied exactly one file, so any *different* registered database
+    would be a source this capture cannot vouch for. That fails explicitly
+    instead of quietly degrading to path-based lineage.
+
+    A registered path naming the same *file* is not a second database. Two
+    spellings reach one file that ``_key`` alone cannot match: a hard link (its
+    own directory entry, so ``realpath`` keeps it distinct) and the ``\\\\?\\``
+    extended-length prefix (``_key`` compares the literal string). Both are
+    therefore decided by file identity, and only a different file is refused.
+    """
+    paths = [Path(item).resolve() for item in (databases or [])]
+    if any(not _same_file(item, snapshot) for item in paths):
+        # The offending path is customer-adjacent, so only the fact is reported.
+        raise error("MULTI_DATABASE_FINGERPRINT_UNSUPPORTED")
+    if not paths:
+        return {}
+    # One database is the historical literal ``{"0": fingerprint}`` byte for byte.
+    return {str(index): logical_fingerprint for index in range(len(paths))}
+
+
 def _readonly(path):
     try:
         Path(path).chmod(stat.S_IREAD)
@@ -464,8 +511,11 @@ def capture(request, error):
     with tempfile.TemporaryDirectory(prefix="extract-baseline-work-", dir=str(backups)) as work:
         sources = _sources(snapshot, work)
         # Every registered database is this one snapshot, so its content fingerprint
-        # is the source of truth for lineage in every portal event.
-        sources["portal_content_fingerprints"] = {"0": logical_fingerprint}
+        # is the source of truth for lineage in every portal event. The mapping is
+        # index-aligned (one entry per registered database) instead of the single
+        # fixed "0" key, and a capture that finds a database it did not copy fails.
+        sources["portal_content_fingerprints"] = _portal_content_fingerprints(
+            snapshot, logical_fingerprint, sources.get("portal_databases"), error)
         from app import ota_payments
         events = ota_payments.build_ota_payment_events(sources)
     output_result = write_baseline(out, events)
