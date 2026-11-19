@@ -112,6 +112,30 @@ def test_hashed_assets_are_cached_and_compressed_for_accepting_clients(tmp_path)
     assert gzip.decompress(handler.wfile.getvalue()) == payload
 
 
+def test_accept_encoding_matching_is_token_exact(tmp_path):
+    root = tmp_path / "dist"
+    (root / "assets").mkdir(parents=True)
+    (root / "index.html").write_text('<main id="root"></main>', encoding="utf-8")
+    payload = ("export const value = 1;\n" * 200).encode()
+    (root / "assets" / "app-abc123.js").write_bytes(payload)
+    for header, expect_gzip in (
+        ("gzip, deflate", True),
+        ("br;q=1.0, gzip;q=0.8", True),
+        ("x-gzip", False),
+        ("notgzip", False),
+        ("gzip;q=0", False),
+        ("identity", False),
+    ):
+        handler = Handler()
+        handler.headers["Accept-Encoding"] = header
+        plush_ui.dispatch(handler, urlsplit("/ui/assets/app-abc123.js"),
+                          board=SimpleNamespace(require_session=lambda h, c: object()), dist=root)
+        assert handler.response_headers["Vary"] == "Accept-Encoding"
+        assert ("Content-Encoding" in handler.response_headers) is expect_gzip, header
+        if not expect_gzip:
+            assert handler.wfile.getvalue() == payload
+
+
 def test_shell_stays_uncached_and_uncompressed(tmp_path):
     root = tmp_path / "dist"
     (root / "assets").mkdir(parents=True)

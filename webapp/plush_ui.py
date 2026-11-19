@@ -21,12 +21,29 @@ def _compress(data: bytes) -> bytes:
     return gzip.compress(data, 6)
 
 
+def _accepts_gzip(handler) -> bool:
+    for token in str(handler.headers.get("Accept-Encoding", "") or "").lower().split(","):
+        name, _, params = token.partition(";")
+        if name.strip() != "gzip":
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            key, _, value = param.partition("=")
+            if key.strip() == "q":
+                try:
+                    quality = float(value.strip() or 0)
+                except ValueError:
+                    quality = 0.0
+        return quality > 0
+    return False
+
+
 def _compressed_encoding(handler, content_type: str, size: int) -> str:
     """'gzip' when the client accepts it and the payload is worth compressing."""
     if size < _MIN_COMPRESS_BYTES:
         return ""
-    accepted = "gzip" in str(handler.headers.get("Accept-Encoding", "") or "").lower()
-    return "gzip" if accepted and content_type.split(";", 1)[0] in _COMPRESSIBLE else ""
+    return "gzip" if _accepts_gzip(handler) and content_type.split(";", 1)[0] in _COMPRESSIBLE else ""
+
 PRIMARY_ROUTES = frozenset({
     "/", "/trips", "/board", "/cards/all", "/ota", "/flight-passengers",
     "/receipts", "/access", "/access/admin", "/access/admin/profile",
@@ -133,10 +150,12 @@ def dispatch(handler, parsed, *, board, dist: Path | None = None) -> bool:
         # Build output names carry a content hash, so a cached copy never goes stale.
         # index.html stays uncached because it names the current asset versions.
         encoding = _compressed_encoding(handler, content_type or "", len(content))
+        if content_type and content_type.split(";", 1)[0] in _COMPRESSIBLE:
+            # A shared cache must not hand a gzip body to a client that cannot read it.
+            handler.send_header("Vary", "Accept-Encoding")
         if encoding:
             content = _compress(content)
             handler.send_header("Content-Encoding", encoding)
-            handler.send_header("Vary", "Accept-Encoding")
         handler.send_header("Cache-Control", "public, max-age=31536000, immutable")
     else:
         handler.send_header("Cache-Control", "no-store")
