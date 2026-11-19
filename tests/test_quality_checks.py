@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -66,6 +67,30 @@ class _ReuseEvidenceAPI:
             archive.writestr("quality-plan.json", json.dumps(self.plan))
             archive.writestr("quality-artifacts/run-summary.json", json.dumps(self.summary))
         return payload.getvalue()
+
+
+def test_artifact_download_does_not_forward_the_api_token(monkeypatch):
+    from contextlib import contextmanager
+    from urllib.request import HTTPRedirectHandler
+
+    artifact_api = "https://api.github.com/repos/6Soo/cost/actions/artifacts/1/zip"
+    artifact_storage = "https://storage.example.invalid/signed"
+
+    @contextmanager
+    def redirect(request, *, timeout):
+        assert request.get_header("Authorization") == "Bearer synthetic"
+        storage_request = HTTPRedirectHandler().redirect_request(
+            request, None, 302, "Found", {}, artifact_storage)
+        assert not storage_request.has_header("Authorization")
+        response = io.BytesIO(b"artifact")
+        response.headers = {}
+        yield response
+
+    monkeypatch.setattr(reuse_quality.urllib.request, "urlopen", redirect)
+    client = reuse_quality.GitHubAPI("synthetic")
+    assert client.artifact(artifact_api) == b"artifact"
+    with pytest.raises(ValueError, match="UNEXPECTED_GITHUB_API_URL"):
+        client.artifact(artifact_storage)
 
 
 def test_main_quality_evidence_reuse_requires_exact_tree_and_complete_pr_proof():
