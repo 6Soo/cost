@@ -190,6 +190,104 @@ def test_a_google_block_is_excluded_from_totals_and_the_summary(mixed_tab, monke
     assert body["income_source"]["available"] is True, body["income_source"]
 
 
+def test_the_row_detail_gives_the_owner_the_stored_reservation_and_evidence(mixed_tab):
+    """SPEC §11.2.1 계약 4: 상세는 예약·증빙 근거를 확인할 수 있어야 한다.
+
+    The React drawer can only show what this response carries. If `detail`
+    dropped `reservation_no`/`evidence_type`/`source_merchant`, the value the
+    legacy panel prints (``ledger_design`` '예약번호 (고정)') would be
+    unreachable on the React path — the two entry paths would disagree (계약 1).
+    """
+    store, tab = mixed_tab
+    _insert_card_row(store, "card-tx-evidence-1", tab, 210000,
+                     source_event_id="TX-EV",
+                     item="숙박", day="2026-11-13", merchant="합성 원문 가맹점")
+    store.conn.execute(
+        "UPDATE board_rows SET payload_json = ? WHERE row_id = ?",
+        (json.dumps({
+            "amount_krw": 210000, "occurred_on": "2026-11-13", "item": "숙박",
+            "source_kind": "카드", "source_event_id": "TX-EV",
+            "source_merchant": "합성 원문 가맹점", "pay_method": "카드",
+            "evidence_type": "카드", "reservation_no": "SYNTH-PNR-11",
+            "service_period": "2026-11-13~2026-11-15",
+        }, ensure_ascii=False), "card-tx-evidence-1"))
+    store.conn.commit()
+
+    status, body = _call(f"/api/plush/row?id=card-tx-evidence-1", OWNER, store)
+    assert status == 200, body
+    detail = body["detail"]
+    assert detail["reservation_no"] == "SYNTH-PNR-11", detail
+    assert detail["evidence_type"] == "카드", detail
+    assert detail["source_merchant"] == "합성 원문 가맹점", detail
+    assert detail["service_period"] == "2026-11-13~2026-11-15", detail
+
+
+def test_a_granted_viewer_reaches_the_row_detail_but_never_the_owner_evidence(mixed_tab):
+    """BLOCKER 재현: grant 받은 열람자도 상세를 열 수 있어야 하고,
+    그 응답에는 소유자 전용 근거(`detail`)가 없어야 한다 (SPEC §13#10, 계약 4).
+
+    이전 테스트는 `detail={}` 를 클라이언트가 받는 경우만 가정했다. 실제 서버
+    경로( grant → `require_view_tab` 통과 → `_row_detail`)를 통과시켜야
+    "열람자가 상세를 못 받는 경로" 가 있는지 확인된다.
+    """
+    store, tab = mixed_tab
+    viewer = "syn-row-viewer"
+    access = ledger_board._ACCESS
+    access.create_account(user_id=viewer, role=access_control.ROLE_VIEWER)
+    person = "row-viewer-person"
+    access.register_reservation_person(reservation_person_id=person,
+                                       display_name="합성 열람 담당")
+    application = access.create_application(
+        user_id=viewer, requested_name="합성 열람 담당",
+        client_request_id="row-viewer-app")
+    access.approve_application(
+        application_id=application["application_id"], owner_id=OWNER,
+        expected_revision=application["revision"],
+        reservation_person_id=person, client_request_id="row-viewer-approve")
+    access.apply_assignment_snapshot(
+        user_id=viewer,
+        items=[{"tab_id": tab, "snapshot_revision": 1, "state": "active"}],
+        source_version="row-viewer-v", complete=True)
+
+    _insert_card_row(store, "card-viewer-evidence", tab, 40000,
+                     source_event_id="TX-VW", merchant="합성 원문 가맹점")
+    store.conn.execute(
+        "UPDATE board_rows SET payload_json = ? WHERE row_id = ?",
+        (json.dumps({"amount_krw": 40000, "occurred_on": "2026-11-12", "item": "식비",
+                     "source_kind": "카드", "source_event_id": "TX-VW",
+                     "source_merchant": "합성 원문 가맹점", "pay_method": "카드",
+                     "evidence_type": "카드", "reservation_no": "SYNTH-PNR-VW",
+                     "operator_note": "열람자 비공개 메모"},
+                    ensure_ascii=False), "card-viewer-evidence"))
+    store.conn.commit()
+
+    status, body = _call("/api/plush/row?id=card-viewer-evidence", viewer, store)
+    # 1) 열람자가 grant 안에 있으면 상세를 열 수 있어야 한다(막히면 계약 위반).
+    assert status == 200, body
+    # 2) 소유자 전용 근거·원문·판정은 없어야 한다.
+    assert body.get("detail") in ({}, None), body.get("detail")
+    assert body.get("source") is None, body.get("source")
+    assert body.get("decision") is None, body.get("decision")
+    assert body.get("history") == [], body.get("history")
+    payload = json.dumps(body, ensure_ascii=False)
+    assert "SYNTH-PNR-VW" not in payload, payload
+    assert "열람자 비공개 메모" not in payload, payload
+
+
+def test_a_viewer_without_a_grant_is_denied_the_row_detail(mixed_tab):
+    """grant 없는 열람자는 상세 자체를 받지 못한다 (직링크 노출 0)."""
+    store, tab = mixed_tab
+    viewer = "syn-row-nogrant"
+    access = ledger_board._ACCESS
+    access.create_account(user_id=viewer, role=access_control.ROLE_VIEWER)
+    _insert_card_row(store, "card-nogrant-evidence", tab, 30000, source_event_id="TX-NG")
+    store.conn.commit()
+
+    status, body = _call("/api/plush/row?id=card-nogrant-evidence", viewer, store)
+    assert status in (403, 404), body
+    assert "card-nogrant-evidence" not in json.dumps(body, ensure_ascii=False)
+
+
 def test_the_bootstrap_summary_uses_the_same_row_set_as_the_ledger(mixed_tab):
     """§11.2.1 계약 1: the list summary and the bootstrap summary agree."""
     store, tab = mixed_tab
