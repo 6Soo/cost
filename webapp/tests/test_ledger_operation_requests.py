@@ -382,6 +382,12 @@ def test_merge_refuses_production_paths_and_aliases(tmp_path, capsys, monkeypatc
     prod = tmp_path / "prod-root"
     prod.mkdir()
     copy = prod / "board.sqlite"
+    with monkeypatch.context() as host:
+        host.setattr(merge_tool, "LIVE_HOST", prod)
+        assert merge_tool.main(["--db", str(copy), "--apply"]) == 2
+        assert json.loads(capsys.readouterr().out)["reason"] == "PATH_REFUSED"
+        assert not copy.exists()
+
     shutil.copy2(db_path, copy)
     monkeypatch.setenv("WEBLEDGER_DATA_ROOT", str(prod))
     assert merge_tool.main(["--db", str(copy), "--apply"]) == 2

@@ -56,6 +56,7 @@ CODE_VERIFY_FAILED = "VERIFY_FAILED"
 CODE_IO_ERROR = "IO_ERROR"
 CODE_INTERNAL_ERROR = "INTERNAL_ERROR"
 
+LIVE_HOST = Path("D:/WebLedgerHost")
 _SIDECARS = ("-wal", "-shm", "-journal")
 
 
@@ -78,9 +79,10 @@ def _check_path(raw: str) -> Path:
     absolute = Path(os.path.abspath(raw))
     try:
         resolved = absolute.resolve()
+        live_root = LIVE_HOST.resolve()
     except OSError:
         raise _CliError(CODE_PATH_REFUSED) from None
-    if _norm(resolved) != _norm(absolute):
+    if resolved.is_relative_to(live_root) or _norm(resolved) != _norm(absolute):
         raise _CliError(CODE_PATH_REFUSED)
     for parent in (absolute, *absolute.parents):
         if parent.is_symlink():
@@ -224,6 +226,9 @@ def _apply(db: Path, backup: Path) -> dict:
             snapshot = _snapshot_journal(conn)
             if not snapshot:
                 raise _CliError(CODE_NO_DATA)
+            wal = Path(str(db) + "-wal")
+            if wal.exists() and wal.stat().st_size:
+                raise _CliError(CODE_SIDECAR_PRESENT)
             before_counts = _other_table_counts(conn)
             _create_backup(db, backup)
             conn.execute(UNIFIED_TABLE_SQL)
