@@ -15,9 +15,13 @@ from pathlib import Path
 # clauses are included regardless of these pins. OTA/refund domains are still
 # selected by p2_case's existing evidence-driven routing.
 PINNED = {
+    # PROC-010/011 are *보호* clauses the legacy full loader filters out; they are
+    # pinned here on purpose so a reduced P2 packet still states the AI-evidence
+    # and atomic-apply boundaries. The packet is therefore a reviewed selection,
+    # not a strict subset of the full one.
     'process': '001 004 006 008 010 011 014 015 016 021 023 024 025 072',
     'trip': '001 003 021 024 029 030 036 038 039 040 041 042 044 045 047 048 049 051 053 062 063 071 081 089 097 099',
-    'item': '001 002 004 005 007 010 017 018 022 023 024 026 027 029 031 033 034 035 040 042 044 046 050 080 082',
+    'item': '001 002 004 005 007 010 017 018 022 023 024 026 027 029 031 033 034 035 040 042 046 050 080 082',
     'date': '001 011 014 017 021 023 029 033 038 041 048 049 054 060 079 100 108 109',
     'link': '001 002 003 004 005 006 007 010 011 012 013 015 017 018 019 021 024 025 028 030 035 038 043 044 058 061 068 090 092 108 109 110 111',
     'refund': '001 003 004 007 011 012 013 014 015 017 018 021 022 023 025 027 029 050 054 055 061 062',
@@ -25,7 +29,8 @@ PINNED = {
 PREFIX = {'process': 'PROC', 'trip': 'TRIP', 'item': 'ITEM',
           'date': 'DATE', 'link': 'LINK', 'refund': 'RFND'}
 # Fingerprints are derived from the ordered "ID:category" headers, *not*
-# financial records or prose. Support main 767 and pending docs #1011 689.
+# financial records or prose. Only 767-catalog snapshots that were reviewed
+# are listed; an unmerged documentation PR is never an approved revision.
 # A new/deleted/retagged rule automatically falls back to the full packet
 # until a reviewer checks whether it belongs in PINNED.
 CATALOG_FINGERPRINTS = {
@@ -40,6 +45,7 @@ CATALOG_FINGERPRINTS = {
 # requirement without changing its ID/type, so an ID-only signature is not
 # enough to authorize compact omission. Any unreviewed snapshot uses full P2.
 APPROVED_POLICY_REVISIONS = {
+    # PR #1012 head / the 2026-11-19 deployment 3d8e8791.
     'main-20261119': {
         'CORE': '79819f0c9882abedd651a6266f5d330fb31170e4',
         'process': '6d87bfa9a424aa851772e705acc93054ae73c349',
@@ -49,14 +55,18 @@ APPROVED_POLICY_REVISIONS = {
         'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
         'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
     },
-    'wave3-20261119': {
-        'CORE': 'c166163512f3199b146fd16aed145c651f335850',
-        'process': '99ceeadd15a7ef1cf6b5b87f81cd8cd76d74e551',
-        'trip': '07b6fec9282cde62cb9474d4bf3cf719fa13170b',
-        'item': '6022765b2a479c695d571c9ca3c1c14d45082aca',
-        'date': '3b00e0de8705f6a55778148b574296daa2c482d6',
-        'link': '88071cd9022e84cd1ab8c08d4e6e70fc82c5cb1d',
-        'refund': '1b66c222180f1bd4dcb49ed04df5b34874065af4',
+    # Current main after #1016 (a8799ab2) restored the TRIP-043/ITEM-020 wording
+    # of the abolished preparation inference. Those two rules are not pinned,
+    # and the selected clauses are byte-identical to main-20261119, so the
+    # reduced packet is the same text either way.
+    'main-20261119b': {
+        'CORE': '79819f0c9882abedd651a6266f5d330fb31170e4',
+        'process': '6d87bfa9a424aa851772e705acc93054ae73c349',
+        'trip': '67eb76e0995517417c7a9c43bdc3e3064982ab7f',
+        'item': '7837c56b42dfdcbe6cf67e27146a25d84c0161a0',
+        'date': '78eb22eeb41b14bdefb4caba49021fe0cbe119bf',
+        'link': '334a3b31f02557f5106a3aa2982bf46c0e59b5fe',
+        'refund': 'cc11f105288ecf510cf8aefb2124cef50969208e',
     },
 }
 
@@ -94,6 +104,12 @@ def compact_policy_context(root: Path, areas=()):
 
     Does not select rules on mutable merchant strings, LLM output, monetary
     guesses, or ambiguous evidence. Caller still controls link/refund domains.
+
+    The packet is a reviewed selection, not a strict subset of
+    ``p2_case.policy_context(areas)``: pinned process *보호* clauses (PROC-010/011)
+    are absent from the legacy full packet, which filters them out. They are
+    included deliberately, and ``ai_classification`` accepts only a packet
+    reproduced exactly from an approved revision, never a caller-supplied one.
     """
     area_set = set(areas)
     if area_set - set(PINNED):

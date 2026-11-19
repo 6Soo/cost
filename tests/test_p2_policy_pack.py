@@ -196,3 +196,60 @@ def test_forged_compact_policy_is_rejected_even_with_recomputed_bundle_digest(se
     with pytest.raises(ValueError, match='AI_POLICY_STALE'):
         ai_classification.preview(setup.conn, trips, request, response, bundle=tampered)
     assert before == '\n'.join(setup.conn.iterdump())
+
+
+def _blob_hashes(root):
+    import hashlib
+    from pathlib import Path
+    return {area: hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
+            for area, path in {'CORE': 'docs/DECISION_POLICY.md',
+                               **{key: 'docs/policy/' + key + '.md'
+                                 for key in ('process', 'trip', 'item', 'date', 'link', 'refund')}}.items()
+            for raw in [(Path(root) / path).read_bytes()]}
+
+
+def test_every_approved_revision_matches_one_reviewed_snapshot():
+    """An approved revision is a blob set; each must carry the reviewed catalog."""
+    assert _blob_hashes(p2_case.ROOT) in p2_policy_pack.APPROVED_POLICY_REVISIONS.values(), (
+        'the checked-out policy snapshot is not an approved revision, so compact '
+        'silently degrades to the full packet')
+    for name, revision in p2_policy_pack.APPROVED_POLICY_REVISIONS.items():
+        assert set(revision) == {'CORE', 'process', 'trip', 'item', 'date', 'link', 'refund'}, name
+        assert len(set(revision.values())) == 7 or name == 'main-20261119b', (
+            f'{name}: only trip/item may repeat another revision')
+
+
+def test_unmerged_docs_pr_snapshot_is_not_an_approved_revision():
+    """#1011/#1022 rewrite rule bodies; their blob sets must not be pre-approved."""
+    unmerged = {
+        'wave3-20261119': {
+            'CORE': 'c166163512f3199b146fd16aed145c651f335850',
+            'process': '99ceeadd15a7ef1cf6b5b87f81cd8cd76d74e551',
+            'trip': '07b6fec9282cde62cb9474d4bf3cf719fa13170b',
+            'item': '6022765b2a479c695d571c9ca3c1c14d45082aca',
+            'date': '3b00e0de8705f6a55778148b574296daa2c482d6',
+            'link': '88071cd9022e84cd1ab8c08d4e6e70fc82c5cb1d',
+            'refund': '1b66c222180f1bd4dcb49ed04df5b34874065af4',
+        }
+    }
+    approved = list(p2_policy_pack.APPROVED_POLICY_REVISIONS.values())
+    for name, revision in unmerged.items():
+        assert revision not in approved, f'{name} is still an open documentation PR'
+
+
+def test_compact_never_replaces_an_approved_snapshot_with_a_foreign_packet(tmp_path, monkeypatch):
+    """A packet verified against another revision must not pass for today's."""
+    approved = p2_case.policy_context(('link', 'refund'), compact=True)
+    other = tmp_path / 'docs/policy'
+    other.mkdir(parents=True)
+    (tmp_path / 'docs/DECISION_POLICY.md').write_bytes(
+        (p2_case.ROOT / 'docs/DECISION_POLICY.md').read_bytes())
+    for area in ('process', 'trip', 'item', 'date', 'link', 'refund'):
+        (other / (area + '.md')).write_bytes(
+            (p2_case.ROOT / 'docs/policy' / (area + '.md')).read_bytes())
+    (other / 'trip.md').write_text(
+        (other / 'trip.md').read_text(encoding='utf-8') + '\n<!-- unreviewed -->\n', encoding='utf-8')
+    monkeypatch.setattr(p2_case, 'ROOT', tmp_path)
+    assert p2_case.policy_context(('link', 'refund'), compact=True) != approved
+    assert p2_case.policy_context(('link', 'refund')) == \
+        p2_case.policy_context(('link', 'refund'), compact=True)
