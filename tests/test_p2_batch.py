@@ -1,6 +1,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 import sqlite3
 
@@ -89,6 +90,63 @@ def test_prompt_projection_excludes_personal_source_columns():
     assert inputs[0]['industry_codes']==['5812']
     assert inputs[0]['countries']==['JP']
     assert len(targets)==1
+
+
+def policy_dir(tmp_path, *, retired=(), extra=None):
+    """Synthetic policy set: the four surviving exceptions plus a canonical target for each retired ID."""
+    canonical = dict({'ITEM-037': ('TRIP-070', 'trip.md'), 'ITEM-038': ('TRIP-071', 'trip.md'),
+                      'ITEM-044': ('DATE-054', 'date.md')}, **{old: (new, name) for old, new, name in retired})
+    files = {f'{index}.md': f'### {identity} · 합성 예외 {identity}\n\n*사용자 예외 · 결정 2026-11-19*\n\n'
+                            f'{identity} 본문이며 다른 항목을 판정하지 않는다.\n\n- 예: 합성 근거\n'
+             for index, identity in enumerate(i for i in layer1.POLICY_EXCEPTION_IDS
+                                              if i not in ('ITEM-037', 'ITEM-038', 'ITEM-044'))}
+    for index, (old, (new, name)) in enumerate(canonical.items()):
+        files.setdefault(name, '')
+        files[name] += (f'### {new} · 정본 {new}\n\n*사용자 예외 · 결정 2026-11-19*\n\n'
+                        f'{new} 정본이며 다른 항목을 판정하지 않는다.\n\n')
+    files.update(extra or {})
+    files.setdefault('RETIRED_IDS.md', '# 폐지·통합 ID\n\n| 과거 ID | 과거 규칙 제목 | 결정 유형 | 상태 | 현행 정본 ID |\n')
+    files['RETIRED_IDS.md'] += ''.join(f'| `{old}` | 옛 {old} | 사용자 예외 · 결정 2026-10-12 | **폐지·통합** | '
+                                       f'[`{new}`](./{name}) |\n'
+                                       for old, (new, name) in canonical.items() if old in layer1.POLICY_EXCEPTION_IDS)
+    for name, text in files.items():
+        (tmp_path/name).write_text(text, encoding='utf-8')
+    return tmp_path
+
+
+def test_layer1_policy_exceptions_keep_seven_sections_after_abolished_ids():
+    # The real policy set must still hand layer 1 all seven item exceptions even though
+    # ITEM-037/038/044 became TRIP-070/071/DATE-054 in the consolidated documents.
+    text = layer1.policy_text()
+    identities = re.findall(r'(?m)^### ([A-Z]+-\d+)', text)
+    assert identities == ['ITEM-024', 'ITEM-028', 'ITEM-029', 'TRIP-070', 'TRIP-071', 'DATE-054', 'ITEM-050']
+    core = layer1.ROOT.joinpath('docs/DECISION_POLICY.md').read_text(encoding='utf-8')
+    assert text.startswith(core.split('### 3.3 항목',1)[1].split('### 3.4',1)[0])
+    assert '- 출처:' not in text
+
+
+def test_layer1_policy_text_refuses_missing_section_instead_of_stopiteration(tmp_path):
+    policy = policy_dir(tmp_path)
+    (policy/'trip.md').write_text((policy/'trip.md').read_text(encoding='utf-8')
+                                  .replace('### TRIP-071 · 정본 TRIP-071\n', ''), encoding='utf-8')
+    with pytest.raises(ValueError, match='POLICY_SECTION_MISSING:TRIP-071'):
+        layer1.policy_text(policy)
+
+
+def test_canonical_rule_follows_abolished_id_mapping_and_keeps_cycles_out():
+    sections = {'TRIP-071': '### TRIP-071 · 정본', 'ITEM-028': '### ITEM-028 · 정본'}
+    owners = {'TRIP-071': 'trip.md', 'ITEM-028': 'item.md'}
+    retired = {'ITEM-037': ('TRIP-070', 'trip.md'), 'TRIP-070': ('TRIP-071', 'trip.md'),
+               'TRIP-072': ('TRIP-073', 'trip.md'), 'TRIP-073': ('TRIP-072', 'trip.md')}
+    assert layer1.canonical_rule('ITEM-028', sections, owners, retired) == sections['ITEM-028']
+    assert layer1.canonical_rule('ITEM-037', sections, owners, retired) == sections['TRIP-071']
+    with pytest.raises(ValueError, match='POLICY_SECTION_MISSING:TRIP-072'):
+        layer1.canonical_rule('TRIP-072', sections, owners, retired)
+    retired['ITEM-037'] = ('TRIP-071', 'item.md')
+    with pytest.raises(ValueError, match='POLICY_RETIRED_FILE_MISMATCH:TRIP-071'):
+        layer1.canonical_rule('ITEM-037', sections, owners, retired)
+
+
 
 
 def test_stage2_normalization_uses_ledger_names_and_majority():

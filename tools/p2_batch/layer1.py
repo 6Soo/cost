@@ -125,14 +125,67 @@ def merchants(rows):
     return inputs, targets
 
 
-def policy_text():
+# Layer-1 has always asked for these seven item exceptions. Four are still canonical
+# headings; ITEM-037/038/044 were merged into TRIP-070/TRIP-071/DATE-054 and resolve
+# through docs/policy/RETIRED_IDS.md. The rules themselves are never edited here.
+POLICY_EXCEPTION_IDS = ('ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-037', 'ITEM-038', 'ITEM-044', 'ITEM-050')
+POLICY_HEADING_RE = re.compile(r'(?m)^### ([A-Z]+-\d+)')
+POLICY_RETIRED_RE = re.compile(
+    r'(?m)^\| `([A-Z]+-\d+)` \|[^|]*\|[^|]*\|[^|]*\| \[`([A-Z]+-\d+)`\]\(\./([^)\s]+)\) \|')
+
+
+def policy_documents(policy_dir):
+    """Every policy document, keyed by filename, including the retired-ID table."""
+    return {path.name: path.read_text(encoding='utf-8') for path in sorted(Path(policy_dir).glob('*.md'))}
+
+
+def policy_sections(documents):
+    """`### <ID>` bodies keyed by canonical rule ID across the whole policy set."""
+    sections, owners = {}, {}
+    for name, text in documents.items():
+        headings = list(POLICY_HEADING_RE.finditer(text))
+        for position, heading in enumerate(headings):
+            identity = heading.group(1)
+            if identity in sections:
+                raise ValueError('POLICY_ID_DUPLICATED:' + identity)
+            end = headings[position + 1].start() if position + 1 < len(headings) else len(text)
+            sections[identity] = text[heading.start():end].rstrip('\n')
+            owners[identity] = name
+    return sections, owners
+
+
+def retired_map(documents):
+    """Abolished-ID compatibility table published in RETIRED_IDS.md: old ID -> (canonical ID, file)."""
+    return {old: (canonical, name)
+            for old, canonical, name in POLICY_RETIRED_RE.findall(documents.get('RETIRED_IDS.md') or '')}
+
+
+def canonical_rule(identity, sections, owners, retired):
+    """Resolve a rule ID to its canonical section through the published compatibility map.
+
+    A mapping row may also name an ID that is itself retired, so hops are followed; a cycle
+    or an unmapped ID fails as POLICY_SECTION_MISSING. The file named by the row must be the
+    document that actually defines the canonical section, otherwise POLICY_RETIRED_FILE_MISMATCH.
+    """
+    trail = []
+    while identity not in sections:
+        if identity in trail or identity not in retired:
+            raise ValueError('POLICY_SECTION_MISSING:' + identity)
+        trail.append(identity)
+        identity, name = retired[identity]
+        if identity in sections and owners.get(identity) != name:
+            raise ValueError('POLICY_RETIRED_FILE_MISMATCH:' + identity)
+    return sections[identity]
+
+
+def policy_text(policy_dir=None):
     text = (ROOT/'docs/DECISION_POLICY.md').read_text(encoding='utf-8')
     core = text.split('### 3.3 항목',1)[1].split('### 3.4',1)[0]
-    item = (ROOT/'docs/policy/item.md').read_text(encoding='utf-8')
-    exceptions = []
-    for identity in ('ITEM-024', 'ITEM-028', 'ITEM-029', 'ITEM-037', 'ITEM-038', 'ITEM-044', 'ITEM-050'):
-        section = next(s for s in item.split('### ') if s.startswith(identity))
-        exceptions.append(section.split('- 출처:',1)[0])
+    documents = policy_documents(policy_dir or ROOT/'docs/policy')
+    sections, owners = policy_sections(documents)
+    retired = retired_map(documents)
+    exceptions = [canonical_rule(identity, sections, owners, retired).split('- 출처:',1)[0]
+                  for identity in POLICY_EXCEPTION_IDS]
     return core + '\n' + '\n'.join(exceptions)
 
 
