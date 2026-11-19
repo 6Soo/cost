@@ -123,7 +123,7 @@ def test_partial_refund_stays_on_the_trip_on_both_paths(bound_store, legacy_owne
     assert trip["expense"] == "70000"
 
 
-def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store):
+def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store, monkeypatch):
     """열람자는 환불 탭 귀속 제외를 받지 않는다: 짝의 각 부호와 순액이 두 경로에서 같다.
 
     RFND-022·ITEM-011의 제외는 소유자 귀속 판단이다. 열람자 조회는 같은 스냅샷에서
@@ -135,7 +135,10 @@ def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store):
     make_expense(store, tab, 30000, desc="합성 식비")
     grant_viewer_tabs(access, "syn-viewer", [tab])
 
-    ledger_board.current_role = lambda: "viewer"
+    # The role is a process-wide module attribute, so it is patched through
+    # monkeypatch: a bare assignment would outlive this test and put every
+    # browser test that runs after it on the viewer shell.
+    monkeypatch.setattr(ledger_board, "current_role", lambda: "viewer")
     legacy = legacy_expense_map(tab)
     pair = {"card-TX-P": 150000, "card-TX-C": -150000}
     assert all(legacy.get(row_id) == amount for row_id, amount in pair.items()), (
@@ -149,7 +152,8 @@ def test_viewer_keeps_the_net_zero_pair_on_both_paths(bound_store):
     assert trip["expense"] == "30000"
 
 
-def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(bound_store, legacy_owner):
+def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(
+        bound_store, legacy_owner, monkeypatch):
     """분기 탭 행이 여행 탭 순액 0 짝의 source_event_id를 공유해도 화면 전체가 같은 행 집합을 센다.
 
     ``_selected_rows``(실시간 요약)는 소유자에게 짝의 키를 가진 지출 행을 숨긴다.
@@ -184,14 +188,15 @@ def test_quarter_tab_header_excludes_a_pair_key_it_shares_with_a_trip(bound_stor
     assert int(body["filtered_total"]) == 20000
     assert body["trip"]["expense"] == "20000"
     # A viewer is not the owner attribution: the same key is kept, so both paths
-    # must still agree once the pair stops being an exclusion.
-    ledger_board.current_role = lambda: "viewer"
+    # must still agree once the pair stops being an exclusion. Patched, not
+    # assigned: the module attribute is process-wide, and the unpatched `owner`
+    # the fixture installed comes back when this test ends.
+    monkeypatch.setattr(ledger_board, "current_role", lambda: "viewer")
     viewer_selected = {r["row_id"]: ledger_board._shown_amount(r)
                        for r in ledger_design._selected_rows(quarter)[1]}
     assert viewer_selected == {"card-Q-shared": 61000, "card-Q-clean": 20000}
     viewer_html = ledger_design._quarter_page(quarter, "2026년 3분기 기타비용")
     assert "거래 2건 · 81,000원" in viewer_html
-    ledger_board.current_role = lambda: "owner"
 
 
 # ---------------------------------------------------------------------------
