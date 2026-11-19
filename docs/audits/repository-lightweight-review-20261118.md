@@ -168,7 +168,7 @@
 
 ### F10 · P2 · 일회성 루트 패치 스크립트
 
-**근거:** [fix_r55.py](../../fix_r55.py) 9,125 bytes, [fix_r57.py](../../fix_r57.py) 8,515 bytes, [migrate_safe.py](../../migrate_safe.py) 14,617 bytes는 ledger/domain 소스 파일에 직접 문자열 치환을 수행하는 스크립트다(합계 약 **32KB**). 이름과 내용상 **일회성 이관 후보**지만 현재 실행자/참조는 전수 검증하지 않았다.
+**근거:** [fix_r55.py](https://github.com/6Soo/cost/blob/00d4aac573470ac0ca80fd82d7674aa467bc091f/fix_r55.py) 9,125 bytes, [fix_r57.py](https://github.com/6Soo/cost/blob/00d4aac573470ac0ca80fd82d7674aa467bc091f/fix_r57.py) 8,515 bytes, [migrate_safe.py](https://github.com/6Soo/cost/blob/00d4aac573470ac0ca80fd82d7674aa467bc091f/migrate_safe.py) 14,617 bytes는 ledger/domain 소스 파일에 직접 문자열 치환을 수행하는 스크립트다(합계 약 **32KB**). 이름과 내용상 **일회성 이관 후보**지만 현재 실행자/참조는 전수 검증하지 않았다. 세 파일은 2026-11-20에 현재 트리에서 퇴역(제거)했고 원문은 위 고정 커밋 링크에 보존한다.
 
 **제안:** CI·README·운영 시작 코드·외부 배치에서 호출되지 않는지 확인하고, 정확한 실행 환경/적용 커밋을 기록한다. 실제 미사용 확정 후 history/tools 또는 승인된 archive로 이동한다. 반복적인 소스 텍스트 치환을 새 빌드·기동 경로로 채택하지 않는다.
 
