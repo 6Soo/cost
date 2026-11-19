@@ -412,6 +412,12 @@
       "tests": ["tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ota_payment_review.py", "webapp/tests/test_ota_payment_review_browser.py"]
     },
     {
+      "name": "ota-p2-review-routing",
+      "paths": ["app/ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_routing.py"],
+      "tests": ["tests/card_pipeline/test_ota_p2_routing.py"],
+      "reason": "DECISION_POLICY 3.0/LINK-044 mandatory P2 review routing of unmatched verified OTA charges: obligation, candidate MATCH/MISMATCH/UNKNOWN signals, and the split between a completed unverified review and a failed or not-run review"
+    },
+    {
       "name": "flight-evidence",
       "paths": ["app/flight_evidence.py", "tests/card_pipeline/test_flight_evidence.py"],
       "tests": ["tests/card_pipeline/test_flight_evidence.py", "webapp/tests/test_trip_flight_read.py", "webapp/tests/test_flight_booking_date_evidence.py", "webapp/tests/test_flight_booking_name_search.py"]
