@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""M6 ���별 이관: `board_rows` + `ledger_entries` → `ledger`.
+"""M6 단일 장부 이관: `board_rows` + `ledger_entries` → `ledger`.
 
 기본은 dry-run이다. `--apply`를 줘야 쓴다. 운영 DB에 직접 쓰지 않는다:
 사본에 먼저 예행하고, 대조가 통과한 사본만 별도 절차로 적용한다.
