@@ -218,4 +218,5 @@ def test_default_worker_full_ota_refund_context_fits_cli_stdin_and_applies(setup
     assert worker.provider is None
     worker.sweep_once()
     assert len(sizes) == 1 and sizes[0] > 200000
-    assert load_job(setup.conn, ids[0])['status']=='p2_applied'
+    result = load_job(setup.conn, ids[0])
+    assert result['status'] == 'p2_applied', result

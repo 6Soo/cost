@@ -263,6 +263,15 @@ def _context(conn, selected=None):
     overrides = manual_rows(conn)
     ledger = {r[0]: dict(zip(('item','description','display_tab_id','trip_id'), r[1:])) for r in conn.execute(
         'SELECT transaction_id,item,description,display_tab_id,trip_id FROM ledger_entries')}
+    # 통합 장부(M6)는 기장의 정본이다. 옛 `ledger_entries`에 없고 `ledger`에만 있는 행을
+    # 빠뜨리면 기장된 거래가 '미기장'으로 오판되어 완료기간 보호가 풀린다. 테이블이
+    # 없는 DB(main)와 이관 전 빈 장부에서는 빈 집합이라 기존 동작이 그대로 유지된다.
+    from .closed_period import ledger_records
+    for tid in ledger_records(conn) - ledger.keys():
+        row = conn.execute('SELECT item,description,display_tab_id,trip_id FROM ledger'
+                           ' WHERE transaction_id=?', (tid,)).fetchone()
+        if row:
+            ledger[tid] = dict(zip(('item','description','display_tab_id','trip_id'), row))
     boards = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
         "SELECT row_id,display_tab_id,payload_json,revision FROM board_rows WHERE row_kind='expense'")}
     return rows, decisions, holds, excluded, overrides, ledger, boards
@@ -620,6 +629,14 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                              (tab, trip, tid))
                 if values[2].startswith('GOOGLE_MANUAL_ROW · '):
                     conn.execute('UPDATE ledger_entries SET item=? WHERE transaction_id=?', (item, tid))
+            # M6: 통합 장부에도 같은 값을 쓴다. 넘기지 않은 값은 건드리지 않는다.
+            from .ledger import sync_ledger_row
+            if correction:
+                sync_ledger_row(conn, tid, item=item, display_tab_id=tab, trip_id=trip,
+                                classification_state='classified')
+            else:
+                # 이 경로는 빈 항목·빈 귀속만 채우므로 통합 장부도 조건부로 맞춘다.
+                sync_ledger_row(conn, tid, classification_state='classified')
             board = conn.execute('SELECT payload_json,display_tab_id FROM board_rows WHERE row_id=?', ('card-'+tid,)).fetchone()
             if board:
                 payload = json.loads(board[0])

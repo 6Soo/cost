@@ -166,6 +166,10 @@ def _write_payload(conn, row_id, board, payload, request_id):
                  (row_id, board['revision'] + 1, board['payload_json'], encoded,
                   '', 'rule_change', 'automatic', utc_now(), request_id))
     conn.execute('UPDATE board_rows SET payload_json=?,revision=revision+1 WHERE row_id=?', (encoded, row_id))
+    # M6: 통합 장부도 같은 payload를 본다. 이 경로는 귀속을 바꾸지 않으므로
+    # payload 전체를 그대로 옮겨 적는다.
+    from webapp.ledger_store_records import sync_ledger_from_record
+    sync_ledger_from_record(conn, dict(payload, row_id=row_id))
 
 
 def apply(conn, expected, trips, *, request_id, year, quarter, min_batch=5):

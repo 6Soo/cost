@@ -4,4 +4,4 @@
 
 - 현재 실행 지침: [AGENTS.md](../../AGENTS.md)
 - 현재 작업/승인 상태: [현재 상태](../session_handoff.md)
-- 과거 관리자 지침 전문: [불변 커밋 원문](https://github.com/6Soo/cost/blob/0ec44c3f5822c5bd3229854314c51ed8d60d30ac/docs/agents/MANAGER.md)
+- 과거 관리자 지침 전문: [불변 커밋 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/MANAGER.md)

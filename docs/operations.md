@@ -1,3 +1,9 @@
+## 2026-11-19 17:55 — 9fd2d4c2 운영 배포
+
+- `0ec44c3f` → [`9fd2d4c2`](https://github.com/6Soo/cost/commit/9fd2d4c29a67c2ee02b0bd39c822cd5a3f41bc10). 완료 증거 시각 17:55:11 KST, 백엔드 8751. 포털 지문 보완 [#1018](https://github.com/6Soo/cost/pull/1018)과 기장 시 수동 교정 보존 [#1020](https://github.com/6Soo/cost/pull/1020)을 포함한다.
+- 배포 증거에서 추적 파일 1,982개, blob 불일치 0, 실행 SHA 확인, 보호 표 불변, 금융 반영 `NOT_RUN`을 확인했다. 운영 리스너와 Board·Worker 예약 작업의 실행 경로도 같은 SHA를 가리켰다.
+- 근거는 운영 호스트의 `releases/deploy-evidence-9fd2d4c29a67c2ee02b0bd39c822cd5a3f41bc10.json`이다. 다음 배포 전 리스너와 예약 작업의 SHA를 다시 확인한다.
+
 ## 2026-11-19 05:20 창 — 3d8e8791 운영 배포
 
 - **전환:** 후보/검수 `3d8e879163a17e4b510cbe8ddb6047623de46e47`, Previous `90ea51ff424efd5ac3954af43986be881ed4a30a`. 공식 `tools/deploy_verified_release.ps1 -Apply`를 **한 번만** 실행했고 우회 없이 exit**0**. continuous code-only(`fresh_backup_restore=false`, `-BackupProducts` 미사용), backend8751→**8752**·gateway8790 유지, `route.paused=false`. `deploy-evidence` `recorded_at` 2026-11-18T20:22:27Z, `continuous-switch` 20:22:15Z(KST 2026-11-19 05:22). 같은 worktree에 배포 세션이 3개 있어 Apply를 멈추고 감독 확정을 받은 뒤 단일 작성자로 실행했다.

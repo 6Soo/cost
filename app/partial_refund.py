@@ -22,7 +22,8 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["count_held_cancellations", "refund_group", "refund_links", "refund_review_originals"]
+__all__ = ["count_held_cancellations", "recordable_group_for", "refund_group", "refund_links",
+           "refund_review_originals", "verified_group_links"]
 
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
@@ -172,9 +173,55 @@ def refund_links(conn, transaction_ids) -> dict:
 
 
 def is_numbered_partial(link) -> bool:
-    """A partial refund tied to exactly one original by approval number (RFND-004), never inferred."""
-    return (not link.get('inferred') and 'basis' not in link
+    """A partial refund tied to exactly one original by approval number (RFND-004), never inferred.
+
+    A key that is present but null (`'basis': None`) says the same thing as a missing
+    key: no inference basis. Both producers emit it one way or the other, so the test
+    is on the value, not on the key's presence.
+    """
+    return (not link.get('inferred') and not link.get('basis')
             and link.get('status') == 'partial' and link.get('net_krw', 0) > 0)
+
+
+def verified_group_links(conn, transaction_ids, *, excluded_periods=False) -> tuple:
+    """(members, links) for the verified refund group around `transaction_ids`.
+
+    One rule, shared by every recording path: a group is extended only when it is
+    verified by approval number (RFND-004), never inferred, and not an over-refund.
+    A full zero-net group qualifies on the same terms as a numbered partial.
+
+    `excluded_periods` adds the PROC-072 boundary: a numbered partial group whose
+    original sits in a completed period, or whose sibling cancellation is errored,
+    duplicated or conflicted, is not extended *across files*. The automatic
+    recorder always sets it; a group screen that only reports a whole-batch scope
+    leaves it off, because that screen is not itself a cross-file write.
+
+    `members` holds the original and every linked cancellation, all actual imported
+    rows; `links` is `{refund_id: link}` for what it accepted. Nothing is written and
+    no row is invented.
+    """
+    wanted = {str(i) for i in transaction_ids}
+    if not wanted:
+        return set(), {}
+    accepted = {}
+    for refund_id, link in _read_analysis(conn)[0].items():
+        if link.get('inferred') or not (
+                (link['status'] == 'full' and link['net_krw'] == 0) or is_numbered_partial(link)):
+            continue
+        if (excluded_periods and is_numbered_partial(link)
+                and partial_group_exclusion(conn, link['original_id'])):
+            continue
+        if refund_id in wanted or link['original_id'] in wanted:
+            accepted[refund_id] = dict(link)
+    members = set()
+    for link in accepted.values():
+        members.update(refund_group(conn, link['original_id']))
+    return members, accepted
+
+
+def recordable_group_for(conn, transaction_ids) -> tuple:
+    """The automatic recorder's view: `verified_group_links` with PROC-072 applied."""
+    return verified_group_links(conn, transaction_ids, excluded_periods=True)
 
 
 def partial_group_exclusion(conn, original_id: str) -> str:

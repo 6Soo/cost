@@ -10,9 +10,9 @@
   "groups": [
     {
       "name": "m4-query-contract-parity",
-      "paths": ["webapp/plush_api.py", "webapp/plush_projection.py", "webapp/ledger_design.py", "webapp/ledger_google_match.py", "webapp/refund_tab.py", "webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_refund_total_scope.py", "webapp/tests/test_m4_ledger_row_set_contract.py", "webapp/tests/test_m4_parity_rfnd070_period.py"],
-      "tests": ["webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_refund_total_scope.py", "webapp/tests/test_m4_ledger_row_set_contract.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_google_income.py"],
-      "reason": "SPEC 11.2.1 계약 1·2·3·4: quarter/refund tabs, RFND-022 refund exclusion bounded to expense rows, quarter-tab rows on the legacy screen, case-insensitive owner search, and the row's Google matching status on the common query"
+      "paths": ["webapp/ledger_query.py", "webapp/plush_api.py", "webapp/plush_projection.py", "webapp/ledger_design.py", "webapp/ledger_google_match.py", "webapp/refund_tab.py", "webapp/ledger_board.py", "webapp/live_sync.py", "webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_refund_total_scope.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_m4_parity_owner_rows.py", "webapp/tests/test_m4_ledger_row_set_contract.py", "webapp/tests/test_ggl003_totals_probe.py", "webapp/tests/test_m4_viewer_google_income.py"],
+      "tests": ["webapp/tests/test_ledger_parity_spec_11_2_1.py", "webapp/tests/test_m4_parity_refund_protection.py", "webapp/tests/test_m4_parity_refund_total_scope.py", "webapp/tests/test_m4_parity_rfnd070_period.py", "webapp/tests/test_m4_parity_owner_rows.py", "webapp/tests/test_m4_ledger_row_set_contract.py", "webapp/tests/test_ggl003_totals_probe.py", "webapp/tests/test_m4_viewer_google_income.py", "webapp/tests/test_plush_api.py", "webapp/tests/test_plush_google_income.py", "webapp/tests/test_m4_income_paths_by_role.py"],
+      "reason": "SPEC 11.2.1 계약 1·2·3·4: quarter/refund tabs, RFND-022 refund exclusion bounded to expense rows, quarter-tab rows on the legacy screen, case-insensitive owner search, the row's Google matching status on the common query, the same row set on the owner board and the viewer paths, and GGL-003/GGL-014 source separation"
     },
     {
       "name": "m5-content-free-request-metrics",
@@ -139,13 +139,13 @@
     },
     {
       "name": "p2-offline-merchant-batch",
-      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py", "tests/test_p2_incremental.py"],
+      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py", "tests/test_p2_incremental.py", "platform_tests/windows/test_registration_task_script_parses.py"],
       "tests": ["tests/test_p2_batch.py", "tests/test_p2_incremental.py", "tests/test_frontier_agent_provider.py", "webapp/tests/test_classification_correction.py"]
     },
     {
       "name": "p2-tool-free-runtime",
-      "paths": ["config/test-impact-map.json", "app/p2_case.py", "app/p2_source_io.py", "app/ota_mail.py", "app/frontier_agent_provider.py", "app/p2_output.schema.json", "app/ai_classification.py", "tests/test_p2_case.py", "tests/test_p2_assembly_budget.py", "tests/test_frontier_agent_provider.py", "platform_tests/windows/test_frontier_agent_child_boundary.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "tests/test_p2_output_schema_fixtures.py", "tests/fixtures/p2_tool_free/**", "tests/test_p2_lock_io_regression.py", "tests/test_p2_sweep_metrics.py", "tests/test_p2_evidence_clipping.py", "tools/p2_scale_measure.py"],
-      "tests": ["tests/test_p2_case.py", "tests/test_frontier_agent_provider.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "tests/test_p2_assembly_budget.py", "tests/test_p2_lock_io_regression.py", "tests/test_p2_sweep_metrics.py", "tests/test_p2_evidence_clipping.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_autonomous_cleanup.py"]
+      "paths": ["config/test-impact-map.json", "app/p2_case.py", "app/p2_policy_pack.py", "app/p2_source_io.py", "app/ota_mail.py", "app/frontier_agent_provider.py", "app/p2_output.schema.json", "app/ai_classification.py", "tests/test_p2_case.py", "tests/test_p2_policy_pack.py", "tests/test_p2_assembly_budget.py", "tests/test_frontier_agent_provider.py", "platform_tests/windows/test_frontier_agent_child_boundary.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "tests/test_p2_output_schema_fixtures.py", "tests/fixtures/p2_tool_free/**", "tests/test_p2_lock_io_regression.py", "tests/test_p2_sweep_metrics.py", "tests/test_p2_evidence_clipping.py", "tools/p2_scale_measure.py"],
+      "tests": ["tests/test_p2_case.py", "tests/test_p2_policy_pack.py", "tests/test_frontier_agent_provider.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "tests/test_p2_assembly_budget.py", "tests/test_p2_lock_io_regression.py", "tests/test_p2_sweep_metrics.py", "tests/test_p2_evidence_clipping.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_autonomous_cleanup.py"]
     },
     {
       "name": "ota-collection-script-synthetic",
@@ -365,8 +365,8 @@
     },
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_schema_migration.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_ledger_honours_board_correction.py", "tests/card_pipeline/test_refund_rejects_answered_row.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_schema_migration.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py", "tests/card_pipeline/test_ledger_honours_board_correction.py", "tests/card_pipeline/test_refund_rejects_answered_row.py"]
     },
     {
       "name": "google-readonly",
@@ -410,6 +410,12 @@
       "paths": ["app/ota_*.py", "webapp/ota_*.py", "tests/card_pipeline/test_ota*.py",
                 "webapp/tests/test_ota*.py"],
       "tests": ["tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ota_payment_review.py", "webapp/tests/test_ota_payment_review_browser.py"]
+    },
+    {
+      "name": "ota-p2-review-routing",
+      "paths": ["app/ota_p2_routing.py", "app/ota_p2_candidates.py", "tests/card_pipeline/test_ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_candidates.py"],
+      "tests": ["tests/card_pipeline/test_ota_p2_routing.py", "tests/card_pipeline/test_ota_p2_candidates.py"],
+      "reason": "DECISION_POLICY 3.0/LINK-044 mandatory P2 review routing of unmatched verified OTA charges: obligation, candidate MATCH/MISMATCH/UNKNOWN signals, and the split between a completed unverified review and a failed or not-run review"
     },
     {
       "name": "flight-evidence",
@@ -650,6 +656,25 @@
       "name": "ota-evidence-compaction",
       "paths": ["tools/compact_ota_evidence.py", "tests/card_pipeline/test_compact_ota_evidence.py"],
       "tests": ["tests/card_pipeline/test_compact_ota_evidence.py", "tests/card_pipeline/test_ota_store_dedupe.py"]
+    },
+    {
+      "name": "m6-ledger-merge",
+      "paths": ["app/db.py", "tools/migrate_to_ledger.py",
+                "tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py",
+                "tests/card_pipeline/test_ledger_parity.py",
+                "tests/card_pipeline/test_booked_predicate_pair.py",
+                "app/closed_period.py"],
+      "tests": ["tests/card_pipeline/test_ledger_schema.py",
+                "tests/card_pipeline/test_ledger_correction_sync.py",
+                "tests/card_pipeline/test_ledger_store_sync.py",
+                "tests/card_pipeline/test_ledger_parity.py",
+                "tests/card_pipeline/test_booked_predicate_pair.py",
+                "tests/card_pipeline/test_quarter_tab.py",
+                "webapp/tests/test_ledger_store.py",
+                "webapp/tests/test_ledger_apply.py",
+                "webapp/tests/test_refund_group_commit.py"]
     }
   ]
 }

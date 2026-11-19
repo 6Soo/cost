@@ -5,6 +5,6 @@
 - 업무 목표와 승인된 마일스톤: [통합 명세 §10~11](../SPEC.md#10-로드맵)
 - 판정 보호: [규칙집](../DECISION_POLICY.md)과 [AGENTS](../../AGENTS.md)
 - 배포 사실: [운영 기록](../operations.md)
-- 통합 전 전체 작업판·기존 승인·검증 숫자: [불변 커밋의 원문](https://github.com/6Soo/cost/blob/0ec44c3f5822c5bd3229854314c51ed8d60d30ac/docs/agents/BOARD.md)
+- 통합 전 전체 작업판·기존 승인·검증 숫자: [불변 커밋의 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/BOARD.md)
 
 **주의:** 옛 표의 완료 표시와 과거 담당자 배정은 현재 실행 큐가 아니다. M5 제공자/과금·운영 고객 원문 이전, M6 기준 재설정, 코드 퇴역은 별도의 필요한 결정·검증 없이는 수행하지 않는다.

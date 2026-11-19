@@ -15,11 +15,11 @@
 
 ## 경량화의 공식 실행 순서
 
-[통합 명세 §10의 경량화 트랙](SPEC.md#10-로드맵)에 L1 문서 정리 → L2 장부 조회 통합 → L3 중복 구현 퇴역 → L4 테스트·검수 단순화 → L5 M5/M6 비용·범위 판단을 두었다. **L1 외 단계는 실행 승인으로 해석하지 않는다.** 각 단계는 관련 보존·검증 게이트를 통과해야 한다.
+[통합 명세 §10의 경량화 트랙](SPEC.md#10-로드맵)에 L1 문서 정리 → L2 장부 조회 통합 → L3 중복 구현 퇴역 → L4 테스트·검수 단순화 → L5 M5/M6 비용·범위 판단을 두었다. 각 단계는 통합 명세의 수락 기준과 기존 승인 범위를 따른다.
 
 ## 과거 자료와 호환 경로
 
-- [Git 이력의 이전 인계 원문](https://github.com/6Soo/cost/blob/0ec44c3f5822c5bd3229854314c51ed8d60d30ac/docs/session_handoff.md) · [이전 작업판 원문](https://github.com/6Soo/cost/blob/0ec44c3f5822c5bd3229854314c51ed8d60d30ac/docs/agents/BOARD.md) · [이전 관리자 지침](https://github.com/6Soo/cost/blob/0ec44c3f5822c5bd3229854314c51ed8d60d30ac/docs/agents/MANAGER.md)
+- [Git 이력의 이전 인계 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/session_handoff.md) · [이전 작업판 원문](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/BOARD.md) · [이전 관리자 지침](https://github.com/6Soo/cost/blob/9a953e276824a6bd62d354075e753d122c7cbef1/docs/agents/MANAGER.md)
 - [과거 기록·명세 보관함](history/README.md) · [기존 경량화 정적 감사](audits/repository-lightweight-review-20261118.md)
 - [작업판 호환 안내](agents/BOARD.md) · [관리자 문서 호환 안내](agents/MANAGER.md) · [옛 시작 안내](COST_V3_START_HERE.md)
 

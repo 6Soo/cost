@@ -786,6 +786,7 @@ class CardFlow:
         from datetime import date
         from app.classify import _pattern_for
         from app.normalize import normalize_merchant
+        from .ledger_store_records import booked_sql
         trips = [trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])
                  and trip.get('starts_on') and trip.get('ends_on')]
         if not trips:
@@ -800,7 +801,7 @@ class CardFlow:
             " OR (t.classification_source='inference' AND t.classification_basis LIKE '%AUTO_INFERRED:%'))"
             " AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
             " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-            " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+            " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
             " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
             " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
             " AND NOT EXISTS(SELECT 1 FROM transactions f WHERE f.card_tail=t.card_tail"
@@ -859,6 +860,7 @@ class CardFlow:
         from app.classify import PERIOD_OTA_ORIGIN, _pattern_for
         from app.normalize import normalize_merchant
         from . import ota_catalog
+        from .ledger_store_records import booked_sql
         rows = self.board.conn.execute(
             "SELECT t.transaction_id, t.source_hash, t.amount_krw, COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant"
             " FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id"
@@ -869,7 +871,7 @@ class CardFlow:
             " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
             " AND COALESCE(t.duplicate_of,'')=''"
             " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-            " AND NOT EXISTS(SELECT 1 FROM board_rows b2 WHERE b2.row_id='card-'||t.transaction_id)"
+            " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
             " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)",
             (batch_id,)).fetchall()
         def eligible(row):
@@ -1321,6 +1323,12 @@ class CardFlow:
         payload = json.dumps(record, ensure_ascii=False, sort_keys=True)
         conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)',
                      (row_id, 'expense', board_tab, 1, payload))
+        # M6: 같은 `record`를 통합 장부에도 쓴다. 여기서 실패하면 기장 전체가
+        # 롤백되므로 화면 행만 남는 부분 상태가 없다.
+        from app.ledger import write_ledger_row
+        write_ledger_row(conn, entry['transaction_id'], entry, now=entry['now'],
+                         batch=entry.get('batch_id', ''), row_id=row_id,
+                         entry_kind='expense', record=record)
         conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,'
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','automatic' if entry.get('automatic_record') else 'owner',entry['now'],row_id))
@@ -1581,13 +1589,21 @@ class CardFlow:
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), entry_metadata=self.preview_metadata())
         from app.db import StoreError
+        # The chosen row is recorded with the verified refund group it belongs to,
+        # under the same rule the automatic paths use. `batch_scope` still holds
+        # everything else in this file back, so no other row is booked.
+        from app.partial_refund import recordable_group_for
+        members, _links = recordable_group_for(self.board.conn, {transaction_id})
+        include_groups = bool(members & {transaction_id})
         with self.board._lock:
-            holds = dict(self.automatic_holds(batch_id))
-            probe = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            holds = dict(self.automatic_holds(batch_id, include_verified_full_refunds=include_groups))
+            probe = self.pipeline.preview(batch_id, **options, additional_holds=holds,
+                                          include_verified_full_refunds=include_groups)
             for row in probe['rows']:
                 if row['transaction_id'] != transaction_id:
                     holds.setdefault(row['transaction_id'], {'kind': 'batch_scope', 'reason': '이번에 정한 거래만 기록합니다'})
-            preview = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            preview = self.pipeline.preview(batch_id, **options, additional_holds=holds,
+                                            include_verified_full_refunds=include_groups)
             if not any(row['transaction_id'] == transaction_id for row in recordable_rows(preview['rows'])):
                 if any(row['transaction_id'] == transaction_id and row.get('already_booked') for row in preview['rows']):
                     return 0
@@ -1595,7 +1611,9 @@ class CardFlow:
                 raise StoreError('NOT_RECORDED', reason)
             result = self.pipeline.commit(batch_id, preview['digest'],
                 'decision-record:' + transaction_id + ':' + preview['digest'],
-                projection=lambda entry: self.project(entry), additional_holds=holds, **options)
+                projection=lambda entry: self.project(entry), additional_holds=holds,
+                include_verified_full_refunds=include_groups,
+                verified_refund_expansion=include_groups, **options)
             return result['applied']
 
     def _trip_move_origin_revision(self, transaction_id, request_id, originating_revision=None):
@@ -1721,7 +1739,7 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
-        from app.partial_refund import refund_links, is_numbered_partial, partial_group_exclusion
+        from app.partial_refund import refund_links
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
@@ -1762,29 +1780,25 @@ class CardFlow:
             if not members & ids:
                 continue
             if include_verified_full_refunds:
-                # A verified, exactly zero-net group may span several source
-                # files. The ledger preview pulls EVERY member and commits
-                # them atomically. Never treat inferred or held groups as safe.
+                # A verified group may span several source files. The ledger preview
+                # pulls EVERY member and commits them atomically. The shared rule
+                # decides whether this group is recordable at all, so a change to it
+                # cannot leave this screen disagreeing with the ledger.
+                from app.partial_refund import recordable_group_for
+                group_members, group_links = recordable_group_for(self.board.conn, members)
+                verified = bool(group_links) and group_members == set(members)
                 refunds_in_group = members & set(refund_ids)
-                trusted_full = bool(refunds_in_group) and all(
-                    (rid in verified_links
-                     and not verified_links[rid].get('inferred')
-                     and verified_links[rid].get('status') == 'full'
-                     and verified_links[rid].get('net_krw') == 0)
-                    for rid in refunds_in_group)
+                # A fully offset group always books to the refund tab; trip and
+                # classification placeholders must not stop it.
+                trusted_full = verified and all(
+                    link.get('status') == 'full' and link.get('net_krw') == 0
+                    for link in group_links.values())
                 allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
                 # A numbered partial refund inherits its original's trip or quarter cost
-                # through the ledger's pair rules; it never goes to the refund tab.
-                trusted_partial = bool(refunds_in_group) and all(
-                    rid in verified_links and is_numbered_partial(verified_links[rid])
-                    for rid in refunds_in_group)
-                # Only a group that spans files; PROC-072 completed periods and unclean cancels come first.
-                if trusted_partial and not members <= ids:
-                    trusted_partial = not partial_group_exclusion(
-                        self.board.conn, verified_links[next(iter(refunds_in_group))]['original_id'])
-                else:
-                    trusted_partial = False
-                if trusted_partial and not trusted_full:
+                # through the ledger's pair rules; it never goes to the refund tab, and
+                # only a group that spans files is extended here.
+                trusted_partial = verified and not trusted_full and not members <= ids
+                if trusted_partial:
                     if (not members & set(active)
                             and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
                                     for tid in members)):
@@ -1836,6 +1850,7 @@ class CardFlow:
     def _pending_reclassification(self, batch_id):
         from .card_classification_completion import missing_assignment_sql
         from app.manual_overrides import exists_sql as manual_exists_sql
+        from .ledger_store_records import booked_sql
         return {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
                 " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
@@ -1844,7 +1859,7 @@ class CardFlow:
                 " 'authority_review','rule_conflict','inference_conflict'))"
                 " OR (" + missing_assignment_sql() +
                 " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-                " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+                " AND NOT EXISTS(" + booked_sql(self.board.conn, 't') + ")"
                 " AND NOT EXISTS(SELECT 1 FROM transactions f WHERE f.issuer=t.issuer"
                 " AND f.card_tail=t.card_tail AND f.original_approval_number=t.approval_number"
                 " AND COALESCE(f.original_approval_number,'')!=''"
@@ -1890,6 +1905,13 @@ class CardFlow:
             state['auto_recorded'] = 0
             return state
         include_refund_groups = transaction_ids is None
+        # A narrowed chunk still records a verified refund group as one unit. The
+        # question is whether the selected rows belong to such a group, not whether
+        # the caller happened to hand over a whole batch.
+        if not include_refund_groups and transaction_ids:
+            from app.partial_refund import recordable_group_for
+            members, _links = recordable_group_for(self.board.conn, transaction_ids)
+            include_refund_groups = bool(members & set(transaction_ids))
         # A selected chunk is previewed and committed with only the rows it is judged with (itself and its
         # refund pairs/groups); the rest of the batch used to be read, held and previewed again for nothing.
         scope = None if transaction_ids is None else self._refund_scope(batch_id, transaction_ids)
@@ -2515,6 +2537,7 @@ def _cleanup_card_where(board):
     from app.card_export_profiles import redundant_purchase_conflicts
     from . import read_scope
     from .card_cleanup_queries import completed_assignment_sql, completed_period_sql
+    from .ledger_store_records import booked_sql
     completed = completed_assignment_sql(board)
     redundant = read_scope.remember(('cleanup-redundant-sources', id(board)),
                                    lambda: redundant_purchase_conflicts(board.conn))
@@ -2532,7 +2555,7 @@ def _cleanup_card_where(board):
         " OR t.classification_source='refund_original' OR " + completed + "))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+        " AND NOT EXISTS(" + booked_sql(board.conn, 't') + ")"
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id"
         " AND d.revision=(SELECT MAX(d2.revision) FROM review_decisions d2 WHERE d2.transaction_id=t.transaction_id)"
         " AND COALESCE(d.display_tab_id,'')!='')"

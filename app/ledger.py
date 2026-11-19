@@ -27,8 +27,129 @@ from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
                  StoreError, canonical, decided_sql, utc_now)
 
-__all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
+__all__ = ["preview", "commit", "preview_digest", "recordable_rows",
+           "write_ledger_row"]
 
+# Board fields a person can correct that the ledger row also carries (CARD_EDITABLE minus `operator_note`,
+# which is a memo and never booked). `service_period` is not read here: no product path writes that override.
+MERGED_MANUAL_FIELDS = ("item", "description", "display_tab_id")
+
+
+def _ledger_table_exists(conn) -> bool:
+    """통합 장부 테이블이 있나. 없으면 아직 이관 전 DB다."""
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger'").fetchone())
+
+
+def write_ledger_row(conn, transaction_id: str, entry: dict, *, now: str,
+                     batch: str = "", row_id: str = "", entry_kind: str = "expense",
+                     record: dict | None = None) -> None:
+    """M6 통합 장부 한 행을 쓴다. 기장 경로들이 같은 모양을 쓰도록 한 곳에 둔다.
+
+    `entry_id`는 기존 `row_id` 규칙(`card-<transaction_id>`)을 그대로 쓴다(계약 규칙 1).
+    `record`(화면 행 payload)를 주면 그 필드를 그대로 옮겨 적어 `board_rows`와
+    `ledger`가 서로 다른 말을 하지 않게 한다.
+
+    호출자는 이 함수를 이미 열린 트랜잭션 안에서 불러야 한다. 여기서 실패하면
+    같은 트랜잭션의 기존 기장도 함께 롤백된다.
+    """
+    values = dict(
+        entry_id=row_id or 'card-' + transaction_id,
+        transaction_id=transaction_id,
+        entry_kind=entry_kind,
+        item=entry.get('item') or '',
+        description=entry.get('description') or '',
+        amount_krw=entry.get('amount_krw'),
+        occurred_on=entry.get('occurred_on') or '',
+        display_tab_id=entry.get('display_tab_id'),
+        trip_id=entry.get('trip_id') or entry.get('display_tab_id') or '',
+        service_period='', reservation_no='', evidence_type='',
+        source_kind='', source_event_id=transaction_id, source_fact_digest='',
+        source_merchant=entry.get('merchant') or '',
+        source_issuer='', source_card_last4='', source_approval_number='',
+        source_approval_date='', source_posting_date='',
+        source_local_amount='', source_currency='', event_kind='',
+        classification_state=entry.get('classification_state') or '',
+        classification_source=entry.get('classification_source') or '',
+        classification_basis=entry.get('classification_basis') or '',
+        confirmed_by='', memo='', operator_note='',
+        customer_id='', customer_name='', nickname='', income_kind='',
+        event_type='', created_by_request='', ota_evidence_json='',
+        revision=1, committed_at=now, batch_id=batch or '', created_at=now,
+    )
+    if record:
+        # 화면 행이 만든 값을 그대로 쓴다. 이름만 통합 장부 컬럼으로 바꾼다.
+        for key in ('service_period', 'reservation_no', 'evidence_type',
+                    'source_kind', 'source_fact_digest', 'source_merchant',
+                    'source_issuer', 'source_card_last4', 'source_approval_number',
+                    'source_approval_date', 'source_posting_date',
+                    'source_local_amount', 'source_currency', 'event_kind',
+                    'classification_state', 'classification_source',
+                    'classification_basis', 'confirmed_by', 'memo', 'operator_note',
+                    'customer_id', 'customer_name', 'nickname', 'income_kind',
+                    'event_type', 'created_by_request'):
+            value = record.get(key)
+            if value is not None:
+                values[key] = value
+        if record.get('ota_evidence'):
+            values['ota_evidence_json'] = json.dumps(
+                record['ota_evidence'], ensure_ascii=False, sort_keys=True)
+        values['source_event_id'] = record.get('source_event_id') or values['source_event_id']
+        values['display_tab_id'] = record.get('display_tab_id')
+        values['trip_id'] = record.get('trip_id') or record.get('display_tab_id') or ''
+        values['amount_krw'] = record.get('amount_krw', values['amount_krw'])
+        values['occurred_on'] = record.get('occurred_on') or values['occurred_on']
+        values['revision'] = record.get('revision') or 1
+    columns = list(values)
+    # 아직 이관하지 않은 DB(통합 장부 없음)는 이중 쓰기를 건너뛴다. 이관 전에는
+    # `ledger`와 어긋날 대상이 없으므로 기존 기장이 그대로 정본이다.
+    if not _ledger_table_exists(conn):
+        return
+    # 재시도(멱등 replay)에서 이미 쓴 행이면 다시 쓰지 않는다. 기존 기장도
+    # `_already_booked`/`BOARD_ROW_CONFLICT`로 같은 방식으로 걸러진다.
+    # 단, 이미 있는 행이 **다른 거래**의 `transaction_id`를 차지하고 있으면
+    # 조용히 지나가지 않는다: 이 트랜잭션은 옛 기장(`ledger_entries`)에는
+    # 들어가고 통합 장부에는 안 들어가 두 정본이 어긋난다. 호출자 트랜잭션을
+    # 실패시켜야 전체가 롤백된다.
+    if conn.execute('SELECT 1 FROM ledger WHERE entry_id=?', (values['entry_id'],)).fetchone():
+        return
+    if values['transaction_id'] and conn.execute(
+            'SELECT 1 FROM ledger WHERE transaction_id=?', (values['transaction_id'],)).fetchone():
+        raise StoreError('LEDGER_ENTRY_CONFLICT',
+                         '통합 장부에 같은 거래의 다른 행이 있어 기록을 멈췄습니다')
+    conn.execute(
+        f'INSERT INTO ledger({",".join(columns)}) VALUES ({",".join("?" * len(columns))})',
+        [values[c] for c in columns])
+
+
+# 내부 호출 이름. 공개 이름은 `write_ledger_row`이고 여기서 한 번만 별칭을 준다.
+_write_ledger_row = write_ledger_row
+
+
+def sync_ledger_row(conn, transaction_id: str, *, item=None, description=None,
+                    display_tab_id=None, trip_id=None, classification_state=None) -> None:
+    """교정 경로가 `ledger_entries`·`board_rows`와 같은 값을 `ledger`에도 쓰게 한다.
+
+    넘기지 않은 인자는 건드리지 않는다. 통합 장부에 행이 없으면(아직 이관하지 않은
+    DB) 아무것도 하지 않는다 — 이관 전에는 통합 장부가 없으므로 교정 대상도 아니다.
+    """
+    if not _ledger_table_exists(conn):
+        return
+    if not conn.execute('SELECT 1 FROM ledger WHERE transaction_id=?',
+                        (transaction_id,)).fetchone():
+        return
+    pairs = []
+    values = []
+    for column, value in (('item', item), ('description', description),
+                          ('display_tab_id', display_tab_id), ('trip_id', trip_id),
+                          ('classification_state', classification_state)):
+        if value is not None:
+            pairs.append(column + '=?')
+            values.append(value)
+    if not pairs:
+        return
+    conn.execute(f'UPDATE ledger SET {",".join(pairs)} WHERE transaction_id=?',
+                 (*values, transaction_id))
 
 def recordable_rows(rows):
     """Unique transactions that can be newly booked from a preview."""
@@ -60,21 +181,11 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
         else (review_from, review_from, batch_id, json.dumps(sorted(transaction_ids)))).fetchall())
     if not include_verified_full_refunds:
         return rows
-    from .partial_refund import refund_links, refund_group, is_numbered_partial, partial_group_exclusion
+    from .partial_refund import recordable_group_for
     current_ids = {row[0] for row in rows}
-    refund_ids = [r[0] for r in store.conn.execute(
-        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
-    links = refund_links(store.conn, refund_ids)
-    extra = set()
-    for refund_id, link in links.items():
-        if link.get('inferred') or not (
-                (link['status'] == 'full' and link['net_krw'] == 0) or is_numbered_partial(link)):
-            continue
-        if is_numbered_partial(link) and partial_group_exclusion(store.conn, link['original_id']):
-            continue
-        if refund_id in current_ids or link['original_id'] in current_ids:
-            extra.update(refund_group(store.conn, link['original_id']))
-    extra.difference_update(current_ids)
+    # One shared rule decides which other actual rows join a verified refund group.
+    members, _links = recordable_group_for(store.conn, current_ids)
+    extra = members - current_ids
     # Only ever use actual imported originals. Never construct synthetic money rows.
     # Bounded SQL parameters work even when a source batch has thousands of rows.
     for start in range(0, len(extra), 400):
@@ -102,6 +213,91 @@ def _decision_rows(store, batch_id: str, transaction_ids=None):
         (batch_id,) if transaction_ids is None else (batch_id, json.dumps(sorted(transaction_ids)))).fetchall()
     return {r[0]: {"revision": r[1], "item": r[2], "description": r[3],
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
+
+
+def _manual_board_values(store, transaction_ids=None):
+    """`board_manual_overrides` values a person set, by field — a manual correction outranks an automatic one.
+
+    A decision (`review_decisions`) records item, description and tab together, so it is merged whole. A board
+    correction records one field at a time, so it is merged per field: an override of `item` must not carry a
+    stale `display_tab_id` from the payload over the transaction's own value. Only a field with a real manual
+    record *and* a non-empty payload value is returned — a record whose payload lacks that field says nothing
+    about it, and the pre-existing behaviour stays.
+    An old board file without a `field` column cannot say which field a person corrected, so it contributes
+    nothing (`app/manual_overrides.py:41-69` degrades the same way, as does `manual_period_rows`). A store with
+    no board tables at all (a card-only file) has no manual record either, so it contributes nothing rather
+    than failing the read (`preview` must keep working there).
+    """
+    from .manual_overrides import manual_fields
+
+    # No board file, no `field` column: nothing can be named, so nothing is merged.
+    tables = {r[0] for r in store.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name IN ('board_manual_overrides','board_rows')")}
+    if len(tables) < 2:
+        return {}
+    columns = {r[1] for r in store.conn.execute('PRAGMA table_info(board_manual_overrides)')}
+    if 'field' not in columns:
+        return {}
+    # The row's values live in `payload_json`; a file whose `board_rows` lacks that column has no value to
+    # name either, so nothing is merged rather than failing the read.
+    if 'payload_json' not in {r[1] for r in store.conn.execute('PRAGMA table_info(board_rows)')}:
+        return {}
+    wanted: set[tuple[str, str]] = set()
+    for row_id, field in manual_fields(store.conn):
+        tid = str(row_id or '')
+        if not tid.startswith('card-') or field not in MERGED_MANUAL_FIELDS:
+            continue
+        if transaction_ids is not None and tid[5:] not in transaction_ids:
+            continue
+        wanted.add((tid[5:], field))
+    if not wanted:
+        return {}
+    values: dict[str, dict] = {}
+    for tid in sorted({tid for tid, _ in wanted}):
+        found_row = store.conn.execute('SELECT payload_json FROM board_rows WHERE row_id=?',
+                                       ('card-' + tid,)).fetchone()
+        if not found_row:
+            continue
+        try:
+            payload = json.loads(found_row[0])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        found = {field: payload[field] for wanted_tid, field in wanted
+                 if wanted_tid == tid and payload.get(field) not in (None, '')}
+        if found:
+            values[tid] = found
+    return values
+
+
+def _tab_is_not_a_trip(tab) -> bool:
+    """A quarter-cost tab, the refunds tab and the unassigned tab are destinations, never trips."""
+    if not tab:
+        return True
+    if tab in ("unclassified", REFUND_TAB):
+        return True
+    from .quarter_tab import parse_tab
+    return parse_tab(tab) is not None
+
+
+def _board_override_exists(store, row_id: str, field: str) -> bool:
+    """A real manual override of `field`, or False when the file cannot name one.
+
+    False when there is no board file (a card-only file) and when the table is an old row-id-only shape with no
+    `field` column — that shape cannot say which field a person corrected, and `exists_sql` would raise
+    `no such column` on it.
+    """
+    from .manual_overrides import exists_sql as manual_exists_sql
+    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                              " AND name='board_manual_overrides'").fetchone():
+        return False
+    if 'field' not in {r[1] for r in store.conn.execute(
+            'PRAGMA table_info(board_manual_overrides)')}:
+        return False
+    return bool(store.conn.execute(
+        'SELECT ' + manual_exists_sql(store.conn, '?', field), (row_id,)).fetchone()[0])
 
 
 def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
@@ -153,6 +349,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
                               include_verified_full_refunds=include_verified_full_refunds,
                               transaction_ids=transaction_ids)
     decisions = _decision_rows(store, batch_id, transaction_ids)
+    # A person's board correction outranks the automatic columns, field by field (DECISION_POLICY §3.2 item 1).
+    manual_values = _manual_board_values(store, transaction_ids)
     if include_verified_full_refunds:
         # A counterpart may have a user decision in another import batch.
         batch_ids = {r[0] for r in store.conn.execute(
@@ -189,14 +387,20 @@ def preview(store, batch_id: str, *, trip_validator=None,
          direction, item, description, tab, trip_id, revision, decided,
          state, classification_source, conflict_reason, parse_error, duplicate_of) = row
         decision = decisions.get(transaction_id)
+        manual = manual_values.get(transaction_id) or {}
         entry = {
             "transaction_id": transaction_id, "source_hash": source_hash,
             "merchant": merchant, "amount_krw": amount_krw,
             "occurred_on": booked_dates.get(transaction_id, approval_date), "transaction_direction": direction,
-            "item": (decision or {}).get("item", item) or "",
-            "description": (decision or {}).get("description", description) or "",
-            "display_tab_id": (decision or {}).get("display_tab_id", tab) or "",
-            "trip_id": trip_id, "revision": revision,
+            "item": manual.get("item") or (decision or {}).get("item", item) or "",
+            "description": manual.get("description") or (decision or {}).get("description", description) or "",
+            "display_tab_id": manual.get("display_tab_id") or (decision or {}).get("display_tab_id", tab) or "",
+            # A board correction of the attribution moves the row with it: `project` refuses a trip that
+            # disagrees with the tab, and the refunds and quarter tabs carry no trip at all. Without a
+            # manual tab the stored pair is kept as it was.
+            "trip_id": ("" if _tab_is_not_a_trip(manual.get("display_tab_id"))
+                        else manual["display_tab_id"]) if manual.get("display_tab_id") else trip_id,
+            "revision": revision,
             "decided": bool(decided), "classification_state": state,
             "already_booked": transaction_id in booked_ids,
             "duplicate_of": duplicate_of or "",
@@ -331,13 +535,12 @@ def scope_group(store, result: dict, original_id: str,
     """
     members = group_members(store, original_id)
     if require_verified_zero:
-        from .partial_refund import refund_links, is_numbered_partial
-        links = refund_links(store.conn, members[1:])
-        if (not links or len(links) != len(members) - 1
-                or any(link.get('inferred') or link['original_id'] != original_id
-                       or not ((link['status'] == 'full' and link['net_krw'] == 0)
-                               or is_numbered_partial(link))
-                       for link in links.values())):
+        from .partial_refund import verified_group_links
+        # One shared rule, so no caller re-states the conditions in its own words.
+        # This screen reports a whole-batch scope; it is not itself a cross-file
+        # write, so the PROC-072 boundary is left to the recorder's own path.
+        group, _links = verified_group_links(store.conn, {original_id})
+        if group != set(members):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
@@ -658,17 +861,26 @@ def _committed_group_replay(store, payload_sha, current_digest, current):
 
 
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
-    """Persist the refund-tab classification applied by a verified pair preview."""
+    """Persist the refund-tab classification applied by a verified pair preview.
+
+    A person's own answer stays. `classification_source` being `user_*` is one trace; `decided_at` is another
+    (`app/review.py` writes both together, but a restored or older row can carry only the timestamp). A board
+    correction of the attribution counts as well — it is the same person's decision recorded elsewhere.
+    """
     link = entry.get("refund_link") or {}
     if (link.get("inferred") or link.get("status") != "full"
             or link.get("net_krw") != 0 or entry.get("transaction_id") != transaction_id):
         return
     current = store.conn.execute(
-        "SELECT classification_source FROM transactions WHERE transaction_id=?",
+        "SELECT classification_source, decided_at FROM transactions WHERE transaction_id=?",
         (transaction_id,),
     ).fetchone()
     if not current or (str(current[0] or "").startswith("user_")
                        and current[0] != "user_completed_period"):
+        return
+    if current[1] is not None:
+        return
+    if _board_override_exists(store, 'card-' + transaction_id, 'display_tab_id'):
         return
     store.conn.execute(
         "UPDATE transactions SET classification_state='classified',"
@@ -684,7 +896,8 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None, group_original=None,
-           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None) -> dict:
+           automatic_record=False, include_verified_full_refunds=False, transaction_ids=None,
+           verified_refund_expansion=False) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -712,9 +925,13 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if automatic_record:
         scope['automatic_record'] = True
     if include_verified_full_refunds:
-        if not automatic_record:
+        if not (automatic_record or verified_refund_expansion):
             raise StoreError(CODE_INVALID_INPUT, "검증된 환불 묶음 확장은 자동 기록 전용입니다")
         scope['include_verified_full_refunds'] = True
+    if verified_refund_expansion and not automatic_record:
+        # An owner's single-row recording may carry its verified refund group
+        # without being labelled an automatic write.
+        scope['verified_refund_expansion'] = True
     if group_original is not None:
         scope["group"] = str(group_original)
     payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()
@@ -823,6 +1040,11 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                      entry["display_tab_id"], entry.get("trip_id", ""),
                      entry["amount_krw"], entry["merchant"], entry["occurred_on"],
                      entry["transaction_direction"], entry["source_hash"], now))
+                # M6: 같은 트랜잭션 안에서 통합 장부에도 쓴다. 여기서 실패하면
+                # 위 기장도 함께 롤백되므로 옛 테이블에만 남는 부분 상태가 없다.
+                _write_ledger_row(store.conn, transaction_id, entry,
+                                  now=now,
+                                  batch=entry.get("source_batch_id", batch_id))
                 booked.append(transaction_id)
                 store.log_change("ledger.booked", transaction_id,
                                  {"batch_id": entry.get("source_batch_id", batch_id),

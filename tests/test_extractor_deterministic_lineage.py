@@ -230,3 +230,149 @@ def test_manifest_records_the_content_fingerprint_used_for_lineage(tmp_path):
     manifest = json.loads((Path(response["result"]["manifest_path"])).read_text(encoding="utf-8"))
     assert manifest["sources"] == {"capture_mode": "sqlite-backup", "external_source_files": False}
     assert manifest["input"]["sqlite_logical_fingerprint"]
+
+
+# ---------------------------------------- per-database fingerprints (the fixed "0" key)
+
+def _captured_mapping(read, monkeypatch):
+    """The exact mapping the product code hands to the event builder, without changing it."""
+    from app import ota_payments
+    captured = {}
+    real = ota_payments.build_ota_payment_events
+
+    def recorder(sources):
+        captured["portal_content_fingerprints"] = dict(sources.get("portal_content_fingerprints") or {})
+        return real(sources)
+
+    monkeypatch.setattr(ota_payments, "build_ota_payment_events", recorder)
+    response = read()
+    return response, captured.get("portal_content_fingerprints")
+
+
+def test_single_database_fingerprint_stays_the_historical_literal(tmp_path, monkeypatch):
+    """The 1-DB path must stay exactly ``{"0": <logical fingerprint>}``."""
+    store = portal_store(tmp_path, "literal")
+    expected = sqlite_logical_fingerprint(store)
+    response, mapping = _captured_mapping(lambda: capture(store, tmp_path, "literal"), monkeypatch)
+    assert response["ok"], response
+    assert mapping == {"0": expected}
+    assert json.dumps(mapping, ensure_ascii=False, sort_keys=True) == json.dumps(
+        {"0": expected}, ensure_ascii=False, sort_keys=True)
+
+
+def test_one_fingerprint_per_registered_database(tmp_path, monkeypatch):
+    """The index-aligned helper is a function of the database count, not of one fixed key."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    fingerprint = "f" * 64
+    assert _portal_content_fingerprints(snapshot, fingerprint, [snapshot], BridgeError) == {
+        "0": fingerprint}
+    # Same content registered under three indexes (the M3 multi-DB shape).
+    assert _portal_content_fingerprints(
+        snapshot, fingerprint, [snapshot, snapshot, snapshot], BridgeError) == {
+        "0": fingerprint, "1": fingerprint, "2": fingerprint}
+
+
+def test_lookups_by_a_second_index_resolve_to_a_content_lineage(tmp_path):
+    """A database at index 1 must not fall back to the path-based lineage."""
+    from app.ota_sources import source_lineage_id
+
+    fingerprint = sqlite_logical_fingerprint(portal_store(tmp_path, "index-one"))
+    expected = _content_lineage(fingerprint)
+    other = tmp_path / "elsewhere" / "ota-evidence.sqlite"
+    assert source_lineage_id({}, other, content_fingerprint=fingerprint) == expected
+    assert source_lineage_id({}, other, content_fingerprint=fingerprint) != source_lineage_id({}, other)
+
+
+def test_a_database_the_capture_did_not_copy_fails_explicitly(tmp_path):
+    """A registered database outside the single snapshot is refused, not silently degraded."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    foreign = tmp_path / "other.sqlite"
+    foreign.write_bytes(b"synthetic")
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, foreign], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
+    # Only an identical path (one real source) is accepted.
+    assert _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, snapshot], BridgeError)
+
+
+def test_a_hard_link_to_the_snapshot_is_the_same_database(tmp_path):
+    """A hard link is one file under a second directory entry, not a second source."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    alias = tmp_path / "alias.sqlite"
+    os.link(snapshot, alias)
+    # samefile proves the aliasing premise; a platform without hard links cannot
+    # answer this question, and pytest skips only after that is established.
+    assert os.path.samefile(snapshot, alias)
+    assert os.path.realpath(alias) != os.path.realpath(snapshot), (
+        "a hard link only reaches this test's code path when realpath keeps it distinct")
+    assert _portal_content_fingerprints(
+        snapshot, "f" * 64, [snapshot, alias], BridgeError) == {
+        "0": "f" * 64, "1": "f" * 64}
+
+
+def test_an_extended_prefix_is_decided_by_file_identity_not_by_spelling(tmp_path):
+    """``\\?\\<path>`` is Windows path syntax; the assertion must follow the platform.
+
+    On Windows the prefix is an alias of the same file, so it must be accepted.
+    On POSIX the prefix is literal characters, so the name does not exist and the
+    caller must refuse it -- refusing is the correct answer there, not a defect.
+    Asserting either one on both platforms would state a false fact about the
+    other, which is why this checks the platform's own truth instead of skipping.
+    """
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    given = "\\\\?\\" + str(snapshot.resolve())
+    if os.name == "nt":
+        assert _portal_content_fingerprints(
+            snapshot, "f" * 64, [snapshot, given], BridgeError) == {
+            "0": "f" * 64, "1": "f" * 64}
+    else:
+        # The literal name has no file behind it; a missing path is never the snapshot.
+        assert not os.path.exists(given)
+        with pytest.raises(BridgeError) as raised:
+            _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, given], BridgeError)
+        assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
+
+
+def test_a_registered_path_that_does_not_exist_is_refused_not_raised(tmp_path):
+    """A missing path cannot be the snapshot, and the refusal must survive any OSError."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    missing = tmp_path / "gone.sqlite"
+    assert not missing.exists()
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, missing], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"
+
+
+def test_a_different_file_with_identical_bytes_is_still_refused(tmp_path):
+    """Content equality is not identity: two separate files stay unsupported."""
+    from tools.core_bridge.extract_baseline import _portal_content_fingerprints
+    from tools.core_bridge.commands import BridgeError
+
+    snapshot = tmp_path / "snapshot.sqlite"
+    snapshot.write_bytes(b"synthetic")
+    twin = tmp_path / "twin.sqlite"
+    twin.write_bytes(b"synthetic")
+    assert os.path.samefile(snapshot, twin) is False
+    with pytest.raises(BridgeError) as raised:
+        _portal_content_fingerprints(snapshot, "f" * 64, [snapshot, twin], BridgeError)
+    assert raised.value.code == "MULTI_DATABASE_FINGERPRINT_UNSUPPORTED"

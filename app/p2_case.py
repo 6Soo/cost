@@ -78,7 +78,13 @@ def sanitize(value):
     return value
 
 
-def policy_context(areas=()):
+def policy_context(areas=(), *, compact=False):
+    if compact:
+        from .p2_policy_pack import compact_policy_context
+        # Unknown/new policy catalogs automatically retain full legacy scope.
+        short = compact_policy_context(ROOT, areas)
+        if short is not None:
+            return short
     text = (ROOT / 'docs/DECISION_POLICY.md').read_text(encoding='utf-8')
     core = text.split('## 2.', 1)[1].split('## 4.', 1)[0]
     # Only current rules, with conditions/exceptions; historical replacements
@@ -167,7 +173,7 @@ def unparsed_source_context(value):
     return not states or any(not isinstance(state, str) or state not in known[key] for key, state in states)
 
 
-def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extra=()):
+def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extra=(), compact_policy=False):
     ids = {c['transaction_id'] for c in request['cases']}
     rows = {r['transaction_id']: r for r in _read(conn, ids)}
     if set(rows) != ids:
@@ -204,7 +210,7 @@ def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extr
                            unparsed_source_context(raw.get('content')) for raw in evidence)
     if actual_refund or potential_refund:
         areas.append('refund')
-    policy = policy_context(areas)
+    policy = policy_context(areas, compact=compact_policy)
     bundle = dict(version='p2-tool-free-v1', request_digest=request['digest'], cases=cases,
                   policy=policy, policy_digest=digest(policy), evidence=ordered[:MAX_EVIDENCE],
                   omitted_evidence=max(0, len(ordered) - MAX_EVIDENCE), truncated=len(ordered) > MAX_EVIDENCE)

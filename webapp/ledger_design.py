@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from app.google_authority import SnapshotError
 from . import ledger_board as board
+from . import ledger_query
 from . import read_scope, ui_icons
 from . import ui_components
 
@@ -246,13 +247,21 @@ def _trip_kpi_html(tab_id: str) -> str:
         return ""
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(tab_id, '', '')
     expense = sum(board._shown_amount(row) for row in expenses)
-    income = None
     from .google_ledger_page import get_trip_income_summary
     google_income = get_trip_income_summary(tab_id)
-    if incomes:
-        income = sum(board._shown_amount(row) for row in incomes)
-    elif google_income and not _whole_income and google_income.get('show_rows'):
-        income = int(google_income.get('amount') or 0)
+    google_confirmed = bool(google_income and google_income.get('show_rows'))
+    # SPEC §11.2.1 계약 2·4 with GGL-003·GGL-014: COST income is the confirmed
+    # figure; the verified Google block is a separate evidence source and only
+    # substitutes when the tab has no usable COST income. Unverified or
+    # unconnected income stays unknown, never a confirmed zero.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    recorded = [row for row in incomes if row.get('row_id') not in linked
+                and not row.get('google_income')]
+    income, known = ledger_query.confirmed_income(
+        incomes, linked=linked, google_verified=google_confirmed,
+        google_total=int((google_income or {}).get('amount') or 0),
+        prefiltered=True, amount=board._shown_amount)
+    income = income if known else None
     balance = income - expense if income is not None else None
 
     def amount(value):
@@ -261,8 +270,11 @@ def _trip_kpi_html(tab_id: str) -> str:
         text = _money(value)
         return text.replace('-', '−', 1) if text.startswith('-') else text
 
+    google_count = int((google_income or {}).get('count') or 0) if google_confirmed else 0
+    # GGL-003: the Google block is separate evidence, so its count is named only
+    # when it is the income source that supplied the figure.
     income_note = ("장부 확인 필요"
-                   if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
+                   if income is None else f"수입 {len(recorded) or google_count}건")
     balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
     income_kpi = ui_components.kpi('수입', amount(income), income_note)
     if income is None:
@@ -622,7 +634,13 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
-    income = sum(board._shown_amount(r) for r in incomes)
+    # GGL-003: with the Google rows now in the set, a non-trip summary's income
+    # figure stays the COST record and never adds the Google block. R06: a linked
+    # bank evidence row is the same money as its direct income, so it is not a
+    # second income here either — the KPI and store.tab_totals already exclude it.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income = sum(board._shown_amount(r) for r in incomes
+                 if not r.get("google_income") and r.get("row_id") not in linked)
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
@@ -682,9 +700,34 @@ def _income_kind_label(row) -> str:
 
 def _row_amount_class(row) -> str:
     amount = board._shown_amount(row)
+    if amount is None:
+        # An unreadable amount (SPEC §11.2.1 계약 4 / GGL-014) is a state, not a
+        # number, so it gets no sign class and never sorts or styles as a value.
+        return "a-unknown"
     if amount < 0:
         return "a-neg"
     return "a-in" if row.get("row_kind") == "income" else "a-ex"
+
+
+def _shown_amount_text(row) -> str:
+    """The row's display amount as a label: a figure, or the word 미확인.
+
+    SPEC §11.2.1 계약 4 / GGL-014: an amount the source could not read is never
+    rendered as 0원 and never raises. ``_money`` maps a missing value to 0, so
+    the unknown state has to be decided before it gets there.
+    """
+    amount = board._shown_amount(row)
+    return '미확인' if amount is None else _money(amount)
+
+
+def _data_amount_attr(row) -> str:
+    """The row's ``data-amount`` value: the figure, or empty when unknown.
+
+    An empty attribute keeps the element's existing shape (string) while
+    stating that no amount is known, so a client never compares it as 0.
+    """
+    amount = board._shown_amount(row)
+    return '' if amount is None else str(int(amount))
 
 
 def _row_party_main(row) -> str:
@@ -1260,7 +1303,6 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
     match_annotations = match_annotations or {}
     for row in rows:
         rid = row["row_id"]
-        amount = board._shown_amount(row)
         item = row.get('item') or ''
         service_dates, service_title = _service_date_labels(row)
         service_class = 'c-stay c-flight-dates' if item in ('항공료', '항공권') else 'c-stay'
@@ -1297,7 +1339,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                                       f"{board.esc(candidate_label)}</span>")
         category = str(row.get('item') or _row_item(row) or '-')
         body.append(
-            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-category='{board.esc(category)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
+            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-category='{board.esc(category)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{_data_amount_attr(row)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<td class='c-date tnum' title='{board.esc(board._shown_date(row))}'>{board.esc(_ledger_date_label(row, date_years))}</td>"
@@ -1305,7 +1347,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             +
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='{service_class}' title='{board.esc(service_title)}'>{board.esc(service_dates)}</td>"
-            + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
+            + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_shown_amount_text(row)}</td>"
             + (_amount_group_cell(amount_groups, rid) if amount_groups is not None and kind == 'expense'
                else "<td class='gemn-desktop gemn-status-cell'></td>" if amount_groups is not None else '')
             +
@@ -1391,14 +1433,33 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
             date_years.add(date.fromisoformat(str(board._shown_date(row) or '')[:10]).year)
         except (TypeError, ValueError):
             pass
-    income_total = sum(board._shown_amount(r) for r in incomes)
+    # GGL-003: the income group holds both sources now that the row set matches
+    # React, so the group names them apart instead of summing them. The COST
+    # header keeps its own figure and the Google block gets the second.
+    cost_incomes = [r for r in incomes if not r.get("google_income")]
+    google_incomes = [r for r in incomes if r.get("google_income")]
+    # R06: the linked bank evidence row is the same money as the direct income it
+    # supports, so it is not a second income in this header either. The KPI,
+    # _summary_html and store.tab_totals all exclude it; a header that kept it
+    # would state a different total on the same screen.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income_total = sum(board._shown_amount(r) for r in cost_incomes
+                       if r.get("row_id") not in linked)
     expense_total = sum(board._shown_amount(r) for r in expenses)
+    google_total = sum(board._shown_amount(r) for r in google_incomes
+                       if not r.get("amount_missing"))
     income_group = (
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
         f"<a href='#google-trip-income'>수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th>{extra_blank}</tr></tbody>"
-        + _table_html(incomes, kind="income", selected=selected, unclassified=False,
+        + _table_html(cost_incomes, kind="income", selected=selected, unclassified=False,
                       amount_groups=amount_groups, date_years=date_years)
+        + (f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (Google 원장 · 확정 아님)</th>"
+           f"<th class='num'>{'미확인' if any(r.get('amount_missing') for r in google_incomes) else _money(google_total)}"
+           f"</th>{extra_blank}</tr></tbody>"
+           + _table_html(google_incomes, kind="income", selected=selected, unclassified=False,
+                         amount_groups=amount_groups, date_years=date_years)
+           if google_incomes else '')
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
@@ -1458,19 +1519,29 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         return (
             f"<li class='list-row li{' pend' if unclassified else ''}' data-id='{board.esc(rid)}' "
             f"data-kind='{'expense' if is_expense else 'income'}' data-category='{board.esc(category)}' "
-            f"data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' "
+            f"data-revision='{int(row.get('revision') or 1)}' data-amount='{_data_amount_attr(row)}' "
             f"tabindex='0' aria-expanded='false'{selected_attr}>"
-            f"<button class='lr-hit' type='button' aria-label='{board.esc(headline)} {board.esc(_money(board._shown_amount(row)))}'>"
+            f"<button class='lr-hit' type='button' aria-label='{board.esc(headline)} {board.esc(_shown_amount_text(row))}'>"
             f"<span class='lr-primary'><span class='party-line mobile-party'>{_merchant_icon(row)}"
             f"<span class='t'>{board.esc(headline)}</span></span></span>"
-            f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_money(board._shown_amount(row))}</span>"
+            f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_shown_amount_text(row)}</span>"
             f"<span class='lr-secondary'>{board.esc(secondary)}{match_hint}</span></button>{move}</li>")
 
-    income_total = sum(board._shown_amount(r) for r in incomes)
+    cost_incomes = [r for r in incomes if not r.get("google_income")]
+    google_incomes = [r for r in incomes if r.get("google_income")]
+    # R06: same reason as _tables_html — the linked bank evidence row is not a
+    # second income, and this list's header must state the figure the KPI,
+    # _summary_html and store.tab_totals already report.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income_total = sum(board._shown_amount(r) for r in cost_incomes
+                       if r.get("row_id") not in linked)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
         f"<li class='list-group lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></li>"
-        + ''.join(item(r) for r in incomes)
+        + ''.join(item(r) for r in cost_incomes)
+        + (f"<li class='list-group lg'><span>Google 원장 수입 · 확정 아님</span>"
+           f"<span class='tnum'>{'미확인' if any(r.get('amount_missing') for r in google_incomes) else _money(sum(board._shown_amount(r) for r in google_incomes))}</span></li>"
+           + ''.join(item(r) for r in google_incomes) if google_incomes else '')
     ) if incomes else ''
     rows = ''.join(item(r, True) for r in expenses)
     empty = '<li class="empty-state"><p class="es-title">지출 내역이 없습니다.</p></li>'
@@ -2058,6 +2129,41 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     )
 
 
+def _google_income_rows(tab_id: str, cost_income: list) -> list:
+    """The connected Google income rows this tab shows, for the owner path only.
+
+    SPEC §11.2.1 계약 1: both entry paths show the same rows. The legacy board
+    already renders the Google block beside its own income, but the row lists
+    only carried COST records, so React (which merges the block into the row
+    set) and legacy disagreed on row IDs and counts.
+
+    The read reuses the request's existing session and grant checks —
+    ``plush_income.load`` denies a viewer without a grant and an ambiguous
+    mapping, and this returns nothing for a viewer — so no new permission path
+    is opened. Rows are returned even when the block is unverified, because
+    SPEC §11.2.1 계약 4 asks both paths to show the state rather than hide the
+    rows; what an unverified block must never do is count toward confirmed
+    income, and the totals already keep it out. The rows are display-only and
+    read-only.
+    """
+    if not tab_id or tab_id in ("unclassified", "refunds") or not _is_trip_tab(tab_id):
+        return []
+    from . import ledger_board, plush_income
+
+    if ledger_board.current_role() != "owner":
+        return []
+    session = ledger_board.current_request_session()
+    try:
+        block = plush_income.load(tab_id, owner=True, session=session, visible_tabs=set())
+    except Exception:
+        return []
+    if not block.get("available"):
+        return []
+    cost_ids = {str(row.get("row_id") or "") for row in cost_income}
+    return [dict(row, read_only=True) for row in block.get("rows", [])
+            if str(row.get("row_id") or "") not in cost_ids]
+
+
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     """The rows this tab and filter show, and the unfiltered totals beside them.
 
@@ -2083,6 +2189,10 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     else:
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
         expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
+        # SPEC §11.2.1 계약 1: the row lists carry the connected Google income
+        # rows React already merges, so both paths agree on row IDs and counts.
+        # Owner-only; the Google read keeps its own grant check.
+        incomes = incomes + _google_income_rows(tab_id, incomes)
     if kind == "in":
         expenses = []
     elif kind == "ex":
@@ -2352,15 +2462,25 @@ def viewer_trips_html(trips) -> str:
     The caller passes trips that have already been filtered by the access store.
     This function only renders them, so there is no path here that could name a
     trip the viewer was not given.
+
+    SPEC §11.2.1 계약 4 / GGL-014: ``income_krw`` and ``balance_krw`` are None
+    when the tab's confirmed income is unknown (no COST income and no verified
+    Google block). That state is a word, not money, so it carries no currency
+    unit — ``미확인`` alone, matching the React summary's unknown state and the
+    legacy board's '—'. An unknown 차액 is never shown as a negative expense.
     """
     if not trips:
         return ("<div class='sect'><h2>담당 여행</h2>"
                 "<p>현재 배정된 여행이 없습니다</p></div>")
+
+    def money(value) -> str:
+        return '미확인' if value is None else f"{int(value):,}원"
+
     items = "".join(
         f"<li><a href='/board?tab={board.esc(t['tab_id'])}'>{board.esc(t['display_key'])}</a>"
         f" — {board.esc(t['starts_on'])}~{board.esc(t['ends_on'])}"
-        f" · 수입 {t['income_krw']:,}원 · 지출 {t['expense_krw']:,}원"
-        f" · 차액 {t['balance_krw']:,}원</li>"
+        f" · 수입 {money(t.get('income_krw'))} · 지출 {money(t.get('expense_krw'))}"
+        f" · 차액 {money(t.get('balance_krw'))}</li>"
         for t in trips)
     return f"<div class='sect'><h2>담당 여행</h2><ul>{items}</ul></div>"
 
@@ -2383,9 +2503,18 @@ def _matches(row: dict, needle: str) -> bool:
     return text in hay.casefold()
 
 
-def _summary_totals(rows_in, rows_ex):
-    """Compute displayed amounts through the board's current amount hook."""
-    return (sum(board._shown_amount(r) for r in rows_in),
+def _summary_totals(rows_in, rows_ex, linked=None):
+    """Compute displayed amounts through the board's current amount hook.
+
+    ``linked`` is the R06 set: the summary's unfiltered income figure already
+    excludes a linked bank evidence row, so the whole/search totals next to it
+    must exclude it too or one screen states two different COST incomes.
+    """
+    if linked is None:
+        linked = ledger_query.linked_bank_ids(board._active_store())
+    counted = [r for r in rows_in if r.get("row_id") not in linked
+               and not r.get("google_income")]
+    return (sum(board._shown_amount(r) for r in counted),
             sum(board._shown_amount(r) for r in rows_ex),
             len(rows_in), len(rows_ex))
 
@@ -2395,8 +2524,9 @@ def _totals_kw(query, shown_in, shown_ex, whole_in, whole_ex) -> dict:
     if not query:
         return {}
 
-    return {"filtered": _summary_totals(shown_in, shown_ex),
-            "whole": _summary_totals(whole_in, whole_ex)}
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    return {"filtered": _summary_totals(shown_in, shown_ex, linked),
+            "whole": _summary_totals(whole_in, whole_ex, linked)}
 
 
 def _STORE_missing() -> bool:
