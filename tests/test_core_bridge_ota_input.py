@@ -155,8 +155,11 @@ def test_live_file_is_refused_through_a_hard_link_or_extended_path(tmp_path, for
         os.link(live, alias)
         given = str(alias)
     else:
-        if os.name != 'nt':
-            pytest.skip('extended prefix is Windows only')
+        # The extended-length prefix must not bypass the live-file guard:
+        # ``ota_input.is_live`` strips the four-character prefix before it
+        # compares paths, so ``\\?\<live>`` names the live file on every
+        # platform. Skipping off Windows hid this check instead of proving it;
+        # the assertions below run (and pass) on POSIX hosts too.
         given = '\\\\?\\' + str(live.resolve())
     response = handle('ota-input', dict(req, db=given), sha='')
     assert not response['ok'] and response['error']['code'] == 'DB_IS_LIVE'
