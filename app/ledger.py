@@ -242,7 +242,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
                               include_verified_full_refunds=include_verified_full_refunds,
                               transaction_ids=transaction_ids)
     decisions = _decision_rows(store, batch_id, transaction_ids)
-    # A person's board correction outranks the automatic columns, field by field (DECISION_POLICY §3.2.1).
+    # A person's board correction outranks the automatic columns, field by field (DECISION_POLICY §3.2 item 1).
     manual_values = _manual_board_values(store, transaction_ids)
     if include_verified_full_refunds:
         # A counterpart may have a user decision in another import batch.
