@@ -396,20 +396,6 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
 """
 
 
-def ensure_ledger_schema(conn) -> None:
-    """Create the M6 unified `ledger` table and its indexes, additively.
-
-    Deliberately outside `SCHEMA_SQL`: the production startup gate requires
-    every `app.db` schema object to already exist, so a board database that has
-    not run `tools/migrate_to_ledger.py` yet must still open. Existing
-    `board_rows` and `ledger_entries` stay real tables (dual-write), because
-    their INSERT call sites are unchanged.
-    """
-    from app.db import _execute_statements
-
-    _execute_statements(conn, LEDGER_SCHEMA_SQL)
-
-
 def _ensure_ledger_outbox_evidence(conn) -> None:
     """Add evidence refs to existing outboxes without rewriting pending events."""
     columns = {row[1] for row in conn.execute("PRAGMA table_info(ledger_outbox)")}

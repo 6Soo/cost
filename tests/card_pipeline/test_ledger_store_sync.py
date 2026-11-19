@@ -1,13 +1,16 @@
 """M6: LedgerStore의 화면 행 쓰기가 통합 장부(`ledger`)까지 채우는지 확인한다."""
 import sqlite3
 
-from webapp import ledger_store_schema
+from app.db import LEDGER_SCHEMA_SQL, _execute_statements
 from webapp.ledger_store import LedgerStore
 
 
 def _store(tmp_path):
     store = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
-    ledger_store_schema.ensure_ledger_schema(store.conn)
+    # Same statement set `tools/migrate_to_ledger.py` applies, as the other
+    # ledger sync tests do; the schema module's one-line wrapper had no caller
+    # outside this test.
+    _execute_statements(store.conn, LEDGER_SCHEMA_SQL)
     return store
 
 
