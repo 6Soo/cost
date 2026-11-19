@@ -100,9 +100,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - name: Install pinned Rust toolchain (selected tests may build costcore)
-        working-directory: core
-        run: rustup show active-toolchain || rustup toolchain install
       - name: Select checks
         id: plan
         shell: bash
@@ -142,6 +139,14 @@ jobs:
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "browser=$browser" >> "$GITHUB_OUTPUT"
+      - name: Install pinned Rust toolchain (selected tests may build costcore)
+        # Only the runs that execute checks can build costcore or run the cargo
+        # steps, and the plan itself reads the diff through git only. Installing
+        # the toolchain before the plan made every docs-only or reused run pay a
+        # Rust toolchain download it never used.
+        if: steps.plan.outputs.reuse != 'true' && (steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT')
+        working-directory: core
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Cache pip downloads for the runs that install dependencies
         # setup-python's built-in `cache: pip` fails its post job when the pip
         # folder never appears ("Cache folder path is retrieved for pip but
