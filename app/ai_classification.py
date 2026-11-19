@@ -20,6 +20,10 @@ VERSION = 'connected-agent-inference-v1'
 INFERRED_SOURCES = CODE_SOURCES | {'pattern', 'card_category', 'provider_default'}
 ITEMS = ('주차비', '주유비', '통행료', '항공료', '렌터카', '숙박비', '식비',
          '편의점', '교통비', '입장료', '여행경비', '현지경비', '기타경비', '분기 기타비용')
+# Sources that settle an item by data rule without claiming the booking authority
+# P2 must not override. Bare 'auto' is the automatic rule engine's own provenance.
+PERIOD_REVIEW_SOURCES = frozenset(('rule', 'auto'))
+PERIOD_REVIEW_ITEMS = ('숙박비', '항공료')
 
 
 def _digest(value):
@@ -52,7 +56,16 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None, comple
         if row['source_hash'] in authoritative:
             protected += 1
             continue
-        if row['classification_source'] not in INFERRED_SOURCES | {'ai_inference'}:
+        # DECISION_POLICY 3.0.2 / DATE-109 / ITEM-082: a lodging or airfare row with no
+        # recorded service period still needs P2's evidence check even when an automatic
+        # data rule chose the item and the trip by card date. Those sources settle the
+        # item only; they are not the booking authority the guard below protects.
+        period_unrecorded = (
+            row['classification_source'] in PERIOD_REVIEW_SOURCES
+            and row['item'] in PERIOD_REVIEW_ITEMS
+            and 'P2_METADATA' not in str(row.get('classification_basis') or ''))
+        if (row['classification_source'] not in INFERRED_SOURCES | {'ai_inference'}
+                and not period_unrecorded):
             # Exact/manual booking, airfare and refund authority stay in P1.
             # P2 is an attribution review, never a replacement payment matcher.
             protected += 1
@@ -62,7 +75,8 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None, comple
         weak = (row['classification_source'] in INFERRED_SOURCES
                 and row['item'] in ('기타경비', '현지경비', '여행경비'))
         service_unknown = 'P2_METADATA' not in str(row.get('classification_basis') or '')
-        if not reconsider and not weak and not service_unknown and row['classification_state'] == 'classified' and row['trip_id'] in valid:
+        if (not period_unrecorded and not reconsider and not weak and not service_unknown
+                and row['classification_state'] == 'classified' and row['trip_id'] in valid):
             continue
         candidates = regional_trips(row, valid.values(), booking_agnostic=True)
         completed_target = exception_trip(row,trips,evidence=proof) if completed_period(row) else None

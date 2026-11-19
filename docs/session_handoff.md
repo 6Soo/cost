@@ -15,6 +15,19 @@
 - **미검증/남은 일:** 독립 검수·push·PR·병합·운영 배포는 하지 않았다(감독 지시). `webapp/tests/test_plush_origin_browser.py` 7건은 `frontend/dist`(Git 미추적 빌드 산출물)가 없어 실패하며, 깨끗한 `origin/main`(`3d8e8791`)에서도 동일하게 실패함을 별도 worktree로 확인했다(이번 변경과 무관).
 - **검수 상태(중요):** AGY(`claude-opus-4-6-thinking`) 검수는 세 번째 실행이 **구독 한도(429, 약 4시간 28분 후 초기화)로 마지막 단계에서 중단**됐다. 판정문은 없다. 중단 전까지 초점 A(배제 경계=레거시와 동일)·B(분기 탭 행 원천·이중 계산 없음·탭 오인 없음)·C(동등성)·D(테스트 약화 없음)를 확인하고 결함을 찾지 못했다. **최종 SHA `1bb1bb96`은 검수되지 않았다** — 한도 초기화 뒤 재검수 또는 AGENTS.md 2026-11-13 소유자 결정(구현자와 다른 opus 세션 검수)으로 대체해야 병합 조건을 채운다.
 
+# 2026-11-19 — 자동 데이터 규칙 숙박·항공 행이 P2에 도달하지 못했던 게이트 결손 수정 (PR #1036, CI 3잡 초록·미병합)
+
+- **요청/결과:** "COST OTA 미연결 496건 회수 계획을 현재 승인된 M2 P1→P2 연결 미구현 범위에서 한 덩어리 진전"에 따라 M2 게이트 결손 1지점을 합성 재현 → 최소 구현 → 표적 검사로 닫았다. 브랜치 `work/ota-period-gate-main-20261119`, 최종 SHA `8eb0c94670ca96159a5be0eb69b94a7e453294e5`, 기준 `origin/main` = `a36ede28`. **PR #1036 생성.**
+- **결손(재현):** 규칙집 §3.0 2항은 숙박·항공 이용기간을 카드일 귀속보다 먼저 P2에서 확인하라고 한다(TRIP-038·TRIP-040·DATE-109·ITEM-082). 그런데 `app/ai_classification.py:prepare()`가 `INFERRED_SOURCES | {'ai_inference'}` 밖의 출처를 **먼저** `protected`로 빼고 `service_unknown` 검사는 **뒤에** 했다. `rule`·`auto`는 `INFERRED_SOURCES`에 없으므로, 데이터 규칙이 항목(과 카드일 기준 여행)을 정한 숙박·항공 행은 **이용기간을 찾을 P2 기회가 없었다.** 합성 보드 20조합 중 12조합에서 `cases=0 protected=1`, 그중 결손 4조합.
+- **구현(3파일):** `PERIOD_REVIEW_SOURCES={'rule','auto'}`, `PERIOD_REVIEW_ITEMS=('숙박비','항공료')`, `period_unrecorded`(=`P2_METADATA` 없음)를 출처 보호 **앞에** 두고, "이미 확정된 행 건너뛰기"에도 `not period_unrecorded`를 더했다. 수동·정확·환불 권한 7출처, 다른 7개 항목, 기간이 이미 기록된 행은 **전부 종전대로**. 파서·별칭·스키마·화면 0.
+- **반복 호출 위험(직접 확인):** P2가 적용되면 `classification_source='ai_inference'` + `classification_basis`에 ` · P2_METADATA …`가 기록된다(`app/classification_correction.py:146-147`). 실패 시에도 워커 재시도는 `MAX_ATTEMPTS=3`에서 `ai_dead`로 종결(`webapp/autonomous_cleanup_worker.py:1041`). 무한 재검토 경로 없음.
+- **검사:** 표적 `pytest tests/card_pipeline/test_p2_period_gate.py` **37 passed**. **약화 없음 대조:** 구현을 되돌리면 **5 failed/32 passed** — 실패 5건이 정확히 새로 닫은 결손 4조합 + 재검토 1건. 공식 `run_quality_checks.py --base origin/main --run` 후보 `8eb0c946` **exit 0 — 568 passed, 실패 0, skip 0, known 0, junit error 0**. `config/test-impact-map.json`에 그룹 `p2-period-gate` 추가로 CI가 실제 선택.
+- **CI:** `8eb0c946`(run `44455200748`)에서 `impact-checks` pass(2m23s)·`rust-core` pass(13s)·`windows-p2-descendant-boundary` pass(36s) — **3잡 전부 초록.**
+- **검수:** `agy --model gemini-3.8-flash-high --effort high`, 정확 SHA `df57c35e`(이 브랜치와 동일 트리). 6개 항목 전부 PASS, **VERDICT: APPROVE**, 차단 결함 0. 검수자가 "워커 호출자를 읽지 않았다"고 밝힌 부분(재시도 상한)은 **내가 직접 코드로 확인**했다.
+- **PR 중복·충돌:** #1034(관계 축, `app/ota_p2_routing.py`)와 **축이 다르다**. #1008(문서 A안)과도 다르다. `app/ai_classification.py`를 만지는 열린 PR #1035·#1023·#1012는 각각 `service_metadata`(197행 부근)·`_p2_metadata`(129행 부근)를 고쳐 **`prepare()` 55행 부근과 줄 충돌 없음**. `config/test-impact-map.json`은 각 PR이 그룹을 추가하는 형태라 자동 병합된다(이 브랜치는 최신 main에서 실제 자동 병합 성공).
+- **남은 일:** ① **496건 중 이 게이트가 회수하는 건수는 모른다** — 운영 사본 측정 필요, 이 범위 밖. ② 이 변경은 P2에 **기회**를 줄 뿐이며 근거가 없으면 DATE-109대로 공란. ③ P2 실행기 런타임 결선(M5 큐)은 별도 작업. ④ 병합 판단은 다음 창(이 세션은 병합·배포 금지 지시를 따랐다).
+- **다음 명령:** `gh pr checks 1036` 초록 → 소유자 결정 2026-11-17 충분조건(검수+게이트) 충족. P2 결선·496건 사유 측정은 별도 PR/창.
+
 # 2026-11-19 — OTA 별칭 4개 추가 (PR #1027, CI 초록·미병합)
 
 - **요청/결과:** 소유자 결정(2026-11-19) “OTA 명단에 airbnb·rakuten·forest·mytrip 추가”에 따라 `config/ota-matching-defaults.json`에 별칭을 추가했다. 브랜치 `analysis/ota-service-period-coverage-20261119`, 커밋 `9d4d7d07`, 기준 `40ee03fd`. **PR #1027 생성, CI(impact-checks·rust-core) 실행 중.**
