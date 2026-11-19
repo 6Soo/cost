@@ -24,7 +24,10 @@ from tools import merge_ledger_operation_requests as merge_tool
 from webapp.ledger_operation_requests import (
     OWNER_PROFILE_DOMAIN,
     RECEIPT_APPLY_DOMAIN,
+    SOURCE_FACT_DOMAIN,
     UNIFIED_TABLE_SQL,
+    UNIFIED_SOURCE_FACTS_TABLE_SQL,
+    _LEGACY_INSERT_SQL,
     insert_operation_request,
     request_journal_shape,
 )
@@ -610,3 +613,310 @@ def test_unified_duplicate_key_conflict_rolls_back_whole_transaction():
             "SELECT COUNT(*) FROM ledger_operation_requests").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+# ------------------------------------------- source_fact_apply (third domain)
+# The tool/helper/shape tests below use a lightweight raw-schema fixture (no
+# LedgerStore) so they stay fast and isolate the owned journal surface; the
+# store's source-fact write path is the writer's own verified integration.
+
+def _legacy_journal_db(tmp_path, name="board.sqlite"):
+    """A legacy-format synthetic board with one journal row per domain."""
+    db_path = tmp_path / name
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript(SCHEMA_SQL)
+        _ensure_receipt_apply_tables(conn)
+        insert_operation_request(
+            conn, unified=False, domain=OWNER_PROFILE_DOMAIN, request_id="prof-1",
+            input_digest=HASH1, result_json='{"outcome":"saved","revision":1}',
+            created_at="2026-11-20T00:00:00+00:00")
+        insert_operation_request(
+            conn, unified=False, domain=RECEIPT_APPLY_DOMAIN, request_id="receipt-req-1",
+            input_digest=HASH2, result_json='{"outcome":"applied"}',
+            created_at="2026-11-20T00:00:01+00:00")
+        insert_operation_request(
+            conn, unified=False, domain=SOURCE_FACT_DOMAIN, request_id="sf-1",
+            input_digest=HASH3, result_json='{"outcome":"applied","binding":"bundle-7"}',
+            created_at="2026-11-20T00:00:02+00:00",
+            binding="bundle-7", choices_revision=3)
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def _all_object_types(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return dict(conn.execute(
+            "SELECT name, type FROM sqlite_master WHERE name IN"
+            " ('owner_profile_requests','receipt_apply_requests',"
+            "'source_fact_applies','ledger_operation_requests')"))
+    finally:
+        conn.close()
+
+
+def _source_fact_rows(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return {row[0]: row[1:] for row in conn.execute(
+            "SELECT request_id, input_digest, binding, choices_revision,"
+            " result_json, created_at FROM source_fact_applies")}
+    finally:
+        conn.close()
+
+
+def _owner_receipt_rows(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        owner = {row[0]: row[1:] for row in conn.execute(
+            "SELECT client_request_id, input_digest, result_json, created_at"
+            " FROM owner_profile_requests")}
+        receipt = {row[0]: row[1:] for row in conn.execute(
+            "SELECT request_id, request_hash, result_json, created_at"
+            " FROM receipt_apply_requests")}
+        return {"owner": owner, "receipt": receipt}
+    finally:
+        conn.close()
+
+
+def _unified_rows_provenance(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return {(row[0], row[1]): row[2:] for row in conn.execute(
+            "SELECT domain, request_id, input_digest, result_json, created_at,"
+            " binding, choices_revision FROM ledger_operation_requests")}
+    finally:
+        conn.close()
+
+
+def _expected_unified(owner_receipt, source_facts):
+    expected = {(OWNER_PROFILE_DOMAIN, key): (value[0], value[1], value[2], None, None)
+                for key, value in owner_receipt["owner"].items()}
+    expected.update({(RECEIPT_APPLY_DOMAIN, key): (value[0], value[1], value[2], None, None)
+                     for key, value in owner_receipt["receipt"].items()})
+    expected.update({(SOURCE_FACT_DOMAIN, key):
+                     (value[0], value[3], value[4], value[1], value[2])
+                     for key, value in source_facts.items()})
+    return expected
+
+
+def test_source_fact_helper_legacy_verbatim_and_unified_provenance():
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    try:
+        conn.executescript(SCHEMA_SQL)
+        _ensure_receipt_apply_tables(conn)
+        assert _LEGACY_INSERT_SQL[SOURCE_FACT_DOMAIN] == (
+            "INSERT INTO source_fact_applies(request_id, input_digest,"
+            " binding, choices_revision, result_json, created_at)"
+            " VALUES (?,?,?,?,?,?)")
+        insert_operation_request(
+            conn, unified=False, domain=SOURCE_FACT_DOMAIN, request_id="sf-1",
+            input_digest=HASH1, result_json='{"k":1}', created_at="t0",
+            binding="bundle-7", choices_revision=3)
+        assert conn.execute(
+            "SELECT request_id, input_digest, binding, choices_revision,"
+            " result_json, created_at FROM source_fact_applies"
+            " WHERE request_id='sf-1'").fetchone() == (
+            "sf-1", HASH1, "bundle-7", 3, '{"k":1}', "t0")
+
+        conn.execute(UNIFIED_SOURCE_FACTS_TABLE_SQL)
+        insert_operation_request(
+            conn, unified=True, domain=SOURCE_FACT_DOMAIN, request_id="sf-2",
+            input_digest=HASH2, result_json='{"k":2}', created_at="t1",
+            binding="bundle-9", choices_revision=5)
+        insert_operation_request(
+            conn, unified=True, domain=OWNER_PROFILE_DOMAIN, request_id="p1",
+            input_digest=HASH3, result_json="{}", created_at="t1")
+        assert conn.execute(
+            "SELECT binding, choices_revision FROM ledger_operation_requests"
+            " WHERE domain='source_fact_apply' AND request_id='sf-2'").fetchone() == (
+            "bundle-9", 5)
+        assert conn.execute(
+            "SELECT binding, choices_revision FROM ledger_operation_requests"
+            " WHERE domain='owner_profile'").fetchone() == (None, None)
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_operation_request(
+                conn, unified=True, domain=SOURCE_FACT_DOMAIN, request_id="sf-null",
+                input_digest="d" * 64, result_json="{}", created_at="t",
+                binding=None, choices_revision=None)
+
+        conn.execute("BEGIN")
+        insert_operation_request(
+            conn, unified=True, domain=SOURCE_FACT_DOMAIN, request_id="sf-txn",
+            input_digest="e" * 64, result_json="{}", created_at="t",
+            binding="b", choices_revision=1)
+        assert conn.in_transaction
+        conn.execute("ROLLBACK")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM ledger_operation_requests"
+            " WHERE request_id='sf-txn'").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_include_source_facts_legacy_to_three_full_fidelity(tmp_path, capsys):
+    db_path = _legacy_journal_db(tmp_path)
+    before_sf = _source_fact_rows(db_path)
+    before_or = _owner_receipt_rows(db_path)
+    before_hash = _sha256(db_path)
+
+    assert merge_tool.main(["--db", str(db_path), "--include-source-facts"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "PREVIEW", "owner_profile_requests": 1,
+        "receipt_apply_requests": 1, "source_fact_applies": 1}
+    assert _sha256(db_path) == before_hash
+    assert not (tmp_path / "board.sqlite.pre-source-facts-merge-backup").exists()
+    for suffix in ("-wal", "-shm", "-journal"):
+        assert not os.path.lexists(str(db_path) + suffix)
+
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "APPLIED", "owner_profile_requests": 1,
+        "receipt_apply_requests": 1, "source_fact_applies": 1}
+    assert _all_object_types(db_path) == {
+        "owner_profile_requests": "view", "receipt_apply_requests": "view",
+        "source_fact_applies": "view", "ledger_operation_requests": "table"}
+    assert _source_fact_rows(db_path) == before_sf
+    assert _owner_receipt_rows(db_path) == before_or
+    assert _unified_rows_provenance(db_path) == _expected_unified(before_or, before_sf)
+    assert (tmp_path / "board.sqlite.pre-source-facts-merge-backup").is_file()
+    assert not (tmp_path / "board.sqlite.pre-merge-backup").exists()
+
+
+def test_include_source_facts_upgrades_two_to_three_preserving_first_backup(tmp_path, capsys):
+    db_path = _legacy_journal_db(tmp_path)
+    before_sf = _source_fact_rows(db_path)
+    before_or = _owner_receipt_rows(db_path)
+
+    assert merge_tool.main(["--db", str(db_path), "--apply"]) == 0
+    capsys.readouterr()
+    assert _all_object_types(db_path) == {
+        "owner_profile_requests": "view", "receipt_apply_requests": "view",
+        "source_fact_applies": "table", "ledger_operation_requests": "table"}
+    first_backup = tmp_path / "board.sqlite.pre-merge-backup"
+    assert first_backup.is_file()
+    first_backup_bytes = first_backup.read_bytes()
+
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "APPLIED", "owner_profile_requests": 1,
+        "receipt_apply_requests": 1, "source_fact_applies": 1}
+    assert _all_object_types(db_path) == {
+        "owner_profile_requests": "view", "receipt_apply_requests": "view",
+        "source_fact_applies": "view", "ledger_operation_requests": "table"}
+    assert _source_fact_rows(db_path) == before_sf
+    assert _owner_receipt_rows(db_path) == before_or
+    assert _unified_rows_provenance(db_path) == _expected_unified(before_or, before_sf)
+    assert first_backup.read_bytes() == first_backup_bytes
+    assert (tmp_path / "board.sqlite.pre-source-facts-merge-backup").is_file()
+
+
+def test_include_source_facts_refuses_already_unified_write_free(tmp_path, capsys):
+    db_path = _legacy_journal_db(tmp_path)
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 0
+    capsys.readouterr()
+    after_hash = _sha256(db_path)
+    backup = tmp_path / "board.sqlite.pre-source-facts-merge-backup"
+    backup_bytes = backup.read_bytes()
+    for extra in (["--include-source-facts"], ["--include-source-facts", "--apply"],
+                  [], ["--apply"]):
+        assert merge_tool.main(["--db", str(db_path), *extra]) == 2
+        assert json.loads(capsys.readouterr().out)["reason"] == "ALREADY_UNIFIED"
+        assert _sha256(db_path) == after_hash
+    assert backup.read_bytes() == backup_bytes
+    assert not (tmp_path / "board.sqlite.pre-merge-backup").exists()
+
+
+def test_include_source_facts_refuses_invalid_source_write_free(tmp_path, capsys):
+    null_db = _legacy_journal_db(tmp_path, name="null.sqlite")
+    _raw_sql(null_db, """
+        CREATE TABLE source_fact_applies_null AS SELECT * FROM source_fact_applies;
+        DROP TABLE source_fact_applies;
+        ALTER TABLE source_fact_applies_null RENAME TO source_fact_applies;
+        UPDATE source_fact_applies SET binding=NULL WHERE request_id='sf-1';
+    """)
+    null_hash = _sha256(null_db)
+    for extra in (["--include-source-facts"], ["--include-source-facts", "--apply"]):
+        assert merge_tool.main(["--db", str(null_db), *extra]) == 2
+        assert json.loads(capsys.readouterr().out)["reason"] == "SOURCE_INVALID"
+    assert _sha256(null_db) == null_hash
+    assert not (tmp_path / "null.sqlite.pre-source-facts-merge-backup").exists()
+
+    dup_db = _legacy_journal_db(tmp_path, name="dup.sqlite")
+    _raw_sql(dup_db, """
+        CREATE TABLE source_fact_applies_dup AS SELECT * FROM source_fact_applies;
+        DROP TABLE source_fact_applies;
+        ALTER TABLE source_fact_applies_dup RENAME TO source_fact_applies;
+        INSERT INTO source_fact_applies
+            SELECT * FROM source_fact_applies WHERE request_id='sf-1';
+    """)
+    for extra in (["--include-source-facts"], ["--include-source-facts", "--apply"]):
+        assert merge_tool.main(["--db", str(dup_db), *extra]) == 2
+        assert json.loads(capsys.readouterr().out)["reason"] == "SOURCE_INVALID"
+    assert not (tmp_path / "dup.sqlite.pre-source-facts-merge-backup").exists()
+
+
+def test_include_source_facts_refuses_existing_backup(tmp_path, capsys):
+    db_path = _legacy_journal_db(tmp_path)
+    backup = tmp_path / "board.sqlite.pre-source-facts-merge-backup"
+    backup.write_bytes(b"previous protected source-facts backup")
+    before_hash = _sha256(db_path)
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 2
+    assert json.loads(capsys.readouterr().out)["reason"] == "BACKUP_EXISTS"
+    assert backup.read_bytes() == b"previous protected source-facts backup"
+    assert _sha256(db_path) == before_hash
+    assert _all_object_types(db_path)["source_fact_applies"] == "table"
+
+
+def test_include_source_facts_failure_rolls_back_and_preserves_backup(tmp_path, capsys, monkeypatch):
+    db_path = _legacy_journal_db(tmp_path)
+    before_sf = _source_fact_rows(db_path)
+    before_or = _owner_receipt_rows(db_path)
+    original_bytes = db_path.read_bytes()
+    original = merge_tool.insert_operation_request
+    calls = {"n": 0}
+
+    def failing_insert(conn, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 3:  # sorted order: owner_profile, receipt_apply, source_fact_apply
+            raise RuntimeError("synthetic source-facts merge failure")
+        return original(conn, **kwargs)
+
+    monkeypatch.setattr(merge_tool, "insert_operation_request", failing_insert)
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["reason"] == "INTERNAL_ERROR"
+    assert "backup_restored" not in out
+    assert calls["n"] == 3
+    backup = tmp_path / "board.sqlite.pre-source-facts-merge-backup"
+    assert backup.is_file()
+    assert backup.read_bytes() == original_bytes
+    assert _source_fact_rows(db_path) == before_sf
+    assert _owner_receipt_rows(db_path) == before_or
+    assert _all_object_types(db_path) == {
+        "owner_profile_requests": "table", "receipt_apply_requests": "table",
+        "source_fact_applies": "table"}
+
+
+def test_include_source_facts_mixed_shape_fails_closed(tmp_path, capsys):
+    db_path = _legacy_journal_db(tmp_path)
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 0
+    capsys.readouterr()
+    _raw_sql(db_path, "DROP VIEW source_fact_applies;")
+    conn = sqlite3.connect(str(db_path))
+    try:
+        with pytest.raises(RuntimeError):
+            request_journal_shape(conn)
+    finally:
+        conn.close()
+    for extra in (["--include-source-facts"], ["--include-source-facts", "--apply"], []):
+        assert merge_tool.main(["--db", str(db_path), *extra]) == 2
+        assert json.loads(capsys.readouterr().out)["reason"] == "LEGACY_SHAPE"
