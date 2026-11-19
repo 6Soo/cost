@@ -50,6 +50,14 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('#trip-reservations').count(), 1)
                 page.locator('#trip-reservations > summary').click()
                 self.assertTrue(page.locator('#trip-reservations').evaluate('e=>e.open'))
+                # The <details> toggle handler fills the iframe's src, and that
+                # handler runs on the toggle event the click raises. Reading src
+                # immediately raced it on the linux runner: the element existed
+                # but the attribute was still absent. Wait for the attribute the
+                # handler sets — the same assertion, once its precondition holds.
+                page.wait_for_function(
+                    "() => document.querySelector('#trip-reservations iframe')"
+                    ".getAttribute('src')", timeout=5000)
                 self.assertIn('trip=trip-demo-a', page.locator('#trip-reservations iframe').get_attribute('src'))
                 self.assertTrue(page.locator('#trip-reservations iframe').is_visible())
                 page.close()
