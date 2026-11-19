@@ -16,8 +16,11 @@ from tools.webledger_windows_lifecycle import mutex_name
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows Job Object contract")
-ROOT = Path(__file__).resolve().parents[1]
+# This file lives in platform_tests/windows/, three levels below the repo root,
+# where it used to sit directly under tests/.
+ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "tools" / "webledger_windows_lifecycle.py"
+sys.path.insert(0, str(ROOT / "tools"))
 
 
 def launch(port, code, role="Board"):
