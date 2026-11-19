@@ -161,3 +161,39 @@ def test_owner_legacy_kpi_and_shared_totals_agree_on_a_linked_tab(linked_store):
             kpi_income, totals, store.tab_totals(tab)["income"])
     finally:
         ledger_board.bind_store(previous)
+
+
+def test_row_list_headers_exclude_a_linked_bank_row(linked_store):
+    """F2 on the row lists: the same screen must not show two COST totals.
+
+    The desktop table header (``수입 (COST 기록)``) and the mobile list header
+    (``기존 수입``) are rendered from the same rows as the KPI.  They summed the
+    whole COST group, so a linked bank evidence row (R06) made them state
+    2,000,000 while the KPI, ``_summary_html`` and ``store.tab_totals`` said
+    1,000,000 on the same page.
+    """
+    from webapp import ledger_board
+
+    store, tab, _linked_id = linked_store
+    baseline = store.tab_totals(tab)["income"]
+    previous = ledger_board._STORE
+    ledger_board.bind_store(store)
+    try:
+        ledger_board._ROLE_LOCAL.role = "owner"
+        ledger_board._ROLE_LOCAL.session = None
+        incomes = ledger_design._selected_rows(tab, "", "")[0]
+        assert len([r for r in incomes if r.get("row_kind") == "income"]) == 2, incomes
+        table_html = ledger_design._tables_html(incomes, [], selected="", unclassified=False)
+        mobile_html = ledger_design._mobile_html(incomes, [], selected="", unclassified=False)
+    finally:
+        ledger_board.bind_store(previous)
+
+    header = re.search(r"수입 \(COST 기록\).*?<th class='num'>([^<]+)</th>", table_html, re.S)
+    assert header, table_html[:400]
+    shown = int(header.group(1).replace("원", "").replace("−", "-").replace(",", ""))
+    assert shown == baseline, (shown, baseline)
+
+    listed = re.search(r"<span>기존 수입</span><span class='tnum'>([^<]+)</span>", mobile_html)
+    assert listed, mobile_html[:400]
+    shown_mobile = int(listed.group(1).replace("원", "").replace("−", "-").replace(",", ""))
+    assert shown_mobile == baseline, (shown_mobile, baseline)

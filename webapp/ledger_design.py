@@ -1438,7 +1438,13 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     # header keeps its own figure and the Google block gets the second.
     cost_incomes = [r for r in incomes if not r.get("google_income")]
     google_incomes = [r for r in incomes if r.get("google_income")]
-    income_total = sum(board._shown_amount(r) for r in cost_incomes)
+    # R06: the linked bank evidence row is the same money as the direct income it
+    # supports, so it is not a second income in this header either. The KPI,
+    # _summary_html and store.tab_totals all exclude it; a header that kept it
+    # would state a different total on the same screen.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income_total = sum(board._shown_amount(r) for r in cost_incomes
+                       if r.get("row_id") not in linked)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     google_total = sum(board._shown_amount(r) for r in google_incomes
                        if not r.get("amount_missing"))
@@ -1523,7 +1529,12 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
 
     cost_incomes = [r for r in incomes if not r.get("google_income")]
     google_incomes = [r for r in incomes if r.get("google_income")]
-    income_total = sum(board._shown_amount(r) for r in cost_incomes)
+    # R06: same reason as _tables_html — the linked bank evidence row is not a
+    # second income, and this list's header must state the figure the KPI,
+    # _summary_html and store.tab_totals already report.
+    linked = ledger_query.linked_bank_ids(board._active_store())
+    income_total = sum(board._shown_amount(r) for r in cost_incomes
+                       if r.get("row_id") not in linked)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
         f"<li class='list-group lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></li>"
