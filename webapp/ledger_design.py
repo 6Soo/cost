@@ -1015,6 +1015,7 @@ def _trip_periods():
 _UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
 
 
+# CI probe: no behavior change (comment only).
 def _service_date_labels(row):
     labels = _service_date_labels_for(row)
     # A cancellation or refund has no service day of its own; only an unknown date is replaced.
