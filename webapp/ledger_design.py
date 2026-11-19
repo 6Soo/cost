@@ -1016,10 +1016,22 @@ _UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
 
 
 def _service_date_labels(row):
+    """The period cell text: the dates only, and a blank when there is none.
+
+    소유자 결정 2026-11-19: the cell carries real dates and nothing else. A
+    cancelled or refunded charge has no service day of its own, and a row whose
+    sources give no period has none either — both stay blank instead of
+    printing a word where a date would go. The negative-amount check is the
+    condition that used to print '취소·환불' (the 131 rows the owner counted).
+
+    The internal sentinels ('이용일 확인 필요' / '이용일 미확인') are still produced
+    by :func:`_service_date_labels_for`; they are replaced only here, at the
+    boundary that hands text to the screen, so the formatters that compare
+    against them keep working unchanged.
+    """
     labels = _service_date_labels_for(row)
-    # A cancellation or refund has no service day of its own; only an unknown date is replaced.
-    if labels[0] in _UNKNOWN_SERVICE_DATES and (row.get('display_amount_krw', row.get('amount_krw')) or 0) < 0:
-        return '취소·환불', '취소·환불 거래라 별도 이용일이 없음'
+    if labels[0] in _UNKNOWN_SERVICE_DATES:
+        return '', ''
     return labels
 
 
@@ -1803,14 +1815,62 @@ def _group_expenses_for_display(rows: list) -> list:
     return sorted(rows, key=key)
 
 
+def _quarter_tab_rows(tab_id: str, store, kind: str):
+    """A quarter tab's own saved rows of one kind, read the way the common query reads them.
+
+    ``board._expense_rows``/``board._income_rows`` only walk the trip tabs
+    (`trip_tabs`) and the unassigned bucket, so a quarter tab is not in them and
+    its records never appeared on this screen while the common query served them
+    straight from `board_rows`. Both paths now read `list_tab_rows` for the tab,
+    so the row set and the sum are the same set of rows on either entry point
+    (SPEC §11.2.1 계약 1·3). Amounts, signs and the stored records are
+    untouched: only which rows this screen counts and draws.
+    """
+    if store is None:
+        return []
+    rows = [row for row in store.list_tab_rows(tab_id)
+            if str(row.get('row_kind') or 'expense') == kind]
+    return board._with_display_amount(rows)
+
+
+def _quarter_excluded_ids(store) -> set:
+    """The refund-tab attribution keys the general expense list leaves out.
+
+    The same rule and the same role boundary as ``_selected_rows``: only the
+    owner attribution hides a completed net-zero refund group (RFND-022 /
+    ITEM-011), and a viewer keeps the pair. Keeping this in one place stops the
+    quarter header and its live summary from counting different rows.
+    """
+    if store is None or board.current_role() != 'owner':
+        return set()
+    from .refund_tab import member_ids
+    return set(member_ids(store))
+
+
+def _quarter_booked_rows(tab_id: str, store):
+    """A quarter tab's own saved expense rows (the rows this screen books).
+
+    ``_selected_rows`` hides the owner's completed net-zero refund groups from
+    the expenses it shows, and the live summary reads them through it. A quarter
+    tab row can carry the same ``source_event_id`` as a trip tab's pair, so this
+    screen has to apply that same exclusion to the header and the body; without
+    it the header counted a row the summary beside it dropped.
+    """
+    rows = _quarter_tab_rows(tab_id, store, "expense")
+    excluded = _quarter_excluded_ids(store)
+    if not excluded:
+        return rows
+    return [row for row in rows if row.get('source_event_id') not in excluded]
+
+
 def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
     """A quarter's cost tab: rows waiting for confirmation, the booked rows, and the one action that books the waiting rows."""
     from app import quarter_tab
     store = board._active_store()
     pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
-    booked = [r for r in board._expense_rows() if r.get('display_tab_id') == tab_id]
+    booked = _quarter_booked_rows(tab_id, store)
     pending_total = sum(int(r['amount_krw'] or 0) for r in pending)
-    booked_total = sum(int(r.get('amount_krw') or 0) for r in booked)
+    booked_total = sum(board._shown_amount(r) for r in booked)
     note = (f"<p class='status err' role='alert'>{board.esc(error)}</p>" if error else
             f"<p class='status' role='status'>{board.esc(message)}</p>" if message else "")
 
@@ -1819,13 +1879,23 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
                 f"<td class='num'>{int(amount or 0):,}원</td></tr>")
     waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
-    done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
+    done = "".join(line(str(r.get('display_occurred_on') or r.get('occurred_on') or '')[:10],
+                        r.get('source_merchant') or r.get('merchant') or r.get('description'),
+                        board._shown_amount(r))
                    for r in booked) or "<tr><td colspan='3'>거래가 없습니다.</td></tr>"
     return ("<div class='body'>" + note +
             f"<h3>거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
             f"<tbody>{done}</tbody></table>"
             f"<h3>기록 전 기존 거래 {len(pending)}건 · {pending_total:,}원</h3>"
             f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
+
+
+def _is_quarter_tab(tab_id: str) -> bool:
+    """True only for a ``quarter:YYYY:Q`` 기타비용 tab."""
+    if not tab_id:
+        return False
+    from app import quarter_tab
+    return bool(quarter_tab.parse_tab(tab_id))
 
 
 def _is_trip_tab(tab_id: str) -> bool:
@@ -2000,6 +2070,16 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     if tab_id == "unclassified":
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") is None]
         expenses = board._unclassified_rows()
+    elif _is_quarter_tab(tab_id):
+        # SPEC §11.2.1 계약 1·3: a quarter 기타비용 tab's rows are stored on it
+        # like a trip tab's, but `board._expense_rows`/`_income_rows` walk
+        # `trip_tabs` and the unassigned bucket only, so a quarter tab read
+        # nothing here while the common query served its rows. Both now read
+        # `list_tab_rows` for the tab, so the quarter page, its live summary and
+        # the common query count the same rows. Amounts, signs and the stored
+        # records are untouched.
+        incomes = _quarter_tab_rows(tab_id, board._active_store(), "income")
+        expenses = _quarter_tab_rows(tab_id, board._active_store(), "expense")
     else:
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
         expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
@@ -2009,8 +2089,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         incomes = []
     whole_income, whole_expense = list(incomes), list(expenses)
     if board.current_role() == 'owner':
-        from .refund_tab import member_ids
-        paired = member_ids(board._active_store())
+        paired = _quarter_excluded_ids(board._active_store())
         expenses = [r for r in expenses if r.get('source_event_id') not in paired]
         whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
@@ -2111,8 +2190,8 @@ def _quarter_page(tab_id: str, title: str, *, query: str = '', kind: str = '',
     store = board._active_store()
     from app import quarter_tab
     pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
-    booked = [row for row in board._expense_rows() if row.get('display_tab_id') == tab_id]
-    total = sum(int(row.get('amount_krw') or 0) for row in booked)
+    booked = _quarter_booked_rows(tab_id, store)
+    total = sum(board._shown_amount(row) for row in booked)
     status = (f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>" if error else
               f"<p class='status' id='status' role='status'>{board.esc(message)}</p>" if message else '')
     header = ui_components.page_header(title, meta='여행에 속하지 않는 비용', breadcrumb=())

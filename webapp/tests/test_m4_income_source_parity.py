@@ -116,4 +116,6 @@ def test_an_unverified_google_block_leaves_both_paths_unknown(
         dict(tab_id=tab, google_verified=False),
         [{"row_id": "google-income|t|main|9", "row_kind": "income",
           "google_income": True, "display_amount_krw": 1000}])
-    assert summary["income"] == "미확인", summary
+    # 소유자 결정 2026-11-19 ②: unknown income is one em dash; the legacy KPI
+    # still reports None, which is the same "no figure" state.
+    assert summary["income"] == "—", summary
