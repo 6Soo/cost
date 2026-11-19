@@ -920,3 +920,53 @@ def test_include_source_facts_mixed_shape_fails_closed(tmp_path, capsys):
     for extra in (["--include-source-facts"], ["--include-source-facts", "--apply"], []):
         assert merge_tool.main(["--db", str(db_path), *extra]) == 2
         assert json.loads(capsys.readouterr().out)["reason"] == "LEGACY_SHAPE"
+
+
+# --------------------- independent-review O1: converted store write path
+# The unit and tool tests above cover the helper and the CLI, but the store's
+# own source-fact apply write had only ever been exercised on a *legacy*
+# database (``test_ledger_apply`` builds its store before any merge). After the
+# conversion the store must write into ``ledger_operation_requests`` with
+# ``domain='source_fact_apply'`` and replay through the ``source_fact_applies``
+# view, so this drives that exact path once.
+
+def test_converted_store_writes_and_replays_through_the_source_fact_view(
+        tmp_path, monkeypatch):
+    from webapp import ledger_store as ledger_store_mod
+
+    db_path = _legacy_journal_db(tmp_path)
+    assert merge_tool.main(
+        ["--db", str(db_path), "--include-source-facts", "--apply"]) == 0
+    assert request_journal_shape(sqlite3.connect(str(db_path))) == "unified_source_facts"
+
+    monkeypatch.setenv("WEBLEDGER_DB", str(db_path))
+    store = ledger_store_mod.LedgerStore(db_path, seed_demo=False)
+    try:
+        assert store._source_fact_journal_unified is True
+        # The replay read goes through the compatibility view, so a hit there
+        # proves the view resolves to the unified table for this domain.
+        conn = store.conn
+        row = conn.execute(
+            "SELECT input_digest, binding, choices_revision FROM source_fact_applies"
+            " WHERE request_id='sf-1'").fetchone()
+        assert row == (HASH3, "bundle-7", 3)
+        unified = conn.execute(
+            "SELECT binding, choices_revision FROM ledger_operation_requests"
+            " WHERE domain='source_fact_apply' AND request_id='sf-1'").fetchone()
+        assert unified == ("bundle-7", 3)
+        # A store write lands in the unified table, not a resurrected legacy one.
+        insert_operation_request(
+            conn, unified=store._source_fact_journal_unified,
+            domain=SOURCE_FACT_DOMAIN, request_id="sf-2", input_digest=HASH1,
+            result_json='{"outcome":"applied"}',
+            created_at="2026-11-20T00:00:03+00:00", binding="bundle-8",
+            choices_revision=4)
+        conn.commit()
+        assert conn.execute(
+            "SELECT binding FROM source_fact_applies WHERE request_id='sf-2'"
+        ).fetchone()[0] == "bundle-8"
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='source_fact_applies' AND type='view'"
+        ).fetchone() is not None
+    finally:
+        store.close()
