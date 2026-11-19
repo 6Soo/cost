@@ -42,7 +42,9 @@ def test_theme_remains_visible_on_desktop_and_shares_mobile_row():
             if width < 1024:
                 assert page.locator('.site-more-bottom').count() == 1
                 page.locator('.site-more-bottom').click()
-            assert button.count() == 1 and button.is_visible()
+            assert button.count() == 1
+            # Closing the mobile sheet and changing the media query relocate the button.
+            button.wait_for(state='visible')
             box = button.bounding_box()
             assert box['width'] >= 44 and box['height'] >= 44
             if width < 1024:

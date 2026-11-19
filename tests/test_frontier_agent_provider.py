@@ -129,7 +129,6 @@ def test_bounded_subprocess_stdin_and_actual_output_cap(tmp_path):
     assert time.monotonic() - started < 5
 
 
-# The Windows Job Object descendant boundary needs Win32 APIs and cannot be
-# decided on Linux. Its original assertions live unchanged in
-# platform_tests/windows/test_frontier_agent_child_boundary.py and run in the
-# dedicated windows-p2-descendant-boundary CI job.
+# The descendant-lifecycle boundary needs Windows Job Objects. Its test lives in
+# platform_tests/windows/ and runs on the dedicated windows-2022 job; keeping a
+# copy here would assert on a Linux host and fail every P2 change.

@@ -72,13 +72,13 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - uses: actions/setup-python@v5
         if: steps.changed.outputs.run == 'true'
+        # The integration tests in crates/cli/tests call the Python pipeline
+        # (t4_python.py -> app.* -> openpyxl). Without the app dependencies
+        # cargo test fails on every core/ change, so the gate never passes.
         with:
           python-version: '3.14'
-      - name: Install Python dependencies for Rust/Python integration tests
+      - name: Install Python dependencies for the Rust/Python integration tests
         if: steps.changed.outputs.run == 'true'
-        # cli/tests/apply_t4.rs runs the Python apply and imports app/, which
-        # needs openpyxl and the other app dependencies. Without this step the
-        # Rust gate fails on any workflow-only change with ModuleNotFoundError.
         run: python -m pip install -r requirements.txt
       - name: cargo test
         if: steps.changed.outputs.run == 'true'
@@ -100,8 +100,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
       - name: Install pinned Rust toolchain (selected tests may build costcore)
         working-directory: core
         run: rustup show active-toolchain || rustup toolchain install
@@ -144,6 +142,17 @@ jobs:
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "browser=$browser" >> "$GITHUB_OUTPUT"
+      - name: Cache pip downloads for the runs that install dependencies
+        # setup-python's built-in `cache: pip` fails its post job when the pip
+        # folder never appears ("Cache folder path is retrieved for pip but
+        # doesn't exist on disk"). A docs-only change skips the install step and
+        # still turned the whole job red. Caching only on the runs that install
+        # keeps the download cache while a passing check can never be flipped.
+        if: steps.plan.outputs.reuse != 'true' && (steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT')
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements-dev.txt', 'requirements.txt') }}
       - name: Install test dependencies
         if: steps.plan.outputs.reuse != 'true' && (steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT')
         run: python -m pip install -r requirements-dev.txt
@@ -186,10 +195,9 @@ jobs:
           retention-days: 14
 
   windows-p2-descendant-boundary:
-    # The P2 subprocess boundary needs Win32 Job Objects, so the Linux
-    # impact-checks job cannot decide it. The test itself asserts
-    # `os.name == 'nt'`: a Linux skip would be no evidence, so it runs here
-    # unchanged on every pull request and every push to main.
+    # The P2 descendant-lifecycle boundary needs Windows Job Objects. A Linux run
+    # cannot prove it, and a Linux skip is not evidence, so the original
+    # assertions execute here on every pull request and every push to main.
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: windows-2022
     timeout-minutes: 12
@@ -200,9 +208,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - name: Install app and Windows boundary test dependencies
+      - name: Install app and boundary test dependencies
         run: |
-          python -m pip install -r requirements.txt
-          python -m pip install "pytest>=8,<10"
+          python -m pip install -r requirements-dev.txt
       - name: Verify real Windows child termination on timeout
         run: python -m pytest platform_tests/windows/test_frontier_agent_child_boundary.py -q

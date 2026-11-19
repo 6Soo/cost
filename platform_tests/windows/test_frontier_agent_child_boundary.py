@@ -1,21 +1,22 @@
 """Windows-only P2 subprocess descendant lifecycle boundary.
 
-This boundary needs Win32 Job Objects, so it cannot be decided on Linux: the
-assertion inside is the evidence itself and must not be weakened into a skip.
-It runs unchanged in the dedicated `windows-p2-descendant-boundary` job for
-every pull request and every push to main.
+This test needs Windows Job Objects, so it cannot run on the Linux impact-checks
+host. It runs on the dedicated `windows-p2-descendant-boundary` job
+(runs-on: windows-2022), which executes for every pull request and every push to
+main. Nothing here is skipped: a non-Windows host fails the assertion instead of
+silently passing, and the boundary assertions are unchanged from the former copy
+in tests/test_frontier_agent_provider.py.
 """
+import ctypes
 import os
 import subprocess
 import sys
+from ctypes import wintypes as wt
 
 import pytest
 
 
 def test_windows_immediate_child_spawn_is_owned_and_killed_on_timeout(tmp_path):
-    import ctypes
-    import os
-    from ctypes import wintypes as wt
     from app.connected_agent_provider import _run_bounded
     assert os.name == 'nt', 'This boundary must be verified on Windows'
     identity = tmp_path / 'synthetic-child.pid'
