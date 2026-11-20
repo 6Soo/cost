@@ -276,10 +276,17 @@ def extract_baseline_compare(request):
     return capture.compare(request, BridgeError)
 
 
+def extract_sources(request):
+    """M6 source parser stages from an explicit read-only evidence copy (private IPC)."""
+    from .extract_sources import capture
+    return capture(request, BridgeError)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'candidates': candidates, 'plan': plan,
             'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods,
             'ota-input': ota_input, 'extract-baseline': extract_baseline,
-            'extract-baseline-compare': extract_baseline_compare}
+            'extract-baseline-compare': extract_baseline_compare,
+            'extract-sources': extract_sources}
 
 
 def canonical(value):

@@ -78,7 +78,7 @@ pub fn reject_live_db(db: &Path, host_root: &Path) -> Result<(), PipelineError> 
 
 /// 같은 경로가 아니어도 하드 링크처럼 같은 파일이면 참이다. unsafe 없이 쓸 수 있는 신원만 본다:
 /// unix는 (장치, inode), Windows는 길이·생성 시각·수정 시각이 모두 같은 경우(복사본은 생성 시각이 새로 생긴다).
-fn same_file(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
         return false;
     };

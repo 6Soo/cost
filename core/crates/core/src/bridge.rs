@@ -83,6 +83,18 @@ impl PythonBridge {
         self.call("links", body)
     }
 
+    /// M6 transition parsers only; Rust handles cross-source enrichment/merging.
+    /// The response contains private source facts and must never be printed.
+    pub fn extract_sources(&self, evidence: &Path, host: &Path) -> Result<Value, BridgeError> {
+        self.call(
+            "extract-sources",
+            &json!({
+                "ota_evidence": evidence.to_string_lossy(),
+                "host_root": host.to_string_lossy(),
+            }),
+        )
+    }
+
     /// 2차 전환 전까지 환불 짝 연결은 Python 결과를 쓴다(`links` kind=refund).
     pub fn refund_links(
         &self,
