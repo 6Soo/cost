@@ -2,11 +2,14 @@
 //! forest period enrichment, proven-payment merging and baseline bytes are Rust.
 //! No card, classification, override or ledger writes are performed here.
 
+mod airbnb;
 mod decimal;
 mod forest;
 mod merge;
+mod pyre;
 mod traveloka;
 
+pub use airbnb::{AirbnbInput, AirbnbMessage, airbnb_events};
 pub use traveloka::{TravelokaInput, traveloka_fact};
 
 use std::collections::{BTreeMap, BTreeSet};
