@@ -1,6 +1,15 @@
 # COST 현재 상태 · 작업 인계
 
-기준일 2026-11-21 KST. 확인한 main은 7d343bc4, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+기준일 2026-11-21 KST. 확인한 main은 380bdad0, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+
+## 2026-11-21 (2) · M6 Mytrip 파서 이식 단위
+
+- 퇴역 계획 3-b 세 번째 단위. Airbnb와 같은 경계로 `collect()` 전체를 Rust로 옮겼다(`380bdad0`, PR #1079). 골든 **26건**, 변경 없는 Python 파서 생성, 필드·canonical 바이트·SHA-256 일치. 독립 검수 **APPROVE**(차단 0).
+- **보존한 쿼크:** 무효 leg 1건 → 메시지 전체 기각, 금액 집합이 **원본 문자열** 기준(`224,682` vs `224682`는 기각), 연도 0 기각, `$`가 말미 개행 1개 허용(`(?:\n?\z)`), 취소가 본문 전 주문으로 전파·sticky, `KRW` 뒤 `\b`.
+- **`pyre.rs`에 `strip` 추가** — Python `str.strip()`은 `U+001C..U+001F`를 공백으로 보지만 Rust `trim()`은 안 본다. traveloka 28건·airbnb 31건 골든 무변동이 회귀 가드다.
+- **검증:** lib 132건, mytrip 26건, airbnb 31건, traveloka 28건, extract 50건, `fmt`·`clippy` 경고 0, Python mytrip 4건. **추가 전용**.
+- **CI 실패 1건은 코드가 아니라 문서 링크 검사였다.** 조사 문서의 `[...](KST 22:49同日)`가 링크 패턴에 걸려 상대 경로를 찾았다 → 공백으로 분리(`0ef9f964`). 이 검사는 인라인 값 뒤 괄호를 링크로 읽으므로 문서 작성 시 띄어쓰기가 필요하다.
+- 조사: [Mytrip 이식 조사](agents/artifacts/m6-mytrip-port-20261121.md), 검수: [기록](agents/artifacts/m6-mytrip-review-20261121.md).
 
 ## 2026-11-21 · M6 Airbnb 파서 이식 단위
 
