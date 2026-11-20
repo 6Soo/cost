@@ -167,15 +167,23 @@ fn references(input: &TravelokaInput) -> Vec<String> {
     booking_ids(&text)
 }
 
-/// Non-overlapping booking ids, with Python's trailing `\b` applied after each capture.
+/// Booking ids with Python's trailing `\b` applied after each capture.
+///
+/// Python collects these into a `set`, so the same id written in both the subject and the body
+/// counts once. Keeping the first-seen order makes the reference match Python's `next(iter(...))`
+/// for the single-id case and keeps the comparison deterministic.
 fn booking_ids(text: &str) -> Vec<String> {
-    let mut ids = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
     for captures in BOOKING_ID.captures_iter(text) {
         let Some(found) = captures.get(1) else {
             continue;
         };
-        if word_boundary_after(text, found.end()) {
-            ids.push(found.as_str().to_owned());
+        if !word_boundary_after(text, found.end()) {
+            continue;
+        }
+        let id = found.as_str().to_owned();
+        if !ids.contains(&id) {
+            ids.push(id);
         }
     }
     ids
