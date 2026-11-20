@@ -141,7 +141,7 @@
 .receipt-status--failed,
 .receipt-status--error { color: var(--receipt-danger); }
 .receipt-status--applied { color: var(--cost-success-text, #17643b); }
-.receipt-results-pane { min-width: 0; }
+.receipt-results-pane { min-width: 0; padding-bottom: 88px; }
 .receipt-active-photo { color: var(--receipt-muted); font-size: 12px; margin: -8px 0 12px; }
 .receipt-result-list { display: grid; gap: 10px; }
 .receipt-result { min-width: 0; padding: 14px; border: 1px solid color-mix(in srgb, var(--receipt-border) 45%, transparent); border-radius: 16px; background: var(--receipt-bg); }

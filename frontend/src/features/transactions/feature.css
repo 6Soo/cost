@@ -7,6 +7,7 @@
   --e-border: var(--cost-border-control, #858581);
   --e-danger: var(--cost-danger-text, #b42318);
   --e-success: var(--cost-success-text, #17643b);
+  --e-warning: var(--cost-warning-text, #855a00);
   color: var(--e-text);
   display: grid;
   gap: 1rem;
@@ -180,10 +181,7 @@
   line-height: 1.5;
 }
 
-.e-feature-status,
-.e-feature-notice {
-  color: var(--e-success);
-}
+.e-feature-status { color: var(--e-success); } .e-feature-notice { color: var(--e-warning); }
 
 .e-feature-error {
   color: var(--e-danger);
@@ -197,7 +195,7 @@
 .e-feature-table {
   border-collapse: collapse;
   inline-size: 100%;
-  min-inline-size: 46rem;
+  min-inline-size: 56rem;
 }
 
 .e-feature-table :where(th, td) {
