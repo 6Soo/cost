@@ -663,9 +663,10 @@ class CoreOtaPaymentBackend:
         solver_transactions = [row for row in transactions
                               if str(row.get("transaction_id") or "") not in reservation_card_ids]
         started = time.perf_counter()
+        supports_candidate_batch = False
         try:
             if core_ota_links.selected() == "rust":
-                results = core_ota_links.match_ota_payment_events(
+                results, supports_candidate_batch = core_ota_links.solve(
                     events, solver_transactions, existing_links=links, rules=rules,
                     frozen_groups=frozen_groups)
             else:
@@ -701,6 +702,7 @@ class CoreOtaPaymentBackend:
                 occupied_cards.add(str(result["transaction_id"]))
             occupied_cards.update(str(identity) for identity in result.get("reserved_card_ids") or ())
         if callable(candidate_search):
+            search_targets = []
             for result in results:
                 event_id = str(result.get("ota_event_id") or "")
                 event = canonical_by_id.get(event_id)
@@ -708,7 +710,16 @@ class CoreOtaPaymentBackend:
                         ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH", "HOLD_AMOUNT_UNVERIFIED", "RESERVATION_ONLY") or
                         result.get("evidence_missing") or result.get("evidence_changed")):
                     continue
-                trace = candidate_search(event, transactions, existing_links=links, rules=rules)
+                search_targets.append((result, event))
+
+            rust_searches = (core_ota_links.search_card_candidates(
+                [event for _, event in search_targets], transactions, existing_links=links, rules=rules)
+                if supports_candidate_batch and search_targets else {})
+            for result, event in search_targets:
+                event_id = event["ota_event_id"]
+                trace = rust_searches.get(event_id)
+                if trace is None:
+                    trace = candidate_search(event, transactions, existing_links=links, rules=rules)
                 if event.get("provider") in ("toyoko", "forest") and event.get("event_type") == "reservation":
                     raw_reservation_searches[event_id] = dict(trace,
                         candidates=[dict(candidate) for candidate in trace.get("candidates") or ()],

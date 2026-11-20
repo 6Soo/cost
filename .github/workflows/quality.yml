@@ -180,6 +180,10 @@ jobs:
       - name: Run data protection gate and impact tests
         if: steps.plan.outputs.reuse != 'true'
         run: |
+          # Test credentials must be private under POSIX permissions.
+          umask 077
+          # The original crash-recovery test runs in the Windows job below.
+          export PYTEST_ADDOPTS="--deselect=tests/test_m5_runtime_integration.py::test_killed_node_process_leaves_durable_lease_and_reconnect_completes_once"
           if [[ "${{ steps.plan.outputs.audit }}" == "true" ]]; then
             python tools/run_quality_checks.py --head HEAD --audit --run
           else
@@ -202,8 +206,7 @@ jobs:
   windows-p2-descendant-boundary:
     # The P2 descendant-lifecycle boundary needs Windows Job Objects. A Linux run
     # cannot prove it, and a Linux skip is not evidence, so the original
-    # assertions execute here on every pull request and every push to main.
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    # assertions execute here on every quality workflow run.
     runs-on: windows-2022
     timeout-minutes: 12
     steps:
@@ -223,3 +226,13 @@ jobs:
         # job was no evidence for the tests it named. pytest exits 5 when it
         # collects nothing, so an empty folder still fails this step.
         run: python -m pytest platform_tests/windows -q
+      - name: Verify M5 crash recovery with Windows process termination
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/costcore-target
+        run: |
+          Push-Location core
+          cargo build --release -p costcore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          $env:COSTCORE_TEST_BIN = Join-Path $env:CARGO_TARGET_DIR 'release/costcore.exe'
+          python -m pytest tests/test_m5_runtime_integration.py::test_killed_node_process_leaves_durable_lease_and_reconnect_completes_once -q
