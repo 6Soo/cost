@@ -28,7 +28,8 @@ use crate::digest::{python_json_compact, sha256_hex};
 /// Python `\s`: Unicode `White_Space` plus the four separator controls.
 const PY_SPACE: &str = r"[\s\u{1C}-\u{1F}]";
 
-/// Python `\w` as a single-character test: `str.isalnum()` plus underscore.
+/// Python `\w` as a reference class, used by the unit test that pins the hand-written test.
+#[cfg(test)]
 static PY_WORD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\p{L}\p{Nd}\p{Nl}\p{No}_]$").unwrap());
 
@@ -228,12 +229,6 @@ fn word_boundary_after(text: &str, end: usize) -> bool {
 /// crate's own `\w` would also include combining marks and join controls.
 fn is_python_word(c: char) -> bool {
     c == '_' || c.is_alphanumeric()
-}
-
-/// Kept as a differential check that the hand test above agrees with Python's `\w` class.
-#[cfg(test)]
-fn python_word_class(c: char) -> bool {
-    PY_WORD.is_match(c.to_string().as_str())
 }
 
 /// Python `\d` is the Nd category, which covers fullwidth `０` and Arabic-Indic `٩`.
