@@ -206,7 +206,7 @@ jobs:
   windows-p2-descendant-boundary:
     # The P2 descendant-lifecycle boundary needs Windows Job Objects. A Linux run
     # cannot prove it, and a Linux skip is not evidence, so the original
-    # assertions execute here on every pull request and every push to main.
+    # assertions execute here on every quality workflow run.
     runs-on: windows-2022
     timeout-minutes: 12
     steps:
@@ -230,7 +230,9 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/costcore-target
         run: |
-          cargo build --release --manifest-path core/Cargo.toml -p costcore
+          Push-Location core
+          cargo build --release -p costcore
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
           $env:COSTCORE_TEST_BIN = Join-Path $env:CARGO_TARGET_DIR 'release/costcore.exe'
           python -m pytest tests/test_m5_runtime_integration.py::test_killed_node_process_leaves_durable_lease_and_reconnect_completes_once -q
