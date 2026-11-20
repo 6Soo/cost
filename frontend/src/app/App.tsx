@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AppRole, AppShellProps, AppTrip } from "./AppShell";
 import { AppShell } from "./AppShell";
 import {
@@ -134,6 +134,15 @@ export function ComponentGallery() {
 
 export function App({ role = "owner", trips = [], path, currentTripId, onTripSelect, children }: AppProps) {
   const currentPath = path ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+        window.scrollTo(0, 0);
+      }
+    } catch {
+      // Ignore environments without scrollTo support (e.g. jsdom)
+    }
+  }, [currentPath]);
   return (
     <AppShell role={role} trips={trips} path={currentPath} currentTripId={currentTripId} onTripSelect={onTripSelect}>
       {children ?? <ComponentGallery />}
