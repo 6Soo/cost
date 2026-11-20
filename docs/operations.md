@@ -1,3 +1,8 @@
+## 2026-11-20 21:16 KST · 카드 업로드 뒤 OTA 재판정을 Rust로 전환
+
+- PR #1071을 main 7aeb968a에 병합했다. b29735e2를 ecbdb5c9에서 공식 deploy_verified_release.ps1로 전환했다. 최종 CI 세 검사와 GPT-6.2 Sol high 독립 검수를 통과했다.
+- Board·Worker가 b29735e2와 기존 호환 Rust 바이너리를 적용했다. 운영 준비·상태 응답 200, 보호 API 인증 거부 401, 추적 파일 2,015개 불일치 0, 보호 표 14개 불변을 확인했다. 금융 적용은 없었다. 근거는 D:/WebLedgerHost/releases/deploy-evidence-b29735e23b136dfd251b244e33bf9b95898609f5.json이다.
+
 ## 2026-11-20 20:45 KST · OTA 카드 후보 Rust 배치 운영 전환
 
 - ecbdb5c9를 2c442dbb에서 공식 deploy_verified_release.ps1로 전환했다. PR #1070은 main 64743750에 병합됐으며 최종 PR SHA의 Rust·Linux 영향·Windows 검사와 AGY Gemini 3.8 Flash high 독립 검수를 통과했다.
