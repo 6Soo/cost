@@ -28,6 +28,18 @@ function tripState(trip: TripSummary & { kind?: 'trip' | 'quarter' }): string {
   return trip.closed ? '마감' : '진행 중';
 }
 
+function tripStateKey(trip: TripSummary & { kind?: 'trip' | 'quarter' }): 'quarter' | 'archived' | 'closed' | 'active' {
+  if (trip.kind === 'quarter' || trip.id.startsWith('quarter:')) return 'quarter';
+  if (trip.archived) return 'archived';
+  return trip.closed ? 'closed' : 'active';
+}
+
+function profitSign(value: unknown): 'negative' | 'positive' | 'zero' {
+  const text = String(value ?? '').trim();
+  if (!text || /^[-+]?0+(?:\.0+)?$/.test(text)) return 'zero';
+  return text.startsWith('-') ? 'negative' : 'positive';
+}
+
 function isInternalHref(value?: string): string | null {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return null;
   try {
@@ -88,11 +100,11 @@ export function HomePage({ bootstrap }: PageProps) {
           <div className="cost-home__trip-grid">
             {trips.map((trip) => (
               <a className="cost-home__trip-card" href={tripHref(trip.id)} key={trip.id}>
-                <span className="cost-home__trip-status">{tripState(trip)}</span>
+                <span className="cost-home__trip-status" data-state={tripStateKey(trip)}>{tripState(trip)}</span>
                 <strong title={trip.title}>{trip.title}</strong>
                 <span className="cost-home__trip-period">{humanDate(trip.starts_on)}–{humanDate(trip.ends_on)}</span>
                 <span className="cost-home__trip-profit-label">차액</span>
-                <span className="cost-home__trip-profit"><Amount value={trip.profit} currency="KRW" /></span>
+                <span className="cost-home__trip-profit" data-sign={profitSign(trip.profit)}><Amount value={trip.profit} currency="KRW" /></span>
               </a>
             ))}
           </div>
