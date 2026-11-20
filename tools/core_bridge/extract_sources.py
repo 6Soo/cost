@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import tempfile
 
+from .extract_baseline import _portal_content_fingerprints, sqlite_logical_fingerprint
 from .ota_input import DEFAULT_HOST, _sources, is_live
 
 
@@ -51,7 +52,8 @@ def collect(sources):
         'schema_version': 'ota-extract-stages/1',
         'mail_events': op._mail_events(sources.get('mail_directories')),
         'portal_events': op._portal_events(sources.get('portal_databases'),
-                                         source_lineage_ids=sources.get('source_lineage_ids')),
+                                         source_lineage_ids=sources.get('source_lineage_ids'),
+                                         content_fingerprints=sources.get('portal_content_fingerprints')),
         'trip_reservation_events': op._trip_reservation_events(sources.get('portal_databases')),
         'booking_trip_events': op._booking_trip_events(sources.get('portal_databases')),
         'forest_portal_events': op._forest_portal_events(sources.get('portal_databases')),
@@ -74,4 +76,7 @@ def capture(request, error):
     if not evidence.is_file():
         raise error('DB_NOT_FOUND')
     with tempfile.TemporaryDirectory(prefix='cost-extract-sources-') as work:
-        return collect(_sources(evidence, work))
+        sources = _sources(evidence, work)
+        sources['portal_content_fingerprints'] = _portal_content_fingerprints(
+            evidence, sqlite_logical_fingerprint(evidence), sources.get('portal_databases'), error)
+        return collect(sources)

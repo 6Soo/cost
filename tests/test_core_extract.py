@@ -95,7 +95,11 @@ def run_extract(args):
 def test_rust_extract_copy_is_byte_identical_to_python_baseline_and_public_output_is_aggregate(tmp_path):
     evidence = synthetic_store(tmp_path)
     before = evidence.read_bytes()
-    expected = op.build_ota_payment_events(_sources(evidence, tmp_path))
+    from tools.core_bridge.extract_baseline import sqlite_logical_fingerprint
+
+    sources = _sources(evidence, tmp_path)
+    sources['portal_content_fingerprints'] = {'0': sqlite_logical_fingerprint(evidence)}
+    expected = op.build_ota_payment_events(sources)
     raw = json.dumps({'events': expected}, ensure_ascii=False, sort_keys=True).encode('utf-8')
     assert len(expected) == 2
     host = tmp_path / 'host'
