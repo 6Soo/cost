@@ -1,6 +1,8 @@
 """Conservative, reversible removal of proven generic preparation assignments."""
 from collections import Counter
 import json
+
+from .db import replay_scoped_request
 from types import SimpleNamespace
 from .closed_period import completed_period, manual_ids, open_trip, trip_map
 from .closed_period_repair import _financial_state, _complete_refund_groups, _sync
@@ -145,9 +147,7 @@ def preview(conn, trips, *, evidence=None):
 
 
 def replay(conn, request_id):
-    row = conn.execute('SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope=?',
-                       (request_id,SCOPE)).fetchone()
-    return dict(digest=row[0], **json.loads(row[1])) if row else None
+    return replay_scoped_request(conn, request_id, SCOPE)
 
 
 def apply(conn, expected, trips, *, request_id, evidence=None):
