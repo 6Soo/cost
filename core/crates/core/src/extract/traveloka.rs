@@ -377,6 +377,28 @@ mod tests {
         assert_eq!(nd_value('①'), None);
     }
 
+    /// Every code point the `\p{Nd}` test accepts must resolve through the block table.
+    ///
+    /// The table is read from Python's `unicodedata`; the crate carries its own Unicode tables.
+    /// They agree today (Unicode 16.0.0 both), and this guard fails loudly if a crate update
+    /// adds an Nd block the table does not list.
+    #[test]
+    fn every_nd_code_point_resolves_through_the_block_table() {
+        let mut checked = 0;
+        for code in 0..=0x10FFFFu32 {
+            let Some(c) = char::from_u32(code) else {
+                continue;
+            };
+            if !is_nd(c) {
+                continue;
+            }
+            let value = nd_value(c).unwrap_or_else(|| panic!("no block start for {code:X}"));
+            assert!(value <= 9, "{code:X} -> {value}");
+            checked += 1;
+        }
+        assert!(checked > 600, "only {checked} Nd code points seen");
+    }
+
     #[test]
     fn keyword_tests_stay_case_insensitive() {
         assert!(COMPLETED_SUBJECT.is_match("Payment Complete"));
