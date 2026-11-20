@@ -1,3 +1,15 @@
+## 2026-11-20 · 운영 저장 판정 보완
+
+- 소유자 승인 후 Board·Core·OTA 원천·검토 SQLite를 읽기 전용으로 백업했다. 복원 사본의 논리 지문과 무결성을 확인하고, 새 재대사로 만든 기간 근거를 사용했다. 운영 감사 값과 복원 예행 값이 일치할 때만 decisions-only를 적용했다.
+- 운영 저장 보완 2,585건, 저장 대상 누락 0, 재실행 추가 0, 원장 쓰기 0. 원장 논리 지문과 기존 저장 판정 91건 및 Core 스키마 [1, 2]가 동일하다. 원천·투영·기간 차이 0, 판정 변경 필요 60건.
+- 인증된 장부 읽기에서 3분기 22개 탭과 OTA 대상 지출 256건을 확인했다. 이용일 공란은 같은 조사 범위에서 56건에서 52건으로 감소했다. 추론 표지를 제외한 날짜 표시 164건, 추론 표시 40건이다.
+- 근거 D:/WebLedgerHost/data/backups/ota-store-approved-20261120-212521-215711/operation-verified.json 및 browser-q3-after.json.\
+\
+## 2026-11-20 21:16 KST · 카드 업로드 뒤 OTA 재판정을 Rust로 전환
+
+- PR #1071을 main 7aeb968a에 병합했다. b29735e2를 ecbdb5c9에서 공식 deploy_verified_release.ps1로 전환했다. 최종 CI 세 검사와 GPT-6.2 Sol high 독립 검수를 통과했다.
+- Board·Worker가 b29735e2와 기존 호환 Rust 바이너리를 적용했다. 운영 준비·상태 응답 200, 보호 API 인증 거부 401, 추적 파일 2,015개 불일치 0, 보호 표 14개 불변을 확인했다. 금융 적용은 없었다. 근거는 D:/WebLedgerHost/releases/deploy-evidence-b29735e23b136dfd251b244e33bf9b95898609f5.json이다.
+
 ## 2026-11-20 20:45 KST · OTA 카드 후보 Rust 배치 운영 전환
 
 - ecbdb5c9를 2c442dbb에서 공식 deploy_verified_release.ps1로 전환했다. PR #1070은 main 64743750에 병합됐으며 최종 PR SHA의 Rust·Linux 영향·Windows 검사와 AGY Gemini 3.8 Flash high 독립 검수를 통과했다.
