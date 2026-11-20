@@ -252,7 +252,12 @@ def replay(conn, request_id):
     return replay_scoped_request(conn, request_id, SCOPE)
 
 
-def apply(conn, expected, trips, *, request_id, evidence=None):
+def _apply(conn, expected, trips, *, request_id, evidence, scope, release, fields, preview, replay):
+    """Apply a grouping repair with the caller's scope and policy.
+
+    `fields` covers the transactions UPDATE only. `_sync` keeps this module's
+    FIELDS because ledger_entries has no classification_basis column.
+    """
     if not request_id or conn.in_transaction:
         raise ValueError('GROUPING_REQUEST_OR_TRANSACTION_INVALID')
     conn.execute('BEGIN IMMEDIATE')
@@ -269,17 +274,17 @@ def apply(conn, expected, trips, *, request_id, evidence=None):
         financial = _financial_state(conn)
         for target in current['targets']:
             tid, values = target['tid'], target['values']
-            conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
-                         ',revision=revision+1 WHERE transaction_id=?', (*[values[k] for k in FIELDS],tid))
+            conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in fields)+
+                         ',revision=revision+1 WHERE transaction_id=?', (*[values[k] for k in fields],tid))
             _sync(conn,tid,values,request_id)
             detail = dict(request_id=request_id, before=target['before'], after=_state(conn,tid),financial=financial)
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
-                (utc_now(),RELEASE,tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
+                (utc_now(),release,tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
         if _financial_state(conn) != financial:
             raise ValueError('GROUPING_FINANCIAL_CHANGED')
         result = dict(current['summary'], applied_this_run=len(current['targets']))
         conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',
-            (request_id,SCOPE,current['digest'],json.dumps(result,sort_keys=True),utc_now()))
+            (request_id,scope,current['digest'],json.dumps(result,sort_keys=True),utc_now()))
         conn.commit()
         return result
     except BaseException:
@@ -287,14 +292,14 @@ def apply(conn, expected, trips, *, request_id, evidence=None):
         raise
 
 
-def restore_preview(conn, request_id):
+def _restore_preview(conn, request_id, *, release, restore_kind):
     targets = []
     financial = _financial_state(conn)
-    for entry,tid,raw in conn.execute('SELECT entry_id,subject,detail_json FROM change_log WHERE kind=? ORDER BY entry_id', (RELEASE,)):
+    for entry,tid,raw in conn.execute('SELECT entry_id,subject,detail_json FROM change_log WHERE kind=? ORDER BY entry_id', (release,)):
         detail = json.loads(raw)
         if detail['request_id'] != request_id:
             continue
-        if conn.execute("SELECT 1 FROM change_log WHERE kind=? AND json_extract(detail_json,'$.release_entry_id')=?",(RESTORE,entry)).fetchone():
+        if conn.execute("SELECT 1 FROM change_log WHERE kind=? AND json_extract(detail_json,'$.release_entry_id')=?",(restore_kind,entry)).fetchone():
             continue
         if _state(conn,tid) != detail['after']:
             raise ValueError('GROUPING_RESTORE_STALE')
@@ -304,7 +309,7 @@ def restore_preview(conn, request_id):
     return dict(digest=_digest([targets,financial]),targets=targets,summary=dict(restore=len(targets)))
 
 
-def restore(conn, expected, request_id):
+def _restore(conn, expected, request_id, *, restore_kind, fields, restore_preview):
     if conn.in_transaction:
         raise ValueError('GROUPING_TRANSACTION_INVALID')
     conn.execute('BEGIN IMMEDIATE')
@@ -315,11 +320,11 @@ def restore(conn, expected, request_id):
         financial = _financial_state(conn)
         for target in current['targets']:
             tid, old = target['tid'], target['detail']['before']
-            conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
-                         ',revision=revision+1 WHERE transaction_id=?',(*[old['transaction'][k] for k in FIELDS],tid))
+            conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in fields)+
+                         ',revision=revision+1 WHERE transaction_id=?',(*[old['transaction'][k] for k in fields],tid))
             _sync(conn,tid,old['ledger'] or old['transaction'],'restore-'+request_id,old_board=old['board'])
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
-                (utc_now(),RESTORE,tid,json.dumps(dict(release_entry_id=target['entry'],request_id=request_id))))
+                (utc_now(),restore_kind,tid,json.dumps(dict(release_entry_id=target['entry'],request_id=request_id))))
         if _financial_state(conn) != financial:
             raise ValueError('GROUPING_FINANCIAL_CHANGED')
         conn.commit()
@@ -327,3 +332,17 @@ def restore(conn, expected, request_id):
     except BaseException:
         conn.rollback()
         raise
+
+
+def apply(conn, expected, trips, *, request_id, evidence=None):
+    return _apply(conn, expected, trips, request_id=request_id, evidence=evidence,
+                  scope=SCOPE, release=RELEASE, fields=FIELDS, preview=preview, replay=replay)
+
+
+def restore_preview(conn, request_id):
+    return _restore_preview(conn, request_id, release=RELEASE, restore_kind=RESTORE)
+
+
+def restore(conn, expected, request_id):
+    return _restore(conn, expected, request_id, restore_kind=RESTORE,
+                    fields=FIELDS, restore_preview=restore_preview)
