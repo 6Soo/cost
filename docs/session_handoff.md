@@ -1,6 +1,17 @@
 # COST 현재 상태 · 작업 인계
 
-기준일 2026-11-20 KST. 확인한 main은 `62263509`, 운영은 `0c7b563b`다(`releases/` 최신 폴더와 `core-switch-applied-*.json` 06:44 기록). 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+기준일 2026-11-20 KST. 확인한 main은 `0920dc67`, 운영은 `0c7b563b`다(`releases/` 최신 폴더와 `core-switch-applied-*.json` 06:44 기록). 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+
+## 2026-11-20 (3) — 죽은 코드 퇴역과 기존 회귀 2건 수정
+
+- **죽은 코드 퇴역:** 전수 조사로 참조 0을 확인한 13개 헬퍼·상수(−141줄)와 `ensure_ledger_schema` 래퍼. [#1064](https://github.com/6Soo/cost/pull/1064) `b8667cb9`, [#1065](https://github.com/6Soo/cost/pull/1065) `0920dc67`. #1065는 중복도 함께 정리(`COMPANY_CELL` 중복, `_esc` 사본 2개→`pages.esc`, `app`의 `replay()` 5개→`app.db.replay_scoped_request`)하고, #1062 검수 지적 O1(변환 후 저장소 쓰기→뷰 재생)을 검사로 입증했다.
+- **기존 회귀 2건 수정** [#1066](https://github.com/6Soo/cost/pull/1066) `c01a5d98`:
+  1. `/board` HTML이 수입 행 거래처 칸에 참가자 명부 이름(`customer_name`·`nickname`)을 실었다(`ledger_design._row_party_main`). SPEC §13 보호 경계·지연 로딩 계약 위반 → 경로 레이블로 대체.
+  2. `test_ledger_apply` fixture가 `WEBLEDGER_UNIFIED_DB`를 정리하지 않아 다른 검사가 남긴 값이 `_embedded_audit` 분기를 바꿨다 → 스토어 생성 전 정리·복원.
+  - 드러난 이유: `origin/main`의 impact 검사가 **PR 증거 재사용(skip)** 이라 실제 실행된 적이 없었다.
+- **CI 재사용 실측(첫 사례):** main push `53204c7e`가 PR 증거를 재사용해 **1분 53초**에 종료(단계 로그에서 테스트·준비 전부 skipped, `44633965930`). 실제 실행 1회는 1분 58초 중 테스트 70초·준비 48초.
+- **#1062 독립 검수 APPROVE**(차단 0). O2(apply 사이드카 재검증이 `-wal` 크기만)는 비차단 잔여.
+- **남은 일:** `test_trip_ledger_presentation::test_browser_expense_table_keeps_long_party_and_service_dates_reachable`는 지출 행 기하 검사로 이번 변경 없이도 로컬 실패(15px 여유) — 브라우저 환경 의존 별건. M6 §11.1-3 고정 추출 기준 재설정은 **소유자 결정** 대기. 열린 PR은 [#1008](https://github.com/6Soo/cost/pull/1008)(draft)만. 운영 배포는 하지 않았다.
 
 ## 이번 연속 작업에서 병합한 것
 
