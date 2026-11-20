@@ -146,6 +146,7 @@ export interface TransactionsResponse {
   page: number;
   page_size: number;
   actions: ActionDescriptor[];
+  settlement_review?: Array<Record<string, unknown>>;
   status?: { code: string; message: string };
 }
 

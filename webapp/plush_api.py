@@ -777,6 +777,7 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
     q = _first(query, "q").strip()
     status = None
     columns: list[dict[str, str]]
+    settlement_review = None
     total_count = 0
     response_page = page
     response_size = page_size
@@ -825,9 +826,10 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
         kind = _first(query, "kind").strip()
         saved = {row.get("source_event_id"): row
                  for row in ledger_board._expense_rows()}
-        groups = refund_tab_ui.filter_refund_groups(
-            refund_tab.groups(board), query=q, kind=kind, saved=saved,
-        )
+        all_groups = refund_tab.groups(board)
+        groups = refund_tab_ui.filter_refund_groups(all_groups, query=q, kind=kind, saved=saved)
+        completed = {row["transaction_id"] for group in all_groups for row in group}
+        settlement_review = refund_tab.settlement_review_rows(board, completed, query=q, kind=kind)
         all_rows = []
         for group in groups:
             if not group:
@@ -900,6 +902,7 @@ def _transactions(ledger_board: Any, access: Any, session: Any, board: Any,
         "view": view, "columns": columns, "rows": rows,
         "total_count": total_count, "page": response_page, "page_size": response_size,
         "actions": _transaction_actions() if view == "cards" else [],
+        **({"settlement_review": settlement_review} if settlement_review is not None else {}),
         **({"status": status} if status else {}),
     }
 
