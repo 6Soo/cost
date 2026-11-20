@@ -34,19 +34,25 @@ class ApplyFixture(unittest.TestCase):
 
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
-        self.store = ledger_store.LedgerStore(self.tmp / "board.sqlite",
-                                              seed_demo=False)
-        self.addCleanup(self._close)
-
         self.bundle_root = self.tmp / "bundles"
         self.config_path = self.tmp / "review.json"
         self.decisions_db = self.tmp / "decisions.sqlite"
         self._previous = {
             real_review.CONFIG_ENV: os.environ.get(real_review.CONFIG_ENV),
             "WEBLEDGER_DB": os.environ.get("WEBLEDGER_DB"),
+            # ``ledger_store._embedded_audit`` picks this store's audit branch
+            # from this flag; a value another test left behind would change the
+            # branch under this fixture. It must be cleared before the store
+            # is built, not after.
+            "WEBLEDGER_UNIFIED_DB": os.environ.get("WEBLEDGER_UNIFIED_DB"),
         }
         os.environ[real_review.CONFIG_ENV] = str(self.config_path)
         os.environ["WEBLEDGER_DB"] = str(self.decisions_db)
+        os.environ.pop("WEBLEDGER_UNIFIED_DB", None)
+
+        self.store = ledger_store.LedgerStore(self.tmp / "board.sqlite",
+                                              seed_demo=False)
+        self.addCleanup(self._close)
         real_review.clear_real_review()
         self.addCleanup(self._restore)
         self.facts = []

@@ -731,13 +731,18 @@ def _data_amount_attr(row) -> str:
 
 
 def _row_party_main(row) -> str:
-    """Merchant/description first; reservation second as sub. Income keeps fallback."""
+    """Merchant/description first; reservation second as sub. Income keeps fallback.
+
+    A Google income row's ``customer_name``/``nickname`` is a roster name. It
+    stays in the lazily loaded participant panel, so the board response never
+    carries it (the roster contract the participant income tests pin).
+    """
     if row.get("row_kind") == "income":
-        for key in ("description", "customer_name"):
-            value = str(row.get(key) or "").strip()
-            if value:
-                return value
-        return str(row.get("source_merchant") or "").strip() or "-"
+        value = str(row.get("description") or "").strip()
+        if value:
+            return value
+        return str(row.get("source_merchant") or "").strip() or str(
+            row.get("income_kind") or "").strip() or "-"
     merchant = str(row.get("source_merchant") or "").strip()
     description = str(row.get("description") or "").strip()
     if merchant:
@@ -751,10 +756,10 @@ def _row_party_sub(row) -> str:
     """Display each known reservation once, without modifying the source row."""
     main = _row_party_main(row)
     if row.get("row_kind") == "income":
-        for key in ("source_merchant", "nickname"):
-            value = str(row.get(key) or "").strip()
-            if value and value != main:
-                return value
+        # ``nickname`` is a roster name too; the board does not render it.
+        value = str(row.get("source_merchant") or "").strip()
+        if value and value != main:
+            return value
         return ""
     reservation = str(row.get("reservation_no") or "").strip()
     description = str(row.get("description") or "").strip()
