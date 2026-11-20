@@ -48,6 +48,7 @@
   flex-wrap: wrap;
   gap: .5rem;
 }
+.e-google-header .e-google-toolbar { flex-shrink: 0; justify-content: flex-end; }
 
 .e-google-page :where(button, a, input, textarea, summary) {
   font: inherit;
@@ -103,7 +104,7 @@
 
 .e-google-source-list {
   display: grid;
-  gap: .5rem;
+  gap: .75rem;
 }
 
 .e-google-source-list li {
