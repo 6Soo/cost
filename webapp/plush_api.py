@@ -430,16 +430,15 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     tab_id = str(row.get("display_tab_id") or "")
     if not owner:
         access.require_view_tab(session.user_id, tab_id)
-    trip = next((item for item in _visible_trips(board, access, session, owner)
-                 if str(item.get("tab_id")) == tab_id), None)
+    trips = _visible_trips(board, access, session, owner)
+    trip = next((item for item in trips if str(item.get("tab_id")) == tab_id), None)
     closed = bool((trip or {}).get("visual_closed") or (trip or {}).get("archived"))
     read_only = (not owner) or closed or row.get("revision") is None
     display_row = board.projected(row) if hasattr(board, "projected") else row
     fields = []
     actions = []
     if owner and not read_only:
-        fields = _row_edit_fields(row, _visible_trips(board, access, session, owner),
-                                  display_row=display_row)
+        fields = _row_edit_fields(row, trips, display_row=display_row)
         save_fields = [*fields, {
             "name": "expected_revision", "label": "revision", "type": "hidden",
             "value": row.get("revision"), "required": True,
