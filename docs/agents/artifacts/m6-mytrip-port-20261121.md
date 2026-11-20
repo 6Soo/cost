@@ -116,7 +116,7 @@ Python `str.strip()` 공백 집합 = `str.isspace()` = White_Space + U+001C..U+0
 ## 5. 테스트·골든 현황
 
 - **tests/card_pipeline/test_mytrip_mail.py: 테스트 4개**(L14·L22·L28·L36), collect 호출 7회(L15·24·29·30·31·32·37). 헬퍼 `message`(L4, owner_record 합성·기본 sender no-reply@support.kr.mytrip.com·Date Wed, 19 Aug 2026 13:49:53 +0000), `confirmed`(L8, **legs를 2번 반복**해 집합 중복 제거를 암시 검증, 기본 total '224,682.00').
-  - L14 확인 → reservation·기간 2026-09-18~21·224682원·paid_on None·observed·reservation_observed_on ['2026-08-19'](KST 22:49同日).
+  - L14 확인 → reservation·기간 2026-09-18~21·224682원·paid_on None·observed·reservation_observed_on ['2026-08-19'] (KST 22:49, 같은 날).
   - L22 환불 subject('[No Reply] 환불 영수증') + 본문 주문 → cancelled.
   - L28 무시 4종: 위장 도메인(mytrip.com.example)·USD·leg 없음·주문 2종.
   - L36 총액 다른 확인 2건 → conflict(period None·amount None·conflict True).
