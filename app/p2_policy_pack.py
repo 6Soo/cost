@@ -94,6 +94,16 @@ APPROVED_POLICY_REVISIONS = {
         'link': 'bcf49439f980596107c5c88b767bd31e8f15c041',
         'refund': '266c17a31a4b75d537431ab2986f4454db360c33',
     },
+    # OTA policy consolidation retains the pinned safeguards and rule IDs.
+    'ota-consolidated-20261120': {
+        'CORE': 'a17db97863de0090ce8448f9c603ff2c6939095d',
+        'process': '9a93886dcb4d0b48da733f0f5aa90d223ddc8e35',
+        'trip': '7c7ef870a3f35836dcd0b59691dd1238a71fd842',
+        'item': '9f5e507e6a5ad53526d350c2a1793f3723da1146',
+        'date': '91521a175f527530feb4327bbf6a2d61e73bc6a1',
+        'link': '883c51ef712f387fdb4b69abfca376f4e4ae0baa',
+        'refund': '266c17a31a4b75d537431ab2986f4454db360c33',
+    },
 }
 
 
