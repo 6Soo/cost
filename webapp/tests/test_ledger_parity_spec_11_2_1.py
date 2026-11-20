@@ -372,22 +372,16 @@ def test_date_sort_uses_displayed_date_on_both_paths(bound_store, legacy_owner):
     store, _access = bound_store
     tab = make_trip(store)
     corrected_id = "syn-bank-date-corrected"
-    record = {
-        "amount_krw": 100000, "occurred_on": "2026-11-12",
-        "source_kind": "은행", "customer_id": "syn-cust-1",
-        "customer_name": "합성 고객", "nickname": "합성별명",
-        "income_kind": "deposit", "description": "합성 은행 입금",
-        "operator_note": "",
-    }
-    store.conn.execute(
-        "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision, payload_json)"
-        " VALUES (?,?,?,?,?)",
-        (corrected_id, "income", tab, 1, json.dumps(record, ensure_ascii=False)))
-    store.conn.commit()
+    imported = store.import_income_row(
+        row_id=corrected_id, batch_id="syn-bank-date-batch",
+        fields={"display_tab_id": tab, "occurred_on": "2026-11-12",
+                "amount_krw": 100000, "customer_id": "syn-cust-1",
+                "customer_name": "합성 고객", "nickname": "합성별명"},
+        client_request_id=f"parity-bank-{_uid()}")
     store.correct_bank_income(
         row_id=corrected_id, corrected_amount_krw=100000,
         corrected_occurred_on="2026-11-16", reason="합성 날짜 정정",
-        client_request_id=f"parity-datecorr-{_uid()}", expected_revision=1)
+        client_request_id=f"parity-datecorr-{_uid()}", expected_revision=imported["revision"])
     other = store.create_direct_income(
         fields={"display_tab_id": tab, "occurred_on": "2026-11-14",
                 "amount_krw": 70000, "income_kind": "deposit",
@@ -406,6 +400,7 @@ def test_date_sort_uses_displayed_date_on_both_paths(bound_store, legacy_owner):
     # 표시 날짜는 정정된 날짜이고 금액은 그대로다(수동 교정 보호).
     assert next(r for r in asc["rows"] if r["id"] == corrected_id)["date"] == "2026-11-16"
     assert legacy[corrected_id] == 100000
+    assert store.get_row(corrected_id)["occurred_on"] == "2026-11-12"
 
     # 계약: 표시 날짜로 정렬 — 정정 행(11-16)은 오름차순에서 11-14 뒤에 온다.
     assert asc_ids == [other_id, corrected_id], "date_asc가 표시 날짜가 아닌 원본 날짜로 정렬함"
