@@ -1807,9 +1807,11 @@ def _expense_category_rank(item: str) -> int:
 
 
 def _sort_expenses_for_display(rows: list) -> list:
-    """화면 날짜 오름차순. 같은 날짜에는 기존 분류 순서를 유지한다."""
-    return sorted(rows, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or '',
-                                      _expense_category_rank(r.get("item"))))
+    """화면 날짜 오름차순(수동 교정된 표시 날짜). 같은 날짜에는 기존 분류 순서를 유지한다."""
+    def key(r):
+        date = ledger_query.display_date(r)
+        return (not date, date, _expense_category_rank(r.get("item")))
+    return sorted(rows, key=key)
 
 
 def _group_expenses_for_display(rows: list) -> list:
@@ -1877,7 +1879,7 @@ def _quarter_body(pending, booked, message: str = "", error: str = "") -> str:
                 f"<td class='num'>{int(amount or 0):,}원</td></tr>")
     waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
-    done = "".join(line(str(r.get('display_occurred_on') or r.get('occurred_on') or '')[:10],
+    done = "".join(line(ledger_query.display_date(r)[:10],
                         r.get('source_merchant') or r.get('merchant') or r.get('description'),
                         board._shown_amount(r))
                    for r in booked) or "<tr><td colspan='3'>거래가 없습니다.</td></tr>"
@@ -2134,7 +2136,12 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         _, incomes = ledger_query.select_rows(incomes, q=query, owner=owner)
         _, expenses = ledger_query.select_rows(expenses, q=query, owner=owner)
     expenses = _sort_expenses_for_display(expenses)
-    incomes = sorted(incomes, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or ''))
+
+    def income_date_key(r):
+        date = ledger_query.display_date(r)
+        return (not date, date)
+
+    incomes = sorted(incomes, key=income_date_key)
     return incomes, expenses, whole_income, whole_expense
 
 

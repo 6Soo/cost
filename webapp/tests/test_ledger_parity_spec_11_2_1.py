@@ -360,6 +360,60 @@ def test_legacy_date_and_category_order_is_reused_in_plush(bound_store, legacy_o
     assert [r["category"] for r in response["rows"]] == ["\uad50\ud1b5\ube44", "\uc2dd\ube44"]
 
 
+def test_date_sort_uses_displayed_date_on_both_paths(bound_store, legacy_owner):
+    """§11.2.1 계약 1·2 + R05: 날짜 정렬은 두 경로 모두 표시 날짜로 한다.
+
+    화면은 정정된 표시 날짜(display_occurred_on)를 보여주는데, 레거시 목록 정렬과
+    React date_asc는 원본 occurred_on으로 정렬하고 date_desc만 표시 날짜로 정렬한다.
+    은행 수입 날짜 정정이 있으면 같은 스냅샷에서 두 진입 경로의 행 순서가 갈리고
+    오름차순·내림차순이 거울이 아니다. 정렬은 표시 날짜를 따르고 수동 교정·금액은
+    그대로 보존된다.
+    """
+    store, _access = bound_store
+    tab = make_trip(store)
+    corrected_id = "syn-bank-date-corrected"
+    record = {
+        "amount_krw": 100000, "occurred_on": "2026-11-12",
+        "source_kind": "은행", "customer_id": "syn-cust-1",
+        "customer_name": "합성 고객", "nickname": "합성별명",
+        "income_kind": "deposit", "description": "합성 은행 입금",
+        "operator_note": "",
+    }
+    store.conn.execute(
+        "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision, payload_json)"
+        " VALUES (?,?,?,?,?)",
+        (corrected_id, "income", tab, 1, json.dumps(record, ensure_ascii=False)))
+    store.conn.commit()
+    store.correct_bank_income(
+        row_id=corrected_id, corrected_amount_krw=100000,
+        corrected_occurred_on="2026-11-16", reason="합성 날짜 정정",
+        client_request_id=f"parity-datecorr-{_uid()}", expected_revision=1)
+    other = store.create_direct_income(
+        fields={"display_tab_id": tab, "occurred_on": "2026-11-14",
+                "amount_krw": 70000, "income_kind": "deposit",
+                "customer_id": "syn-cust-2", "customer_name": "합성 고객2",
+                "nickname": "합성별명2", "memo": ""},
+        client_request_id=f"parity-income-{_uid()}")
+    other_id = other["row_id"]
+
+    legacy = legacy_income_map(tab)
+    status, asc = react_ledger(store, tab, kind="income", sort="date_asc", page_size=200)
+    assert status == 200
+    status, desc = react_ledger(store, tab, kind="income", sort="date_desc", page_size=200)
+    assert status == 200
+    asc_ids = [r["id"] for r in asc["rows"]]
+    desc_ids = [r["id"] for r in desc["rows"]]
+    # 표시 날짜는 정정된 날짜이고 금액은 그대로다(수동 교정 보호).
+    assert next(r for r in asc["rows"] if r["id"] == corrected_id)["date"] == "2026-11-16"
+    assert legacy[corrected_id] == 100000
+
+    # 계약: 표시 날짜로 정렬 — 정정 행(11-16)은 오름차순에서 11-14 뒤에 온다.
+    assert asc_ids == [other_id, corrected_id], "date_asc가 표시 날짜가 아닌 원본 날짜로 정렬함"
+    assert desc_ids == [corrected_id, other_id]
+    assert list(legacy) == asc_ids, "레거시 목록 순서가 React 오름차순과 다름"
+    assert asc_ids == list(reversed(desc_ids)), "오름차순·내림차순이 거울이 아님"
+
+
 def test_search_display_date_parity(bound_store, legacy_owner):
     store, _access = bound_store
     tab = make_trip(store)
