@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import json
 import os
 import re
@@ -172,9 +173,11 @@ def _scoped_functions(tree: ast.Module) -> dict[tuple[str, ...], dict[str, ast.A
 BROWSER_HELPER_DEPTH = 4
 
 
-def _browser_function_names(scopes: dict[tuple[str, ...], dict[str, ast.AST]]) -> dict[tuple[str, ...], set[str]]:
+def _browser_function_names(scopes: dict[tuple[str, ...], dict[str, ast.AST]], *,
+                            playwright=_calls_playwright,
+                            called=_called_names) -> dict[tuple[str, ...], set[str]]:
     """Per scope, the function names that reach Playwright directly or through helpers."""
-    browser = {path: {name for name, node in funcs.items() if _calls_playwright(node)}
+    browser = {path: {name for name, node in funcs.items() if playwright(node)}
                for path, funcs in scopes.items()}
     for _ in range(BROWSER_HELPER_DEPTH):
         changed = False
@@ -183,7 +186,7 @@ def _browser_function_names(scopes: dict[tuple[str, ...], dict[str, ast.AST]]) -
                 if name in browser[path]:
                     continue
                 if any(_resolves_to_browser(callee, path, browser)
-                       for callee in _called_names(node)):
+                       for callee in called(node)):
                     browser[path].add(name)
                     changed = True
         if not changed:
@@ -215,13 +218,19 @@ def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]
         requested_parts = node_part.split("::") if node_part else []
         module_name = file_part[:-3].replace("/", ".")
         browser_module = source_path.name.endswith("_browser.py")
-        browser_helpers = _browser_function_names(_scoped_functions(tree))
+        # Memo scope is one parsed file: a fresh cache pair per file keeps AST
+        # nodes of earlier parses out without process-wide detector state.
+        calls_playwright = functools.cache(_calls_playwright)
+        called_names = functools.cache(_called_names)
+        browser_helpers = _browser_function_names(_scoped_functions(tree),
+                                                 playwright=calls_playwright,
+                                                 called=called_names)
 
         def reaches_browser(node: ast.AST, class_path: tuple[str, ...]) -> bool:
             # Direct call/import in this body, or any helper it calls that opens a browser.
-            return _calls_playwright(node) or any(
+            return calls_playwright(node) or any(
                 _resolves_to_browser(callee, class_path, browser_helpers)
-                for callee in _called_names(node))
+                for callee in called_names(node))
 
         def visit(body: list[ast.stmt], class_path: tuple[str, ...] = (), inherited_browser: bool = False) -> None:
             for node in body:
