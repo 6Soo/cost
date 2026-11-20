@@ -32,10 +32,6 @@ const ND_BLOCK_STARTS: &[u32] = &[
 
 /// Python `\w`: `str.isalnum()` (letters, Nd, Nl, No) plus underscore.
 ///
-/// `char::is_alphanumeric` covers the same set: it excludes the combining marks and join
-/// controls Python also rejects, so boundaries can use it directly.
-/// Python `\w`: `str.isalnum()` (letters, Nd, Nl, No) plus underscore.
-///
 /// `char::is_alphanumeric` also counts Other_Alphabetic combining marks such as U+0345,
 /// which Python's `str.isalnum()` rejects, so the categories are listed explicitly.
 pub(crate) fn is_python_word(c: char) -> bool {

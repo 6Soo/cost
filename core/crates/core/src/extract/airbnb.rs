@@ -212,7 +212,7 @@ fn period(m: &regex::Captures<'_>, sent: &str) -> Option<Value> {
     if !(1..=60).contains(&days) {
         return None;
     }
-    Some(json!({"starts_on": start.to_string(), "ends_on": end.to_string()}))
+    Some(json!({"starts_on": crate::dates::iso(start), "ends_on": crate::dates::iso(end)}))
 }
 
 fn parse_date(text: &str) -> Option<time::Date> {

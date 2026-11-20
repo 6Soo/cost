@@ -51,6 +51,14 @@ def inputs():
     yield 'late-receipt-next-year', {'m1': message(
         '예약 확정: 1월 3일~1월 9일 여행에 대한 에어비앤비 영수증',
         '확인 코드 HMSYNTH003', date='Wed, 13 Dec 2026 02:38:11 +0000')}
+    yield 'exactly-31-days-stays-in-year', {'m1': message(
+        '예약 확정: 4월 12일~4월 14일', '확인 코드 HMSYNTH029', date='Wed, 13 May 2026 02:38:11 +0000')}
+    yield 'exactly-32-days-rolls-to-next-year', {'m1': message(
+        '예약 확정: 4월 11일~4월 14일', '확인 코드 HMSYNTH030', date='Wed, 13 May 2026 02:38:11 +0000')}
+    yield 'exactly-60-days-allowed', {'m1': message(
+        '예약 확정: 5월 16일~7월 15일', '확인 코드 HMSYNTH031', date='Wed, 13 May 2026 02:38:11 +0000')}
+    yield 'leap-start-follows-send-year', {'m1': message(
+        '예약 확정: 2월 29일~3월 2일', '확인 코드 HMSYNTH032', date='Thu, 13 Jan 2028 02:38:11 +0000')}
     yield 'same-day-rejected', {'m1': message('예약 확정: 5월 16일~16일', '확인 코드 HMSYNTH004')}
     yield 'over-sixty-days-rejected', {'m1': message('예약 확정: 5월 16일~7월 20일', '확인 코드 HMSYNTH005')}
     yield 'zero-end-month-falls-back', {'m1': message(
