@@ -414,7 +414,9 @@ function DataCell({ row, column }: { row: Record<string, unknown>; column: Colum
   try {
     const url = new URL(value, window.location.origin);
     if (url.origin !== window.location.origin || !["/ota/booking", "/board", "/row", "/cards/all"].includes(url.pathname) || url.username || url.password || url.hash) return <>—</>;
-    if (["/board", "/cards/all"].includes(url.pathname)) url.searchParams.set("legacy", "1");
+    if (url.pathname === "/cards/all" || (url.pathname === "/board" && url.searchParams.has("row"))) {
+      url.searchParams.set("legacy", "1");
+    }
     return <a className="cost-button cost-button-quiet" href={`${url.pathname}${url.search}`}>{column.label}</a>;
   } catch { return <>—</>; }
 }
