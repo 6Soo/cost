@@ -17,12 +17,13 @@ fn run(args: &[&str], stdin: &str) -> (i32, String) {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    // A rejected invocation exits before reading stdin, so the write can hit EPIPE. The exit
+    // code and stdout are what this helper asserts on, so that race must not panic.
+    match child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(error) => panic!("stdin write failed: {error}"),
+    }
     let out = child.wait_with_output().unwrap();
     (
         out.status.code().unwrap(),

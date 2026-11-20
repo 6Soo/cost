@@ -5,6 +5,9 @@
 mod decimal;
 mod forest;
 mod merge;
+mod traveloka;
+
+pub use traveloka::{TravelokaInput, traveloka_fact};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;

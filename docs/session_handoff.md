@@ -2,6 +2,16 @@
 
 기준일 2026-11-20 KST. 확인한 main은 7aeb968a, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
 
+## 2026-11-20 (3) · M6 Traveloka 파서 이식 단위
+
+- 퇴역 계획 [3단계 (b)](playbooks/m6-extractor-retirement.md)의 첫 단위를 구현했다. Traveloka 메일 파서의 **판정·금액·항공일·fact digest를 Rust로** 옮겼고, 공용 메일 헬퍼(인증·본문·`Cf` 제거)는 Python 브리지에 남겼다. `extract_sources.forest_name_keys`가 Python 의미를 경계에서 넘기는 선례를 그대로 따른 것이라 `parseaddr`·`html.unescape` 동등성은 이 단위의 선행 조건이 아니다.
+- **Python 정규식 의미를 명시적으로 재현했다.** `\s`에 `U+001C..U+001F` 추가, 말미 `\b` 2곳은 문자 후처리, `(?<![\d,])` 룩비하인드는 후처리(등가 논거는 모듈 주석). `$`는 `(?:\n?\z)`.
+- **골든 28건**을 변경 없는 Python 파서로 생성했다(`tools/core_bridge/traveloka_golden.py` → `core/golden/synthetic/traveloka_mail.jsonl`). 사례는 예약/결제 구분, 취소 우선, 금액 모호·쉼표 표기 구분, 룩비하인드 적대, DKIM 정렬 대 `owner_collected`, 날짜 2형식·불가 날짜, 전각·아랍·수학 산세리프 숫자, 혼합 폭 연도, 제목+본문 중복 ID, 소프트하이픈, `U+001C` 공백이다.
+- **독립 검수(다른 모델·다른 세션, 읽기 전용)가 차단 3건을 찾았고 모두 고쳤다.** ① Python `references()`는 집합이라 제목·본문에 같은 예약 ID가 두 번 나와도 1개인데 Rust는 등장 횟수로 세어 **결제 fact를 통째로 버렸다**(`f52eafc7`). ② `char::is_digit`/`to_digit`는 ASCII만 인정해 전각 금액은 결제 소실, 혼합 폭 연도는 **0020년** 오답이었다(`65de53b1`). ③ Nd 블록 역산이 인접한 수학 숫자 런을 구분하지 못해 `𝟢`→20이 나왔다(`d11a4b8b`, 블록 시작 테이블 + `v < 10` 안전망). 최종 판정 **APPROVE**. 기록 [검수](agents/artifacts/m6-traveloka-review-20261120.md).
+- **유니코드 버전 일치를 확인했다.** Python 3.14.7 `unicodedata` 16.0.0, `regex-syntax` 0.8.11도 Unicode 16.0.0이며 Nd 760자 집합이 완전 일치한다. 크레이트 갱신 시 테이블 누락을 잡는 전수 가드를 넣었다(`ddb937f6`).
+- **검증:** Rust 골든 대조 4건(필드·canonical 바이트·SHA-256), 라이브러리 단위 116건, `cost-core` 전체, `cargo fmt --check`·`clippy` 경고 0, Python 표적 41건 통과. CLI 시험의 stdin EPIPE 경합(`apply_t4`·`shadow_cli`·`shadow_links_cli`)도 무시하도록 고쳤다(`c1c8a70b`) — 단언은 그대로다. 이 단위는 **추가 전용**이며 스위치 신설·Python 삭제·운영 경로 변경이 없다. PR [#1076](https://github.com/6Soo/cost/pull/1076).
+- 조사 근거: [Traveloka 이식 조사](agents/artifacts/m6-traveloka-port-20261120.md) — 조건부 이식 가능, 위험은 공용 헬퍼에 집중, `airline_payment_mail`이 traveloka를 직접 호출하므로 Python 모듈은 airline 이식까지 유지.
+
 ## 2026-11-20 · 운영 저장 판정 보완과 M6 기준 재설정
 
 - 승인 범위 안에서 운영 decisions-only 보완 2,585건을 완료했다. 새 근거 874건, 저장 대상 누락 0, 재실행 0, 원장 및 기존 판정 91건 불변, 원천·투영·기간 불일치 0. 기존 판정과 다른 60건은 별도 정책 검토 대상이다. 3분기 동일 조회 22탭·256건에서 이용일 공란 56→52건을 확인했다.
@@ -12,6 +22,14 @@
 
 - PR #1071 병합·배포 완료. 업로드 후 검토 저장소의 선택 경로도 기존 OTA 스위치에 연결했다. 실제 호환 바이너리 Rust 모드 33건과 Python 모드 34건, 로컬 업로드 계약 1건 및 GitHub 영향 검사 263건이 통과했다.
 - 현재 운영 바이너리와 새로 복제한 Board·Core, 이전 기간 근거로 저장 보완을 예행했다. 저장 2,585건, 재실행 추가 0건, 원장 쓰기 0건, 원장 논리 지문 동일. 화면 판정과 달라 별도 검토가 필요한 60건은 남아 있다. 근거 D:/WebLedgerHost/data/backups/ota-storage-readiness-20261120-210510-675279/storage-rehearsal/summary.json. 운영 저장 보완과 이용일 폴백 제거는 미수행이다.
+
+## 2026-11-20 (2) · M6 새 추출 기준 확정
+
+- **소유자 결정(2026-11-20):** "새 기준으로 진행." 기존 기준 `7,965건 / a26d4465…`는 원 입력 사본 소실로 재현 불가이므로 **이력으로만 보존**하고 비교 base로 쓰지 않는다. 현재 결정적 추출기로 새 보호 사본 기준을 생산한다.
+- **새 기준:** `7,965건 · 28,544,770바이트 · SHA-256 3c6c46f51fbaa03b6da34708c8891a940fe3f1b957138986860e5dd992b6bde1`. 같은 보호 입력에서 Python 추출 2회와 오프라인 Rust 조립 결과의 바이트가 모두 일치했고, 두 Python 매니페스트도 검증했다.
+- **코드:** [PR #1072](https://github.com/6Soo/cost/pull/1072) — 기존 M6 Rust 추출기 구현을 최신 main에 재적용(충돌 3건 해소, `extract-baseline-compare` 보존, `extract-sources` 추가 전용). `--stages` 입력은 파일을 읽기 전에 기본·지정 호스트의 Board·Core·OTA Evidence·OTA Review 경로와 파일 별칭을 거부한다(`DB_IS_LIVE`).
+- **검증:** 합성 파이프라인 20건 + Rust 골든 2건 + 표적 Python 85건 통과. CI 3/3(impact-checks·rust-core·windows-p2-descendant-boundary) 통과. 독립 검수는 `4cb34308`에서 차단 1건(`--stages` 라이브 경로 미검사) 지적 → `2290b8a8`에서 해소, **APPROVE**.
+- **다음:** 퇴역 계획 [3단계](playbooks/m6-extractor-retirement.md)의 단위별 이식(난이도 낮은 파서부터)과 1단계 결합 해소(`core_writer`의 `periods` 의존). 이번 PR은 오프라인 검증 CLI이며 운영 스위치·Python 삭제는 하지 않았다.
 
 ## 2026-11-20 (2) · M6 새 추출 기준 확정
 

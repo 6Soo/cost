@@ -70,12 +70,13 @@ fn costcore_with_python(args: &[&str], stdin: &str, python: &str) -> (i32, Value
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    // A rejected invocation exits before reading stdin, so the write can hit EPIPE. The exit
+    // code and stdout are what this helper asserts on, so that race must not panic.
+    match child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(error) => panic!("stdin write failed: {error}"),
+    }
     let out = child.wait_with_output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
     (
