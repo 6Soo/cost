@@ -44,10 +44,13 @@
 .cost-home__trip-card:focus-visible,
 .cost-home a:focus-visible { outline: 2px solid var(--cost-focus); outline-offset: 3px; }
 .cost-home__trip-status { grid-column: 1 / -1; color: var(--cost-text-secondary); font-size: .8125rem; white-space: nowrap; display: inline-flex; width: fit-content; align-items: center; padding: 2px 10px; border: 1px solid var(--cost-border); border-radius: 999px; font-weight: 600; }
+.cost-home__trip-status[data-state="active"] { border-color: var(--cost-success-text, #17643b); color: var(--cost-success-text, #17643b); }
 .cost-home__trip-card strong { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
 .cost-home__trip-period { grid-column: 1 / -1; color: var(--cost-text-secondary); font-size: .875rem; }
 .cost-home__trip-profit-label { align-self: end; color: var(--cost-text-secondary); font-size: .875rem; white-space: nowrap; }
 .cost-home__trip-profit { display: flex; justify-content: end; gap: 3px; font-size: 1.15rem; font-variant-numeric: tabular-nums; font-weight: 700; }
+.cost-home__trip-profit[data-sign="negative"] { color: var(--cost-danger-text, #b42318); }
+.cost-home__trip-profit[data-sign="positive"] { color: var(--cost-success-text, #17643b); }
 .cost-home__jobs { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .cost-home__job { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 12px 16px; border: 1px solid var(--cost-border); border-radius: 16px; background: var(--cost-surface); }
 .cost-home__job-status { min-width: 0; }
@@ -57,9 +60,7 @@
   .cost-home__trip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
-  .cost-home { gap: 24px; }.cost-home__trip-status[data-state="active"] { border-color: var(--cost-success-text, #17643b); color: var(--cost-success-text, #17643b); }
-.cost-home__trip-profit[data-sign="negative"] { color: var(--cost-danger-text, #b42318); }
-.cost-home__trip-profit[data-sign="positive"] { color: var(--cost-success-text, #17643b); }
+  .cost-home { gap: 24px; }
   .cost-home__header { align-items: start; flex-direction: column; }
   .cost-home__trip-grid { grid-template-columns: 1fr; }
   .cost-home__job { align-items: start; flex-direction: column; }
