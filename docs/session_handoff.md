@@ -2,6 +2,14 @@
 
 기준일 2026-11-20 KST. 확인한 main은 64743750, 운영은 ecbdb5c9다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
 
+## 2026-11-20 (2) · M6 새 추출 기준 확정
+
+- **소유자 결정(2026-11-20):** "새 기준으로 진행." 기존 기준 `7,965건 / a26d4465…`는 원 입력 사본 소실로 재현 불가이므로 **이력으로만 보존**하고 비교 base로 쓰지 않는다. 현재 결정적 추출기로 새 보호 사본 기준을 생산한다.
+- **새 기준:** `7,965건 · 28,544,770바이트 · SHA-256 3c6c46f51fbaa03b6da34708c8891a940fe3f1b957138986860e5dd992b6bde1`. 같은 보호 입력에서 Python 추출 2회와 오프라인 Rust 조립 결과의 바이트가 모두 일치했고, 두 Python 매니페스트도 검증했다.
+- **코드:** [PR #1072](https://github.com/6Soo/cost/pull/1072) — 기존 M6 Rust 추출기 구현을 최신 main에 재적용(충돌 3건 해소, `extract-baseline-compare` 보존, `extract-sources` 추가 전용). `--stages` 입력은 파일을 읽기 전에 기본·지정 호스트의 Board·Core·OTA Evidence·OTA Review 경로와 파일 별칭을 거부한다(`DB_IS_LIVE`).
+- **검증:** 합성 파이프라인 20건 + Rust 골든 2건 + 표적 Python 85건 통과. CI 3/3(impact-checks·rust-core·windows-p2-descendant-boundary) 통과. 독립 검수는 `4cb34308`에서 차단 1건(`--stages` 라이브 경로 미검사) 지적 → `2290b8a8`에서 해소, **APPROVE**.
+- **다음:** 퇴역 계획 [3단계](playbooks/m6-extractor-retirement.md)의 단위별 이식(난이도 낮은 파서부터)과 1단계 결합 해소(`core_writer`의 `periods` 의존). 이번 PR은 오프라인 검증 CLI이며 운영 스위치·Python 삭제는 하지 않았다.
+
 ## 2026-11-20 · OTA 배치 운영 반영
 
 - PR #1070 병합과 ecbdb5c9 운영 배포를 완료했다. Board·Worker·호환 Rust 바이너리 적용과 보호 표 14개 불변을 확인했다. [운영 기록](operations.md#2026-11-20-2045-kst--ota-카드-후보-rust-배치-운영-전환)
@@ -33,7 +41,7 @@
   - 드러난 이유: `origin/main`의 impact 검사가 **PR 증거 재사용(skip)** 이라 실제 실행된 적이 없었다.
 - **CI 재사용 실측(첫 사례):** main push `53204c7e`가 PR 증거를 재사용해 **1분 53초**에 종료(단계 로그에서 테스트·준비 전부 skipped, `44633965930`). 실제 실행 1회는 1분 58초 중 테스트 70초·준비 48초.
 - **#1062 독립 검수 APPROVE**(차단 0). O2(apply 사이드카 재검증이 `-wal` 크기만)는 비차단 잔여.
-- **남은 일:** `test_trip_ledger_presentation::test_browser_expense_table_keeps_long_party_and_service_dates_reachable`는 지출 행 기하 검사로 이번 변경 없이도 로컬 실패(15px 여유) — 브라우저 환경 의존 별건. M6 §11.1-3 고정 추출 기준 재설정은 **소유자 결정** 대기. 열린 PR은 [#1008](https://github.com/6Soo/cost/pull/1008)(draft)만. 운영 배포는 하지 않았다.
+- **남은 일:** `test_trip_ledger_presentation::test_browser_expense_table_keeps_long_party_and_service_dates_reachable`는 지출 행 기하 검사로 이번 변경 없이도 로컬 실패(15px 여유) — 브라우저 환경 의존 별건. M6 §11.1-3 고정 추출 기준 재설정은 2026-11-20 (2)에서 소유자 결정으로 해소됐다. 열린 PR은 [#1008](https://github.com/6Soo/cost/pull/1008)(draft)만. 운영 배포는 하지 않았다.
 
 ## 이번 연속 작업에서 병합한 것
 
@@ -41,7 +49,7 @@
 - **CI 증거 재사용 도구의 토큰 누출 수정** [PR #1061](https://github.com/6Soo/cost/pull/1061) `53204c7e`. artifact 다운로드의 302 redirect(서명 storage URL)로 `Authorization`이 따라가던 것을 `add_unredirected_header` + API URL 검증으로 막았다. `test_quality_checks` 60 passed(신규 검사는 수정 전 `io` import 누락으로 실패했다가 통과).
 - **세 번째 저널 통합** [PR #1062](https://github.com/6Soo/cost/pull/1062) `62263509`. `source_fact_applies`를 `ledger_operation_requests`로 이동(3값 shape `legacy`/`unified`/`unified_source_facts`, `--include-source-facts` 오프라인 병합 CLI, 별도 백업 `.pre-source-facts-merge-backup`). `reserve_link_saves`는 AccessStore 계약(SPEC 16.4)이라 제외. 저널 32 + 스키마 5 = 37 passed(rebase 후 재확인), CI 3/3. 운영 DB·스키마 미접촉.
 - **CI 재사용 첫 성공 실측:** main push `53204c7e`가 PR 증거를 재사용해 **1분 53초**에 끝났다(같은 PR 실행은 2~3분). 이전 main 실행 4건은 모두 재실행이었다.
-- **남은 차단(소유자 결정):** M6 §11.1-3 고정 추출 기준(`7,965건 / a26d4465…`)은 입력 사본 소실로 재현 불가다. 기준 재설정은 소유자 결정 사항이라 그 전에는 M6 퇴역을 시작할 수 없다.
+- **남은 차단(소유자 결정):** M6 §11.1-3 고정 추출 기준(`7,965건 / a26d4465…`)은 입력 사본 소실로 재현 불가다. 기준 재설정은 소유자 결정 사항이라 그 전에는 M6 퇴역을 시작할 수 없다. → **해소(2026-11-20 (2)):** 소유자 "새 기준으로 진행" 결정으로 새 기준을 생산했다.
 - **열린 PR:** [#1008](https://github.com/6Soo/cost/pull/1008) 정책 초안(draft, 소유자 결정 없이 병합하지 않음). 이번 작업에서 운영 배포는 하지 않았다.
 
 ## 진행 상태
@@ -53,7 +61,7 @@
 | M3 Rust | P1 작성과 OTA·환불 연결의 Rust 운영 전환 기록이 있다. 이후 저장 판정 보완 및 고정 추출 기준 재현은 [SPEC §11.1](SPEC.md#111-rust-새-코어-m3-m6)의 종료 조건을 따른다. |
 | L2·M4 장부 조회 | [#1026](https://github.com/6Soo/cost/pull/1026) 병합(`cde4077c`). 공통 조회의 운영 수락과 기존 HTML 상세·교정 퇴역은 [§11.2.1](SPEC.md#1121-장부-조회-통합)의 행·금액·권한·복귀 대조 뒤 진행한다. |
 | L3·M6 장부 이관 | [#1013](https://github.com/6Soo/cost/pull/1013) 병합(`9a953e27`). 새 장부 테이블 추가의 소유자 승인과 이관 도구가 기록돼 있다. 운영 이관 및 대조 완료 근거는 확인되지 않았다. [#1030](https://github.com/6Soo/cost/pull/1030) revision 보정은 main 병합(`326d6afd`)으로 반영됐다. 원본 보존·백업 복원·행/금액/revision 대조는 [이관 계약](design/m6-ledger-merge-contract.md)과 [#1013](https://github.com/6Soo/cost/pull/1013)을 함께 본다. |
-| L3·M6 추출기 | 기존 7,965건의 고정 기준은 입력 사본이 없어 현재 재현할 수 없다. 기준 재설정 결정, 호출자·브리지·롤백 대조가 퇴역에 선행한다. [추출기 퇴역 계획](playbooks/m6-extractor-retirement.md) |
+| L3·M6 추출기 | 새 기준 확정(`7,965건·28,544,770바이트·SHA-256 3c6c46f5…`) — 소유자 결정 2026-11-20. Python 2회 + Rust 바이트 일치, 매니페스트 검증. [PR #1072](https://github.com/6Soo/cost/pull/1072) 독립 검수 APPROVE(2290b8a8), CI 3/3. 구 기준 `a26d4465…`는 이력 보존·비교 제외. 남은 일: 단위별 파서 이식과 `core_writer`의 `periods` 결합 해소. [추출기 퇴역 계획](playbooks/m6-extractor-retirement.md) |
 | L5·M5 운영 이전 | 합성 큐·보조 노드 예행 근거가 있다. 운영 요청량·저장/복원 비용과 제공자·과금·고객 원문 이전 결정이 남았다. [§11.3](SPEC.md#113-서버와-보조-노드-m5) |
 | L4 CI·검수 | [기준 main CI](https://github.com/6Soo/cost/actions/runs/44549038076). 검증 증거 재사용과 실행 시간 계측을 우선한다. Windows·금융·보호 게이트는 [AGENTS](../AGENTS.md) 기준을 적용한다. |
 
