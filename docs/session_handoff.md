@@ -6,9 +6,10 @@
 
 - 퇴역 계획 [3단계 (b)](playbooks/m6-extractor-retirement.md)의 첫 단위를 구현했다. Traveloka 메일 파서의 **판정·금액·항공일·fact digest를 Rust로** 옮겼고, 공용 메일 헬퍼(인증·본문·`Cf` 제거)는 Python 브리지에 남겼다. `extract_sources.forest_name_keys`가 Python 의미를 경계에서 넘기는 선례를 그대로 따른 것이라 `parseaddr`·`html.unescape` 동등성은 이 단위의 선행 조건이 아니다.
 - **Python 정규식 의미를 명시적으로 재현했다.** `\s`에 `U+001C..U+001F` 추가, 말미 `\b` 2곳은 문자 후처리, `(?<![\d,])` 룩비하인드는 후처리(등가 논거는 모듈 주석). `$`는 `(?:\n?\z)`.
-- **골든 22건**을 변경 없는 Python 파서로 생성했다(`tools/core_bridge/traveloka_golden.py` → `core/golden/synthetic/traveloka_mail.jsonl`). 사례는 예약/결제 구분, 취소 우선, 금액 모호·쉼표 표기 구분, 룩비하인드 적대, DKIM 정렬 대 `owner_collected`, 날짜 2형식·불가 날짜, 전각 숫자(쉼표 포함은 파이썬 `int()` ValueError로 fact 없음, 쉼표 없음은 정상 파싱), 소프트하이픈, `U+001C` 공백이다.
-- **단위 테스트가 실제 결함을 잡았다.** Rust `char::is_digit`/`to_digit`는 ASCII만 인정해 전각·아랍 숫자를 Python보다 먼저 거부했다. `\p{Nd}` 판정과 Nd 블록 역산으로 고쳤다(`65de53b1`). 보호 기준의 Traveloka 사건 17건은 **금액이 모두 없음**이라 운영 판정에는 영향이 없었고, 이후 이식에서도 같은 결함을 막도록 골든에 고정했다.
-- **검증:** Rust 골든 대조 4건(필드·canonical 바이트·SHA-256), 라이브러리 단위 114건, `cost-core` 전체, `cargo fmt --check`·`clippy` 경고 0, Python 표적 41건 통과. 이 단위는 **추가 전용**이며 스위치 신설·Python 삭제·운영 경로 변경이 없다.
+- **골든 28건**을 변경 없는 Python 파서로 생성했다(`tools/core_bridge/traveloka_golden.py` → `core/golden/synthetic/traveloka_mail.jsonl`). 사례는 예약/결제 구분, 취소 우선, 금액 모호·쉼표 표기 구분, 룩비하인드 적대, DKIM 정렬 대 `owner_collected`, 날짜 2형식·불가 날짜, 전각·아랍·수학 산세리프 숫자, 혼합 폭 연도, 제목+본문 중복 ID, 소프트하이픈, `U+001C` 공백이다.
+- **독립 검수(다른 모델·다른 세션, 읽기 전용)가 차단 3건을 찾았고 모두 고쳤다.** ① Python `references()`는 집합이라 제목·본문에 같은 예약 ID가 두 번 나와도 1개인데 Rust는 등장 횟수로 세어 **결제 fact를 통째로 버렸다**(`f52eafc7`). ② `char::is_digit`/`to_digit`는 ASCII만 인정해 전각 금액은 결제 소실, 혼합 폭 연도는 **0020년** 오답이었다(`65de53b1`). ③ Nd 블록 역산이 인접한 수학 숫자 런을 구분하지 못해 `𝟢`→20이 나왔다(`d11a4b8b`, 블록 시작 테이블 + `v < 10` 안전망). 최종 판정 **APPROVE**. 기록 [검수](agents/artifacts/m6-traveloka-review-20261120.md).
+- **유니코드 버전 일치를 확인했다.** Python 3.14.7 `unicodedata` 16.0.0, `regex-syntax` 0.8.11도 Unicode 16.0.0이며 Nd 760자 집합이 완전 일치한다. 크레이트 갱신 시 테이블 누락을 잡는 전수 가드를 넣었다(`ddb937f6`).
+- **검증:** Rust 골든 대조 4건(필드·canonical 바이트·SHA-256), 라이브러리 단위 116건, `cost-core` 전체, `cargo fmt --check`·`clippy` 경고 0, Python 표적 41건 통과. CLI 시험의 stdin EPIPE 경합(`apply_t4`·`shadow_cli`·`shadow_links_cli`)도 무시하도록 고쳤다(`c1c8a70b`) — 단언은 그대로다. 이 단위는 **추가 전용**이며 스위치 신설·Python 삭제·운영 경로 변경이 없다. PR [#1076](https://github.com/6Soo/cost/pull/1076).
 - 조사 근거: [Traveloka 이식 조사](agents/artifacts/m6-traveloka-port-20261120.md) — 조건부 이식 가능, 위험은 공용 헬퍼에 집중, `airline_payment_mail`이 traveloka를 직접 호출하므로 Python 모듈은 airline 이식까지 유지.
 
 ## 2026-11-20 · 운영 저장 판정 보완과 M6 기준 재설정
