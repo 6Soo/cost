@@ -1466,8 +1466,7 @@ def find_row(row_id: str):
     if _active_store() is not None:
         hidden = _active_store().get_row(row_id)
         if hidden is not None:
-            hidden["display_amount_krw"] = _active_store().display_amount(hidden)
-            hidden["display_occurred_on"] = _active_store().display_occurred_on(hidden)
+            hidden = _active_store().projected(hidden)
             return (hidden["row_kind"], hidden)
     return (None, None)
 
