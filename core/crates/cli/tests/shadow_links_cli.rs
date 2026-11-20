@@ -238,7 +238,13 @@ fn links_refund_rows_stdin(body: &[u8], extra: &[&str]) -> (Option<i32>, Value) 
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(body).unwrap();
+    // A rejected invocation exits before reading stdin, so the write can hit EPIPE. The exit
+    // code and stdout are what this helper asserts on, so that race must not panic.
+    match child.stdin.take().unwrap().write_all(body) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(error) => panic!("stdin write failed: {error}"),
+    }
     let out = child.wait_with_output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
     (
