@@ -191,9 +191,8 @@ fn period(m: &regex::Captures<'_>, sent: &str) -> Option<Value> {
     let sent = parse_date(sent)?;
     let start = calendar(sent.year(), start_month, start_day)?;
     let start = if start < sent && (sent - start).whole_days() > 31 {
-        if start_month == start_day && start_day == 0 {
-            return None;
-        }
+        // Python retries the next year inside the same `try`, so a failure there is the same
+        // `ValueError` path: `None`, never a second retry.
         calendar(sent.year() + 1, start_month, start_day)?
     } else {
         start
