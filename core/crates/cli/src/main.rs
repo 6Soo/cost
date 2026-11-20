@@ -162,7 +162,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("links") if args.get(1).map(String::as_str) == Some("ota") => {
-            links_ota::run(&args[2..])
+            links_ota::run(&args[2..], false)
+        }
+        Some("links") if args.get(1).map(String::as_str) == Some("ota-candidates") => {
+            links_ota::run(&args[2..], true)
         }
         Some("shadow") => finish(shadow(&args[1..]), "status"),
         Some("shadow-links") => finish(shadow_links(&args[1..]), "status"),

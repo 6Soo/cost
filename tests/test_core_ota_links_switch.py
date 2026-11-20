@@ -155,7 +155,7 @@ def test_nonzero_exit_with_ok_body_fails(monkeypatch):
 
 
 def test_result_for_an_unknown_event_or_duplicate_event_ids_fail(monkeypatch):
-    monkeypatch.setattr(core_ota_links, '_run', lambda request: [{'ota_event_id': 'ghost', 'status': 'HOLD_NO_CARD'}])
+    monkeypatch.setattr(core_ota_links, '_run', lambda request: {'results': [{'ota_event_id': 'ghost', 'status': 'HOLD_NO_CARD'}]})
     with pytest.raises(RuntimeError, match='CORE_LINKS_UNKNOWN_EVENT'):
         core_ota_links.match_ota_payment_events([{'ota_event_id': 'e1'}], [])
     with pytest.raises(RuntimeError, match='CORE_LINKS_DUPLICATE_EVENT'):
@@ -164,10 +164,10 @@ def test_result_for_an_unknown_event_or_duplicate_event_ids_fail(monkeypatch):
 
 def test_a_result_count_that_differs_from_the_event_count_or_repeats_an_event_fails(monkeypatch):
     events = [{'ota_event_id': 'e1'}, {'ota_event_id': 'e2'}]
-    monkeypatch.setattr(core_ota_links, '_run', lambda request: [{'ota_event_id': 'e1', 'status': 'HOLD_NO_CARD'}])
+    monkeypatch.setattr(core_ota_links, '_run', lambda request: {'results': [{'ota_event_id': 'e1', 'status': 'HOLD_NO_CARD'}]})
     with pytest.raises(RuntimeError, match='CORE_LINKS_RESULT_COUNT'):
         core_ota_links.match_ota_payment_events(events, [])
-    monkeypatch.setattr(core_ota_links, '_run', lambda request: [{'ota_event_id': 'e1'}, {'ota_event_id': 'e1'}])
+    monkeypatch.setattr(core_ota_links, '_run', lambda request: {'results': [{'ota_event_id': 'e1'}, {'ota_event_id': 'e1'}]})
     with pytest.raises(RuntimeError, match='CORE_LINKS_DUPLICATE_RESULT'):
         core_ota_links.match_ota_payment_events(events, [])
 
@@ -205,6 +205,47 @@ def test_data_is_identical_under_both_producers(binary, monkeypatch, tmp_path, c
     rust_data = data_of(case, tmp_path / 'rs', rust_calls)
     assert python_calls == ['python'] and rust_calls == []
     assert rust_data == python_data
+
+
+@pytest.mark.parametrize('supports_batch', [True, False])
+def test_board_batches_candidates_or_keeps_older_binary_compatibility(binary, monkeypatch, tmp_path, supports_batch):
+    events = [
+        golden._event('syn-e1'),
+        golden._event('syn-e2', booking_ref='SYN-BOOK-2', amount='30001', amount_krw=30001),
+        golden._event('syn-e3', provider='forest', event_type='reservation', evidence_status='reservation_only'),
+    ]
+    case = ('unmatched candidates', events, [], {})
+    (tmp_path / 'python').mkdir()
+    (tmp_path / 'rust').mkdir()
+    monkeypatch.setenv(core_ota_links.PRODUCER_ENV, 'python')
+    expected = data_of(case, tmp_path / 'python', [])
+    commands = []
+    original_run = core_ota_links._run
+
+    def recorded_run(request, command='ota'):
+        commands.append(command)
+        response = original_run(request, command)
+        if command == 'ota' and not supports_batch:
+            del response['supports_candidate_batch']
+        if command == 'ota-candidates':
+            assert len(request['events']) == 3
+            assert response['searches']['syn-e3'] is None
+        return response
+
+    monkeypatch.setattr(core_ota_links, '_run', recorded_run)
+    monkeypatch.setenv(core_ota_links.PRODUCER_ENV, 'rust')
+    assert data_of(case, tmp_path / 'rust', []) == expected
+    assert commands == (['ota', 'ota-candidates'] if supports_batch else ['ota'])
+
+
+def test_candidate_batch_requires_a_trace_or_explicit_supported_delegation(monkeypatch):
+    event = golden._event('syn-e1')
+    monkeypatch.setattr(core_ota_links, '_run', lambda request, command: {'searches': {}})
+    with pytest.raises(RuntimeError, match='CORE_OTA_CANDIDATE_KEYS'):
+        core_ota_links.search_card_candidates([event], [], existing_links={}, rules=[])
+    monkeypatch.setattr(core_ota_links, '_run', lambda request, command: {'searches': {'syn-e1': None}})
+    with pytest.raises(RuntimeError, match='CORE_OTA_CANDIDATE_DELEGATION'):
+        core_ota_links.search_card_candidates([event], [], existing_links={}, rules=[])
 
 
 def solved(binary, events, cards, **extra):

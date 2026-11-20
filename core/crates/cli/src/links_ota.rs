@@ -1,13 +1,14 @@
 //! `costcore links ota [--input FILE|-] [--repo-root ROOT]`: 풀이기 입력(`events`·`transactions`·`existing_links`·`rules`·
 //! `frozen_groups`, `costcore shadow-links --ota-input`과 같은 형식)을 받아 연결 칸만 낸다. DB는 읽지 않는다.
 //! 출력은 한 줄 JSON `{"ok":true,"result":{"results":[...]}}`이며 이벤트 원문 복사 칸은 담지 않는다(Python 어댑터가 이벤트에 덧씌운다).
+//! costcore links ota-candidates batches diagnostic searches. A null trace delegates a provider-specific search.
 //! 오류는 고정 코드만 낸다.
 
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use cost_core::links::ota::{Defaults, Matcher};
+use cost_core::links::ota::{DEFAULT_MAX_COMPARISONS, Defaults, Matcher, Search};
 use serde_json::{Map, Value, json};
 
 fn list(input: &Value, key: &str) -> Result<Vec<Value>, &'static str> {
@@ -31,7 +32,7 @@ fn read_input(path: Option<&str>) -> Result<Value, &'static str> {
     serde_json::from_str(&text).map_err(|_| "INPUT_INVALID")
 }
 
-fn solve(args: &[String]) -> Result<Value, &'static str> {
+fn solve(args: &[String], search_candidates: bool) -> Result<Value, &'static str> {
     let (mut input_path, mut repo) = (None, PathBuf::from("."));
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -59,16 +60,39 @@ fn solve(args: &[String]) -> Result<Value, &'static str> {
         .map_err(|_| "CONFIG_INVALID")?;
     let config: Value = serde_json::from_str(&config).map_err(|_| "CONFIG_INVALID")?;
     let defaults = Defaults::from_value(&config).map_err(|_| "CONFIG_INVALID")?;
-    let results: Vec<Value> = Matcher::new(&defaults, &rules)
+    let matcher = Matcher::new(&defaults, &rules);
+    if search_candidates {
+        let mut searches = Map::new();
+        for event in &events {
+            let id = event["ota_event_id"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or("INPUT_INVALID")?;
+            let trace = match matcher.search_card_candidates(
+                event,
+                &cards,
+                &existing,
+                DEFAULT_MAX_COMPARISONS,
+            ) {
+                Search::Done(trace) => json!(trace),
+                Search::Delegated(_) => Value::Null,
+            };
+            if searches.insert(id.to_owned(), trace).is_some() {
+                return Err("INPUT_INVALID");
+            }
+        }
+        return Ok(json!({"searches": searches}));
+    }
+    let results: Vec<Value> = matcher
         .match_events(&events, &cards, &existing, &frozen)
         .iter()
         .map(|link| link.to_value())
         .collect();
-    Ok(json!({"results": results}))
+    Ok(json!({"results": results, "supports_candidate_batch": true}))
 }
 
-pub fn run(args: &[String]) -> ExitCode {
-    match solve(args) {
+pub fn run(args: &[String], search_candidates: bool) -> ExitCode {
+    match solve(args, search_candidates) {
         Ok(result) => {
             println!("{}", json!({"ok": true, "result": result}));
             ExitCode::SUCCESS
