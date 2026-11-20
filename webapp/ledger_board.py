@@ -1357,10 +1357,7 @@ def board_back_path(tab: str, query: str = "", kind: str = "",
     own_state = {key: value for key, value in
                  (("tab", tab), ("q", query), ("kind", kind), ("arch", archived)) if value}
     own = "/board" + (f"?{urlencode(own_state)}" if own_state else "")
-    back = board_return_path(return_to)
-    if back and parse_qs(urlsplit(back).query).get("tab", [""])[0] == tab:
-        return back
-    return own
+    return correction_return_target(tab, return_to) or own
 
 
 
