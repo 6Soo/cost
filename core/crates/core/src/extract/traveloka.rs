@@ -285,7 +285,9 @@ fn nd_value(c: char) -> Option<u32> {
     }
     let code = c as u32;
     let block = ND_BLOCK_STARTS.iter().rev().find(|start| **start <= code)?;
-    Some(code - block)
+    let value = code - block;
+    // A table miss would otherwise borrow the previous block and return 10 or more.
+    (value < 10).then_some(value)
 }
 
 /// `{'starts_on': day, 'ends_on': day}` from the outbound flight section, or `None`.
