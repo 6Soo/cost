@@ -6,10 +6,12 @@ mod airbnb;
 mod decimal;
 mod forest;
 mod merge;
+mod mytrip;
 mod pyre;
 mod traveloka;
 
 pub use airbnb::{AirbnbInput, AirbnbMessage, airbnb_events};
+pub use mytrip::{MytripInput, MytripMessage, mytrip_events};
 pub use traveloka::{TravelokaInput, traveloka_fact};
 
 use std::collections::{BTreeMap, BTreeSet};
