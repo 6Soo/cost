@@ -1,6 +1,16 @@
 # COST 현재 상태 · 작업 인계
 
-기준일 2026-11-20 KST. 확인한 main은 7aeb968a, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+기준일 2026-11-21 KST. 확인한 main은 7d343bc4, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
+
+## 2026-11-21 · M6 Airbnb 파서 이식 단위
+
+- 퇴역 계획 3단계 (b) 두 번째 단위. Airbnb는 `collect()`가 파싱·집계·사건 조립·ID를 한 번에 해 **슬라이스 전체**를 Rust로 옮겼고, 공용 헬퍼(인증·본문·`sent_day`)는 Python 경계 값으로 남겼다(`sent_day`는 RFC 2822+KST+수신 지연 규칙으로 호출처 10곳). 교차 파서 의존이 없어 배선 단계의 모듈 교체가 깨끗하다.
+- **공용 `extract/pyre.rs` 신설.** Python `re`/`int()` 의미를 한 곳에 모았다: 확장 `\s`(`U+001C..U+001F`), 양방향 `\b`, Nd 블록 테이블. traveloka를 이 모듈로 전환했고 **골든 28건 바이트 동일이 회귀 가드**다.
+- **단위 테스트가 실제 차이를 잡았다.** `char::is_alphanumeric`은 Other_Alphabetic 결합 표기(U+0345 등)를 Python `str.isalnum()`보다 과수용한다. 단어 범주를 Python `unicodedata`에서 뽑은 770범위 테이블(142,939자, 불일치 0 검증)로 바꿨다.
+- **골든 26건**, 변경 없는 Python 파서 생성: 연도 추론 31일 경계·연말 넘김, 2월 29 양방향, `end_month` 0 폴백, 취소 sticky, 기간 충돌, `m2/m10` 정렬, 양방향 `\b`, 전각 월/일. 필드·canonical 바이트·SHA-256 일치.
+- **검증:** lib 124건, airbnb 골든 26건, traveloka 4건, extract 2건, `fmt`·`clippy` 경고 0, Python airbnb+traveloka 11건 통과. **추가 전용**이며 스위치·Python 삭제·운영 경로 변경 없음.
+- 조사 근거: [Airbnb 이식 조사](agents/artifacts/m6-airbnb-port-20261121.md) — 이식 가능·선행 차단 조건 없음.
+
 
 ## 2026-11-20 (3) · M6 Traveloka 파서 이식 단위
 
