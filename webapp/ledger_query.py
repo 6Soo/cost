@@ -37,6 +37,15 @@ def display_amount(row: dict[str, Any]) -> int:
         return 0
 
 
+def display_date(row: dict[str, Any]) -> str:
+    """Displayed date: the stored correction wins (R05), else the stored date.
+
+    SPEC §11.2.1 계약 1·2: both entry paths sort by the date they display, so a
+    bank date correction moves the row the same way on the legacy list and React.
+    """
+    return str(row.get("display_occurred_on") or row.get("occurred_on") or "")
+
+
 def project_rows(store: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Apply the store's authoritative display correction projection (R05)."""
     if store is not None and hasattr(store, "projected"):

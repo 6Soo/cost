@@ -326,15 +326,15 @@ def _ledger(access: Any, session: Any, board: Any,
         # the whole DTO per comparison is O(n log n) projections and was the
         # single largest cost of this list at 5,000 rows.  The values are read
         # from the same fields ``ledger_row`` reads, so the order is identical:
-        # ``projection._display_date`` and ``ledger_query.display_amount`` are
+        # ``ledger_query.display_date`` and ``ledger_query.display_amount`` are
         # the same helpers the DTO uses.
         if sort == "date_asc":
-            date = str(row.get("occurred_on") or "")
+            date = ledger_query.display_date(row)
             rank = (0 if row.get("row_kind") == "income"
                     else ledger_design._expense_category_rank(row.get("item")))
             return (not date, date, rank, str(row.get("row_id") or ""))
         if sort == "date_desc":
-            return (projection._display_date(row), str(row.get("row_id") or ""))
+            return (ledger_query.display_date(row), str(row.get("row_id") or ""))
         if sort.startswith("merchant"):
             kind = str(row.get("row_kind") or "expense")
             merchant = (row.get("source_merchant") if kind != "income"

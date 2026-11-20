@@ -103,9 +103,6 @@ def trip_summary(trip: dict[str, Any], rows: Iterable[dict[str, Any]],
     }
 
 
-def _display_date(row: dict[str, Any]) -> str:
-    return str(row.get("display_occurred_on") or row.get("occurred_on") or "")
-
 
 def ledger_row(row: dict[str, Any], *, read_only: bool = False,
                period: str | None = None,
@@ -139,7 +136,7 @@ def ledger_row(row: dict[str, Any], *, read_only: bool = False,
         stored_period = ""
     result = {
         "id": str(row.get("row_id") or ""),
-        "date": _display_date(row),
+        "date": ledger_query.display_date(row),
         "merchant": str(merchant or ""),
         "description": str(description or ""),
         "category": str(category or ""),
