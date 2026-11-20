@@ -16,7 +16,7 @@ fn records() -> Vec<Value> {
 #[test]
 fn every_python_mytrip_case_matches_events_and_bytes() {
     let cases = records();
-    assert!(cases.len() >= 20);
+    assert_eq!(cases.len(), 26, "golden case count changed");
     for case in &cases {
         let input: MytripInput = serde_json::from_value(case["input"].clone()).unwrap();
         let events = mytrip_events(&input);
