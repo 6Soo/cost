@@ -76,7 +76,7 @@
 - 풀이 결과는 개수가 이벤트 수와 같고 이벤트 ID가 겹치지 않아야 한다(어기면 `CORE_LINKS_RESULT_COUNT`·`CORE_LINKS_DUPLICATE_RESULT`로 실패, 폴백 없음).
 - 바뀌는 곳은 `webapp/ota_payment_review._data`의 풀이기 호출 한 곳이다. 입력 조립(이벤트·카드·수동 연결·규칙·고정 그룹)과 결과 후처리는 그대로 Python이다. `rust`이면 같은 입력을 `costcore links ota --input - --repo-root <레포>`의 표준 입력으로 넘기고(고객 원문이 디스크에 남지 않는다), 돌려받은 연결 칸을 원 이벤트 위에 덧씌워 Python 풀이기와 같은 결과를 만든다.
 - 실패는 폴백이 없다: 바이너리 미설정·종료 코드 0이 아님·응답 없음·미지의 이벤트·중복 이벤트 ID는 `RuntimeError`(`CORE_LINKS_*`)로 끝난다.
-- 같은 변수가 `app/ota_review.py`의 검토 저장소 풀이(`OtaReviewStore`)에는 아직 닿지 않는다. 그 호출은 Python이다(후속).
+- 업로드 뒤 검토 저장소를 갱신하는 OtaReviewStore.refresh도 같은 스위치로 최종 연결 판정기를 선택한다. 근거 변경·누락 표시와 갱신 대상 선정은 검토 저장소가 처리한다.
 - 입력 포착(`ota-input`)은 스위치가 켜져 있어도 Python 풀이기 호출 지점에서 멈춘다(포착이 환경 변수를 잠시 끈다).
 - 사본 대조는 6단계 ②③과 같다. 실행 중 한 번 더 확인하려면 포착 파일을 `costcore links ota --input "$h/ota-input.json" --repo-root .`에 넣어 결과를 본다(연결 칸만 나오지만 사유·후보에 거래 정보가 있을 수 있으니 출력을 파일·PR에 붙이지 않는다).
 
