@@ -33,6 +33,14 @@ function renderPage(rows: LedgerRow[]) {
     bootstrap={{ role: 'viewer', csrf: '', trips: [trip], capabilities: [], receipt_enabled: false }} />);
 }
 
+test('renders the ledger display label while preserving the source field in the API', async () => {
+  renderPage([row({ id: 'google-income|synthetic', merchant: 'Synthetic roster name',
+    description: 'Google evidence', display_merchant: 'Google income' })]);
+  expect((await screen.findAllByText('Google income')).length).toBeGreaterThan(0);
+  expect(screen.queryByText('Synthetic roster name')).toBeNull();
+  expect(screen.getAllByText('Google evidence').length).toBeGreaterThan(0);
+});
+
 test('opens the server-selected legacy tab in ascending date order', async () => {
   const previous = { ...trip, id: 'trip-previous', previous: true };
   vi.mocked(getJSON).mockResolvedValue({

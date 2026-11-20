@@ -56,6 +56,7 @@ export interface LedgerRow {
   id: string;
   date: string;
   merchant: string;
+  display_merchant?: string;
   description: string;
   category: string;
   amount: string;

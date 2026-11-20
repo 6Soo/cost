@@ -381,10 +381,11 @@ def _ledger(access: Any, session: Any, board: Any,
             period=period, period_source=period_source,
             period_label=compact, period_label_full=full,
             google_match=match_status.get(str(row.get('row_id') or '')))
-        if str(trip.get("tab_id") or "") != "refunds":
+        if row.get("google_income"):
+            dto["display_merchant"] = ledger_design._row_party_main(row)
+        elif str(trip.get("tab_id") or "") != "refunds":
             dto["merchant"] = ledger_design._row_party_main(row)
-            if not row.get("google_income"):
-                dto["description"] = ledger_design._row_party_sub(row, include_passengers=owner)
+            dto["description"] = ledger_design._row_party_sub(row, include_passengers=owner)
         dto_rows.append(dto)
     google_verified = bool(income.get("verified"))
     linked = ledger_query.linked_bank_ids(_board_instance(board))

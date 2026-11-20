@@ -222,7 +222,11 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
     getJSON<LedgerPayload>(requestUrl, controller.signal)
       .then((payload) => {
         if (controller.signal.aborted) return;
-        setData(payload);
+        setData({
+          ...payload,
+          rows: payload.rows.map((row) => row.display_merchant === undefined
+            ? row : { ...row, merchant: row.display_merchant }),
+        });
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;

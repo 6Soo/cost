@@ -14,6 +14,7 @@ def test_google_income_appears_without_creating_board_rows(bound_store, income_c
     google = [r for r in result['rows'] if r['id'].startswith('google-income|')]
     assert len(google) == 1
     assert google[0]['merchant'] == 'INCOME-NAME'
+    assert google[0]['display_merchant'] == 'Google \uc218\uc785'
     assert google[0]['amount'] == '1000'
     assert google[0]['read_only'] is True
     # GGL-003 (보호): 내부 COST 수입과 Google 수입을 합산하지 않는다. The trip
