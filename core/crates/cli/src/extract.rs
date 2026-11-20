@@ -1,6 +1,8 @@
 //! Offline M6 extractor. No production switches, runtime or database writes.
 use super::{CliError, DEFAULT_HOST, Flags, python_bridge};
-use cost_core::extract::{SourceStages, build_ota_payment_events, check_output, write_baseline};
+use cost_core::extract::{
+    SourceStages, build_ota_payment_events, check_output, check_stages_input, write_baseline,
+};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -37,8 +39,12 @@ pub(super) fn run(args: &[String]) -> Result<(u8, Value), CliError> {
             serde_json::from_value(python_bridge(&flags).extract_sources(Path::new(copy), &host)?)
                 .map_err(|_| cost_core::extract::ExtractError::InputInvalid)?
         }
-        (None, Some(path)) => serde_json::from_str(&std::fs::read_to_string(path)?)
-            .map_err(|_| cost_core::extract::ExtractError::InputInvalid)?,
+        (None, Some(path)) => {
+            let path = Path::new(path);
+            check_stages_input(path, &[&host, Path::new(DEFAULT_HOST)])?;
+            serde_json::from_str(&std::fs::read_to_string(path)?)
+                .map_err(|_| cost_core::extract::ExtractError::InputInvalid)?
+        }
         _ => return Err(CliError::UsageInvalid),
     };
     let events = build_ota_payment_events(stages)?;

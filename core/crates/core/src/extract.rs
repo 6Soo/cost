@@ -26,6 +26,8 @@ pub const STAGES_SCHEMA: &str = "ota-extract-stages/1";
 pub enum ExtractError {
     #[error("EXTRACT_INPUT_INVALID")]
     InputInvalid,
+    #[error("DB_IS_LIVE")]
+    DbIsLive,
     #[error("OUT_INSIDE_REPO")]
     OutInsideRepo,
     #[error(transparent)]
@@ -38,6 +40,7 @@ impl ExtractError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::InputInvalid => "EXTRACT_INPUT_INVALID",
+            Self::DbIsLive => "DB_IS_LIVE",
             Self::OutInsideRepo => "OUT_INSIDE_REPO",
             Self::Guard(error) => error.code(),
             Self::Io(_) => "IO_ERROR",
@@ -142,6 +145,27 @@ pub fn baseline_bytes(events: &[Value]) -> Result<String, ExtractError> {
     let mut sorted = events.to_vec();
     sorted.sort_by(|a, b| text(a, "ota_event_id").cmp(text(b, "ota_event_id")));
     Ok(python_json(&json!({"events": sorted})))
+}
+
+/// Refuse protected operational databases and aliases before reading parser stages.
+pub fn check_stages_input(path: &Path, hosts: &[&Path]) -> Result<(), ExtractError> {
+    let source = path.canonicalize()?;
+    for host in hosts {
+        for name in [
+            "board.sqlite",
+            "core.sqlite",
+            "ota-evidence.sqlite",
+            "ota-review/ota-review.sqlite",
+        ] {
+            let live = host.join("data").join(name);
+            if let Ok(live) = live.canonicalize()
+                && (source == live || crate::pipeline::same_file(&source, &live))
+            {
+                return Err(ExtractError::DbIsLive);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Check before parsing sources, including symlinks and a host placed inside the repo.

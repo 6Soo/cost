@@ -135,6 +135,23 @@ def test_rust_extract_rejects_outside_output_and_invalid_stages_without_creating
 
 
 @pytest.mark.costcore_bin
+@pytest.mark.parametrize('name', ['board.sqlite', 'core.sqlite', 'ota-evidence.sqlite', 'ota-review/ota-review.sqlite'])
+def test_rust_extract_rejects_live_stage_files_and_their_aliases(tmp_path, name):
+    host = tmp_path / 'host'
+    live = host / 'data' / name
+    live.parent.mkdir(parents=True, exist_ok=True)
+    live.write_text(json.dumps(stages([], [])), encoding='utf-8')
+    alias = tmp_path / 'alias.json'
+    os.link(live, alias)
+    out = host / 'data/backups/events.json'
+    out.parent.mkdir(parents=True)
+    for source in (live, alias):
+        result, response = run_extract(['--stages', source, '--host-root', host, '--out', out])
+        assert result.returncode != 0 and response['error']['code'] == 'DB_IS_LIVE'
+        assert not out.exists()
+
+
+@pytest.mark.costcore_bin
 def test_rust_extract_refuses_output_in_the_repo_even_with_a_synthetic_host_override(tmp_path):
     import tempfile
     archive = ROOT / '.local-archive'
