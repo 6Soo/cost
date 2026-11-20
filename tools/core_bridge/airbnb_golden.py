@@ -59,6 +59,8 @@ def inputs():
         '예약 확정: 2월 29일~3월 2일', '확인 코드 HMSYNTH007', date='Sat, 13 Feb 2027 02:38:11 +0000')}
     yield 'february-29-leap', {'m1': message(
         '예약 확정: 2월 29일~3월 2일', '확인 코드 HMSYNTH008', date='Sun, 13 Feb 2028 02:38:11 +0000')}
+    yield 'february-29-year-plus-one-also-invalid', {'m1': message(
+        '예약 확정: 2월 29일~3월 2일', '확인 코드 HMSYNTH028', date='Wed, 13 Jan 2027 02:38:11 +0000')}
     yield 'cancellation-marks-same-code', {'m1': confirmed(), 'm2': message(
         '예약이 취소되었습니다 - HMSYNTH001', '확인 코드 HMSYNTH001', date='Thu, 14 May 2026 02:38:11 +0000')}
     yield 'reconfirmed-after-cancel-stays-cancelled', {
