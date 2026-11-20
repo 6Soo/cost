@@ -112,39 +112,24 @@ def work_menu_html() -> str:
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
               quick_view: bool = False) -> str:
-    """Thin wrapper around the application shell sidebar.
-
-    live_nav is supplied by the same renderer used by nav_region so the
-    live fragment and the initial document never disagree.
-    """
+    """Render the shared sidebar for the current board tab."""
     from . import site_shell
     # aria-current="page" is assigned by the server shell for one section link.
     return site_shell.sidebar(
         section=site_shell.section_for('/board', {'tab': [tab_id]}),
         tab_id=tab_id,
         role=board.current_role(),
-        live_nav=nav_region(tab_id, query, kind, archived),
     )
 
 _FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
                   "var t=d.querySelector('.prev-q>summary, a');if(t)t.focus()}},0)")
 
 
-def _nav_region_inner(tab_id: str, query: str = "", kind: str = "",
-                      archived: str = "", quick_view: bool = False) -> str:
+def nav_region(tab_id: str, query: str = "", kind: str = "",
+               archived: str = "", *, quick_view: bool = False) -> str:
     """Return the live navigation region from the shared shell renderer."""
     from . import site_shell
     return site_shell._active_trip_nav(tab_id, role=board.current_role())
-
-
-
-def nav_region(tab_id: str, query: str = "", kind: str = "",
-               archived: str = "", *, quick_view: bool = False) -> str:
-    inner = _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
-    if inner.startswith("<div id='live-nav'"):
-        return inner
-    return "<div id='live-nav'><nav aria-label='진행 중 여행'>" + inner + "</nav></div>"
-
 
 
 def nav_part(tab_id: str, query: str = "", kind: str = "",

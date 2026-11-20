@@ -850,7 +850,7 @@ def test_trip_rail_badges_show_dates_never_income_in_initial_render_and_live_fra
     previous = board_mod._STORE
     board_mod.bind_store(store)
     try:
-        for markup in (ledger_design._nav_region_inner('', '', '', ''),
+        for markup in (ledger_design.nav_region('', '', '', ''),
                        ledger_design.nav_part('', '', '', '')):
             assert '미배정 지출' not in markup
             assert '여행 전체 보기' in markup

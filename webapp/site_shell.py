@@ -265,7 +265,6 @@ def app_shell(content, section='trips', title='', breadcrumb='', role=None, tab_
 
 
 MENU_TOGGLE = ''
-TOPBAR_NAVIGATION = ''
 BUTTON = site_theme.BUTTON
 
 
@@ -319,11 +318,6 @@ def wrap_document(document, path, *, status=200):
     elif section == 'admin' and page_path != '/access/admin':
         back_href = '/access/admin'
     breadcrumb = _breadcrumb(path, query, title)
-    try:
-        from . import ledger_design
-        live_nav = ledger_design.nav_region(nav_tab_id, '', '', '')
-    except Exception:
-        live_nav = None
     content = raw
     if not re.search(r'<main\b[^>]*\bid=["\']main["\']', content, re.I):
         own_main = re.search(r'<main\b([^>]*)>', content, re.I)
@@ -339,7 +333,8 @@ def wrap_document(document, path, *, status=200):
     if not re.search(r'<h1\b', content, re.I):
         content = re.sub(r'(<main\b[^>]*>)', r'\1<h1>' + _esc(title) + '</h1>', content, count=1, flags=re.I)
     content = re.sub(r'<header\b[^>]*class=["\'][^"\']*site-topbar[^"\']*["\'][^>]*>.*?</header\s*>', '', content, flags=re.I | re.S)
-    shell = app_shell(content, section, title, breadcrumb, role, nav_tab_id, live_nav, back_href, page_path)
+    shell = app_shell(content, section, title, breadcrumb, role, nav_tab_id,
+                      back_href=back_href, current_path=page_path)
     title_html = '<title>' + _esc(title) + ' · ' + BRAND + '</title>'
     if title_match:
         document = document[:title_match.start()] + title_html + document[title_match.end():]
