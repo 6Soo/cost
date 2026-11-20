@@ -33,6 +33,42 @@ function renderPage(rows: LedgerRow[]) {
     bootstrap={{ role: 'viewer', csrf: '', trips: [trip], capabilities: [], receipt_enabled: false }} />);
 }
 
+test('opens the server-selected legacy tab in ascending date order', async () => {
+  const previous = { ...trip, id: 'trip-previous', previous: true };
+  vi.mocked(getJSON).mockResolvedValue({
+    trip, rows: [], total_count: 0, page: 1, page_size: 50,
+    total: '0', filtered_total: '0', closed: false,
+  });
+  render(<LedgerPage path="/board" search={new URLSearchParams()}
+    bootstrap={{ role: 'owner', csrf: '', trips: [previous, trip], default_board_tab: trip.id,
+      quarter_tabs: [{ id: 'quarter:2026:3', title: 'Q3' }], capabilities: [], receipt_enabled: false }} />);
+
+  await screen.findByRole('heading', { name: trip.title });
+  const request = new URL(vi.mocked(getJSON).mock.lastCall![0], 'https://example.test');
+  expect(request.searchParams.get('tab')).toBe(trip.id);
+  expect(request.searchParams.get('sort')).toBe('date_asc');
+  expect(screen.getByRole('option', { name: 'Q3' }).getAttribute('value')).toBe('quarter:2026:3');
+});
+
+test('shows only the expense view on an existing quarter tab', async () => {
+  const quarter: TripSummary = {
+    ...trip, id: 'quarter:2026:3', kind: 'quarter', title: 'Quarter', starts_on: '', ends_on: '',
+  };
+  vi.mocked(getJSON).mockResolvedValue({
+    trip: quarter, rows: [], total_count: 0, page: 1, page_size: 50,
+    total: '0', filtered_total: '0', closed: false,
+  });
+  render(<LedgerPage path="/board" search={new URLSearchParams('tab=quarter:2026:3&kind=income')}
+    bootstrap={{ role: 'owner', csrf: '', trips: [trip], capabilities: [], receipt_enabled: false }} />);
+
+  await screen.findByRole('heading', { name: quarter.title });
+  expect(screen.getAllByRole('tab')).toHaveLength(1);
+  expect(screen.getByRole('combobox', { name: '\uc5ec\ud589 \uc804\ud658' }).getAttribute('id')).toBe('cost-ledger-trip');
+  expect((screen.getByRole('combobox', { name: '\uc5ec\ud589 \uc804\ud658' }) as HTMLSelectElement).value).toBe(quarter.id);
+  const request = new URL(vi.mocked(getJSON).mock.lastCall![0], 'https://example.test');
+  expect(request.searchParams.get('kind')).toBe('expense');
+});
+
 /**
  * SPEC §11.2.1 계약 4: 확정·추론·미확인·증빙 계산·원본 변경·수동은 서로 구분되어야 하고,
  * 화면은 서버가 준 값을 그대로 보여야 한다 (사용자 결정 2026-11-14: 렌더 시점 판정 금지).

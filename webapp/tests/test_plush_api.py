@@ -57,6 +57,8 @@ def test_bootstrap_and_ledger_are_structured_and_use_string_amounts(bound_store)
     assert status == 200
     assert body["role"] == "owner"
     assert body["trips"]
+    assert body["default_board_tab"] == ledger_board.default_board_tab()
+    assert [(option["id"], option["title"]) for option in body["quarter_tabs"]] == ledger_board.quarter_board_tabs()
     assert all(isinstance(item["expense"], str) for item in body["trips"])
 
     status, ledger = call("/api/plush/ledger?tab=trip-demo-a&page_size=2&sort=amount_desc", "syn-owner", store)

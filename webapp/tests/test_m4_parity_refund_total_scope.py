@@ -237,6 +237,24 @@ def test_quarter_tab_booked_rows_and_total_match_the_common_query(bound_store, l
     assert "100,000원" in summary and "지출 2건" in summary
 
 
+def test_quarter_page_filters_booked_rows_without_changing_whole_total(bound_store, legacy_owner):
+    store, _access = bound_store
+    quarter = "quarter:2026:3"
+    _insert_card_row(store, "card-Q1", quarter, 40000, source_event_id="Q1")
+    _insert_card_row(store, "card-Q2", quarter, 60000, source_event_id="Q2")
+
+    query = "not-a-synthetic-merchant"
+    markup = ledger_design._quarter_page(quarter, "Quarter", query=query, kind="ex")
+    status, body = react_ledger(store, quarter, kind="expense", q=query)
+
+    assert status == 200
+    assert body["rows"] == []
+    assert body["total_count"] == 0
+    assert int(body["total"]) == 100000
+    assert "40,000" not in markup and "60,000" not in markup
+    assert "100,000" in markup
+
+
 def test_quarter_tab_keeps_signs_so_partial_pairs_net_on_both_paths(bound_store, legacy_owner):
     """분기 탭에 남는 부분환불·취소 행의 각 부호를 두 경로가 그대로 보존한다(RFND-021)."""
     store, _access = bound_store

@@ -118,7 +118,7 @@ def search_blob(row: dict[str, Any], *, owner: bool = False) -> str:
     parts = [shown.get(key) or "" for key in (
         "date", "merchant", "description", "category", "payment", "period", "evidence_summary")]
     parts.extend(row.get(key) or "" for key in (
-        "item", "reservation_no", "source_merchant", "customer_name"))
+        "item", "reservation_no", "source_merchant", "customer_name", "service_period"))
     if owner:
         parts.append(row.get("operator_note") or "")
     return " ".join(str(part) for part in parts).casefold()

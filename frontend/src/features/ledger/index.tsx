@@ -4,7 +4,7 @@ import { ActionButton, Amount, DataTable, Drawer, EmptyState, FormField, InlineN
 import { getJSON, postJSON, ApiError } from '../../api/client';
 import { EntryForm } from './entryForm';
 import { RowDrawer } from './rowDrawer';
-import { humanDate, readPage, requestId, useUrlSearch } from './urlState';
+import { humanDate, normalizeLedgerKind, readPage, requestId, useUrlSearch } from './urlState';
 import './ledger.css';
 
 import type { LedgerKind } from './urlState';
@@ -99,7 +99,7 @@ function LedgerDesktopTable({
     { key: 'date', header: '날짜', cell: (row: LedgerRow) => humanDate(row.date) },
     {
       key: 'merchant',
-      header: '가맹점 / 내용',
+      header: '거래처·내용',
       cell: (row: LedgerRow) => (
         <button className="cost-ledger__row-open" type="button" onClick={() => onOpen(row)}>
           <strong>{row.merchant || row.description || '내용 없음'}</strong>
@@ -107,10 +107,10 @@ function LedgerDesktopTable({
         </button>
       ),
     },
-    { key: 'category', header: '항목', cell: (row: LedgerRow) => row.category || '항목 없음' },
+    { key: 'category', header: '분류', cell: (row: LedgerRow) => row.category || '항목 없음' },
     {
       key: 'period',
-      header: '이용 기간',
+      header: '이용일',
       cell: (row: LedgerRow) => (
         <PeriodValue
           period={row.period}
@@ -123,7 +123,6 @@ function LedgerDesktopTable({
       ),
     },
     { key: 'amount', header: '금액', align: 'end' as const, cell: (row: LedgerRow) => <Amount value={row.amount} currency={currencyLabel(row.currency)} /> },
-    { key: 'evidence', header: '근거', cell: (row: LedgerRow) => row.evidence_summary || '근거 요약 없음' },
   ];
   return (
     <div className="cost-ledger__desktop-table">
@@ -149,6 +148,7 @@ function LedgerMobileList({
               <span className="cost-ledger__mobile-amount"><Amount value={row.amount} currency={currencyLabel(row.currency)} /></span>
             </span>
             <strong>{row.merchant || row.description || '내용 없음'}</strong>
+            {row.description && row.description !== row.merchant && <span>{row.description}</span>}
             <span className="cost-ledger__mobile-bottom">
               <span>{row.category || '항목 없음'}</span>
               {(row.period || row.period_status || row.period_manual_blank) && (
@@ -163,7 +163,6 @@ function LedgerMobileList({
                   />
                 </span>
               )}
-              {row.evidence_summary && <span>{row.evidence_summary}</span>}
             </span>
           </button>
         </li>
@@ -174,14 +173,14 @@ function LedgerMobileList({
 
 export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   const { search, update } = useUrlSearch(initialSearch);
-  const tab = search.get('tab') || bootstrap.trips[0]?.id || '';
-  const kind = (search.get('kind') === 'income' ? 'income' : 'expense') as LedgerKind;
+  const tab = search.get('tab') || (bootstrap.default_board_tab ?? bootstrap.trips[0]?.id ?? '');
+  const quarterTab = tab.startsWith('quarter:');
+  const kind: LedgerKind = quarterTab ? 'expense' : normalizeLedgerKind(search.get('kind'));
   const q = search.get('q') ?? '';
-  const sort = (search.get('sort') || 'date_desc') as LedgerSort;
+  const sort = (search.get('sort') || 'date_asc') as LedgerSort;
   const page = readPage(search);
   const pageSize = Number(search.get('page_size') || 50);
   const selectedRowId = search.get('row');
-  const quarterTab = tab.startsWith('quarter:');
   const [data, setData] = useState<LedgerPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadNotFound, setLoadNotFound] = useState(false);
@@ -237,6 +236,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   }, [requestUrl, refreshVersion]);
 
   const trips = bootstrap.trips;
+  const quarterTabs = bootstrap.quarter_tabs ?? [];
   const loadedTrip = data?.trip.id === tab ? data.trip : undefined;
   /* The Google income source belongs to the trip response currently on screen.
      It is only shown to the owner of a normal trip: quarter, refund and
@@ -341,12 +341,16 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         <div className="cost-ledger__title-row">
           <div>
             <h1>{loadNotFound ? '여행을 찾을 수 없음' : currentTrip ? tripLabel(currentTrip) : '여행 장부'}</h1>
-            {currentTrip && <p>{humanDate(currentTrip.starts_on)}–{humanDate(currentTrip.ends_on)}</p>}
+            {currentTrip?.starts_on && currentTrip.ends_on && <p>{humanDate(currentTrip.starts_on)}–{humanDate(currentTrip.ends_on)}</p>}
           </div>
           <div className="cost-ledger__trip-select">
             <FormField id="cost-ledger-trip" label="여행 전환">
               <Select id="cost-ledger-trip" value={tab} onChange={(event) => update({ tab: event.currentTarget.value, row: null, page: null })}>
                 {trips.map((trip) => <option key={trip.id} value={trip.id}>{trip.title}</option>)}
+                {quarterTabs.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+                {quarterTab && !quarterTabs.some((option) => option.id === tab) && !trips.some((trip) => trip.id === tab) && (
+                  <option value={tab}>{currentTrip?.title || tab}</option>
+                )}
                 {tab === 'unclassified' && <option value="unclassified">이전 귀속 목록</option>}
               </Select>
             </FormField>
@@ -354,10 +358,10 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         </div>
         {currentTrip && (
           <dl className={`cost-ledger__summary${incomeProvisional ? ' cost-ledger__summary--provisional' : ''}`}
-            aria-label="여행 손익">
-            <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>
+            aria-label={quarterTab ? '지출 요약' : '여행 손익'}>
+            {!quarterTab && <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>}
             <div><dt>지출</dt><dd><Amount value={currentTrip.expense} currency="KRW" /></dd></div>
-            <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>
+            {!quarterTab && <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>}
           </dl>
         )}
       </header>
@@ -369,7 +373,7 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
         ariaLabel="장부 종류"
         value={kind}
         onChange={(value) => update({ kind: value, page: null, row: null })}
-        items={[{ id: 'expense', label: '지출' }, { id: 'income', label: '수입' }]}
+        items={[{ id: 'expense', label: '지출' }, ...(!quarterTab ? [{ id: 'income', label: '수입' }] : [])]}
       />
 
       <section className="cost-ledger__toolbar" aria-label="장부 검색과 동작">
