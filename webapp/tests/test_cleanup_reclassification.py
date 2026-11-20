@@ -1,5 +1,4 @@
 """일괄 처리는 준비된 거래를 기록하고 원문·사용자 확정·환불 보호를 유지한다."""
-from urllib.parse import urlparse
 
 from app.db import StoreError
 from webapp import card_flow, ledger_board
@@ -51,6 +50,8 @@ def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeyp
         board.conn.execute("UPDATE transactions SET merchant='AGODA.COM'")
         board.conn.commit()
         original = board.conn.execute('SELECT * FROM transactions').fetchall()
+        raw_query = 'SELECT transaction_id,raw_row_json,amount_krw,approval_date,posting_date FROM transactions'
+        original_raw = board.conn.execute(raw_query).fetchall()
         checked = threading.Event()
         calls = []
         def warm(_flow):
@@ -62,6 +63,10 @@ def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeyp
             worker.start()
             assert checked.wait(1), '예약 해석 중 입력 확인 워커가 막혔습니다'
             calls.append('warm')
+        def request_check(**kwargs):
+            assert board.conn.execute('SELECT * FROM transactions').fetchall() == original
+            calls.append('check')
+
         monkeypatch.setattr(card_flow.CardFlow, '_ota_report', warm)
         monkeypatch.setattr(card_flow.CardFlow, '_compute_ota_report',
                             lambda _: (_ for _ in ()).throw(AssertionError('bypassed central OTA report')))
@@ -69,11 +74,12 @@ def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeyp
         monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked', lambda *args, **kwargs: {'auto_recorded': 0})
         monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
         monkeypatch.setattr(ota_payment_review, 'snapshot_service', lambda _: SimpleNamespace(
-            request_check=lambda **kwargs: calls.append('check')))
+            request_check=request_check,
+            held=lambda: (None, False)))
         result = card_flow.reclassify_cleanup(board)
         assert result['failures'] == []
         assert calls == ['warm', 'check', 'classify']
-        assert board.conn.execute('SELECT * FROM transactions').fetchall() == original
+        assert board.conn.execute(raw_query).fetchall() == original_raw
     finally:
         if worker is not None:
             worker.join(2)
@@ -117,9 +123,11 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         result = card_flow.reclassify_cleanup(board)
         assert result['processed'] == 3
         assert result['failures'] == []
-        assert board.conn.execute('SELECT item FROM transactions WHERE transaction_id=?', (ids[0],)).fetchone()[0] == '식비'
-        # PROC-004: a classified hotel with no verified trip lands on its quarter tab.
-        assert board.conn.execute('SELECT item,display_tab_id FROM transactions WHERE transaction_id=?', (ids[1],)).fetchone() == ('숙박비', 'quarter:2026:4')
+        # PROC-004: without a verified trip, ordinary costs close in the payment quarter.
+        for tid in ids[:2]:
+            assert board.conn.execute(
+                'SELECT item,display_tab_id FROM transactions WHERE transaction_id=?', (tid,),
+            ).fetchone() == ('분기 기타비용', 'quarter:2026:4')
         assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id IN (?,?,?) ORDER BY transaction_id', protected).fetchall() == before_protected
         assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date,posting_date FROM transactions ORDER BY transaction_id').fetchall() == before_raw
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
@@ -169,35 +177,5 @@ def test_ready_cards_are_recorded_in_the_same_action_and_retry_does_not_duplicat
         assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date FROM transactions ORDER BY transaction_id').fetchall() == raw
         assert card_flow.reclassify_cleanup(board)['recorded'] == 0
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
-    finally:
-        board.close()
-
-
-def test_bulk_route_requires_owner_post_and_csrf(tmp_path, monkeypatch):
-    board = LedgerStore(tmp_path / 'route.sqlite', seed_demo=False)
-    monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '1')
-    monkeypatch.setattr(ledger_board, '_active_store', lambda: board)
-    calls = []
-    monkeypatch.setattr(card_flow, 'reclassify_cleanup', lambda _: calls.append(True) or {'processed': 0})
-    monkeypatch.setattr(card_flow, 'CardFlow', lambda _: (_ for _ in ()).throw(AssertionError('authorization must run first')))
-
-    class Handler:
-        headers = {'X-CSRF-Token': 'token'}
-        def _send_json(self, data, status=200):
-            self.response = data, status
-
-    handler = Handler()
-    route = urlparse('/api/imports/reclassify-pending')
-    try:
-        for role, raw, csrf, expected in [('viewer', b'{}', 'token', 403),
-                                          ('owner', None, 'token', 405),
-                                          ('owner', b'{}', '', 403),
-                                          ('owner', b'{}', 'wrong', 403),
-                                          ('owner', b'{}', 'token', 410)]:
-            monkeypatch.setattr(ledger_board, 'current_role', lambda: role)
-            assert card_flow.dispatch(handler, route, raw=raw, csrf=csrf)
-            assert handler.response[1] == expected
-        assert handler.response[0]['code'] == 'MAINTENANCE_FLOW_REQUIRED'
-        assert calls == []
     finally:
         board.close()

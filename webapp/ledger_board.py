@@ -4215,7 +4215,7 @@ class Handler(BaseHTTPRequestHandler):
                                   role=resolve_role(self.headers, self._cookies()),
                                   state=query.get("state", ["active"])[0],
                                   search=query.get("q", [""])[0]))
-        elif parsed.path.startswith("/api/imports/"):
+        elif re.fullmatch(r"/api/imports/imp-[0-9a-f]{16}", parsed.path):
             if _IMPORTER is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
                 return
@@ -4404,21 +4404,6 @@ class Handler(BaseHTTPRequestHandler):
 
         # The write gates below read the session this request resolved, never a leftover from another one.
         resolve_role(self.headers, self._cookies())
-        if parsed.path == '/api/user-actions/answer':
-            if current_role() != 'owner':
-                self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
-                return
-            try:
-                check_csrf(read_payload())
-            except SaveError as exc:
-                self._send_json({'code': exc.code, 'message': str(exc)}, code=403)
-                return
-            except (ValueError, TypeError, AttributeError):
-                self._send_json({'code': 'INVALID_REQUEST'}, code=400)
-                return
-            self._send_json({'code': 'CARD_ACTIONS_RETIRED',
-                             'message': '카드 비용은 여행 또는 분기 기타비용으로 자동 배속됩니다.'}, code=410)
-            return
         if parsed.path == '/api/rows/bulk-trip':
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED', 'message': '소유자만 변경할 수 있어요'}, code=403)
