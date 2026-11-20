@@ -56,6 +56,7 @@ DB를 읽는 명령(`facts`·`links` 환불·`plan`)은 둘 중 하나를 받는
 | `ota-input` | `db`·`ota_evidence`·`review_db`·`out`(보호 경로), 선택 `host_root` | 풀이기 입력 파일을 `out`에 쓰고 건수·`sha256`만 돌려준다. 실운영 파일은 `DB_IS_LIVE`로 거부 |
 | `extract-baseline` | `ota_evidence`·`out`(보호 경로), 선택 `host_root` | 추출기 기준 출력 파일과 manifest를 `out`에 쓰고 `events`·`sha256`만 돌려준다 |
 | `extract-baseline-compare` | `base`·`new`·`out`(보호 경로), 선택 `base_manifest`·`new_manifest`·`host_root` | 두 기준 출력의 내용 차이와 출처 식별 차이를 나눈 보고서를 `out`에 쓰고 건수만 돌려준다 |
+| `extract-sources` | `ota_evidence`(명시 SQLite 사본), 선택 `host_root` | 라이브 DB를 거부한다. 사본의 논리 지문으로 출처를 고정하고 중간 파서 결과를 Rust 추출기의 비공개 프로세스 응답으로만 전달한다 |
 
 `trips`의 `trips` 인자는 브리지 DB 경로와 같은 모양(`tab_id`와 `trip_id`를 함께 가진 행)이어야 한다. `stay_trip`·`booking_trip`은 `tab_id`를 읽는다.
 
