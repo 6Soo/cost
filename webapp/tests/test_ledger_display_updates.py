@@ -63,18 +63,32 @@ def test_merchant_first_reservation_sub_no_duplicate_descriptions():
     mobile = design._mobile_html([], [row], selected='', unclassified=False)
     assert mobile.index('Synthetic merchant') < mobile.index('예약번호 SYN-123')
     # Mobile displays reservation and merchant; both present, order handled by layout
-    # Income fallback preserved
-    income = dict(row, row_kind='income', customer_name='Synthetic customer')
-    assert design._row_party_main(income) == 'Synthetic stay'
     # No reservation: merchant/description stays main
     no_reservation = dict(row, reservation_no='')
     assert design._row_party_main(no_reservation) == 'Synthetic merchant'
     assert design._row_party_sub(no_reservation) == 'Synthetic stay'
-    assert design._row_party_sub(dict(income, source_merchant='', nickname='Synthetic nickname')) == 'Synthetic nickname'
     # Source merchant missing -> description fallback
     no_merchant = dict(row, source_merchant='')
     assert design._row_party_main(no_merchant) == 'Synthetic stay'
     assert row == before
+
+
+def test_income_party_cell_keeps_transaction_labels_and_omits_roster_names():
+    row = dict(expense('income', '수입'), row_kind='income',
+               income_kind='Synthetic income source', customer_name='Synthetic customer',
+               nickname='Synthetic nickname')
+    before = deepcopy(row)
+    assert design._row_party_main(row) == 'Synthetic stay'
+    assert design._row_party_sub(row) == 'Synthetic merchant'
+    assert row == before
+
+    unlabelled = dict(row, description='', source_merchant='')
+    assert design._row_party_main(unlabelled) == 'Synthetic income source'
+    assert design._row_party_sub(unlabelled) == ''
+    rendered = design._party_cell(unlabelled)
+    assert 'Synthetic income source' in rendered
+    assert 'Synthetic customer' not in rendered
+    assert 'Synthetic nickname' not in rendered
 
 
 def test_amount_format_integer_decimal_negative_empty_non_digit():
