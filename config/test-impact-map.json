@@ -639,7 +639,7 @@
     },
     {
       "name": "m6-extractor-transition",
-      "paths": ["core/crates/core/src/extract.rs", "core/crates/core/src/extract/**", "core/crates/cli/src/extract.rs", "core/crates/core/tests/extract_golden.rs", "core/golden/synthetic/extract.jsonl", "core/golden/synthetic/traveloka_mail.jsonl", "tools/core_bridge/extract_sources.py", "tools/core_bridge/extract_golden.py", "tools/core_bridge/traveloka_golden.py", "tests/test_core_extract.py"],
+      "paths": ["core/crates/core/src/extract.rs", "core/crates/core/src/extract/**", "core/crates/cli/src/extract.rs", "core/crates/core/tests/extract_golden.rs", "core/crates/core/tests/airbnb_golden.rs", "core/crates/core/tests/mytrip_golden.rs", "core/crates/core/tests/traveloka_golden.rs", "core/golden/synthetic/extract.jsonl", "core/golden/synthetic/traveloka_mail.jsonl", "core/golden/synthetic/airbnb_mail.jsonl", "core/golden/synthetic/mytrip_mail.jsonl", "tools/core_bridge/extract_sources.py", "tools/core_bridge/extract_golden.py", "tools/core_bridge/traveloka_golden.py", "tools/core_bridge/airbnb_golden.py", "tools/core_bridge/mytrip_golden.py", "tests/test_core_extract.py"],
       "tests": ["tests/test_core_extract.py", "tests/test_core_bridge_extract_baseline.py"]
     },
     {

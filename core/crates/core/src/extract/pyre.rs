@@ -860,6 +860,14 @@ pub(crate) fn read_digits(text: &str) -> i64 {
         .fold(0, |value, digit| value * 10 + i64::from(digit))
 }
 
+/// Python `str.strip()`: trims its whitespace set, which also includes U+001C..U+001F.
+///
+/// `str::trim` uses `char::is_whitespace`, so U+001C would survive a trim here but not in
+/// Python.
+pub(crate) fn strip(text: &str) -> &str {
+    text.trim_matches(|c: char| c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,6 +949,15 @@ mod tests {
         // the crate's own `\w` would have swallowed the mark and reported none.
         assert!(word_boundary_after("HMABCDEFGH\u{0301}", 10));
         assert!(!word_boundary_after("HMABCDEFGH1", 10));
+    }
+
+    #[test]
+    fn strip_matches_pythons_whitespace_set() {
+        assert_eq!(strip("\u{1c}abc\u{1c}"), "abc");
+        assert_eq!(strip("\u{a0}abc\u{3000}"), "abc");
+        assert_eq!(strip(" lead trail "), "lead trail");
+        // Zero width space is not whitespace to Python either.
+        assert_eq!(strip("\u{200b}abc\u{200b}"), "\u{200b}abc\u{200b}");
     }
 
     #[test]
