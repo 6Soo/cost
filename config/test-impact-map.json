@@ -200,7 +200,7 @@
     {
       "name": "card-final-destination-and-merchant",
       "paths": ["app/automatic_classification.py", "ledger/cardindex.py", "tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py"],
-      "tests": ["tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py", "tests/card_pipeline/test_quarter_costs.py", "tests/card_pipeline/test_quarter_tab.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py", "webapp/tests/test_user_action_queue.py", "webapp/tests/test_receipt_page_flow.py"]
+      "tests": ["tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py", "tests/card_pipeline/test_quarter_costs.py", "tests/card_pipeline/test_quarter_tab.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_receipt_page_flow.py"]
     },
     {
       "name": "trip-management-aggregate",
@@ -613,9 +613,9 @@
       "tests": ["tests/card_pipeline/test_forest_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py", "webapp/tests/test_forest_reconciliation.py"]
     },
     {
-      "name": "unified-user-action-queue",
-      "paths": ["webapp/user_action_queue.py", "webapp/user_action_adapters.py", "webapp/ledger_board.py", "webapp/ledger_design.py", "webapp/access_control.py", "webapp/tests/test_user_action_queue.py"],
-      "tests": ["webapp/tests/test_user_action_queue.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
+      "name": "retired-card-actions",
+      "paths": ["webapp/ledger_board.py", "webapp/ledger_design.py", "webapp/access_control.py", "webapp/tests/test_retired_card_actions.py"],
+      "tests": ["webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
     },
     {
       "name": "core-dates-golden",
