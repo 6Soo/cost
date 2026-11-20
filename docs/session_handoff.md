@@ -2,6 +2,14 @@
 
 기준일 2026-11-20 KST. 확인한 main은 7aeb968a, 운영은 b29735e2다. 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
 
+## 2026-11-20 (3) · M6 Traveloka 파서 이식 단위
+
+- 퇴역 계획 [3단계 (b)](playbooks/m6-extractor-retirement.md)의 첫 단위를 구현했다. Traveloka 메일 파서의 **판정·금액·항공일·fact digest를 Rust로** 옮겼고, 공용 메일 헬퍼(인증·본문·`Cf` 제거)는 Python 브리지에 남겼다. `extract_sources.forest_name_keys`가 Python 의미를 경계에서 넘기는 선례를 그대로 따른 것이라 `parseaddr`·`html.unescape` 동등성은 이 단위의 선행 조건이 아니다.
+- **Python 정규식 의미를 명시적으로 재현했다.** `\s`에 `U+001C..U+001F` 추가, 말미 `\b` 2곳은 문자 후처리, `(?<![\d,])` 룩비하인드는 후처리(등가 논거는 모듈 주석). `$`는 `(?:\n?\z)`.
+- **골든 21건**을 변경 없는 Python 파서로 생성했다(`tools/core_bridge/traveloka_golden.py` → `core/golden/synthetic/traveloka_mail.jsonl`). 사례는 예약/결제 구분, 취소 우선, 금액 모호·쉼표 표기 구분, 룩비하인드 적대, DKIM 정렬 대 `owner_collected`, 날짜 2형식·불가 날짜, 전각 숫자(파이썬 `int()` ValueError로 fact 없음), 소프트하이픈, `U+001C` 공백이다.
+- **검증:** Rust 골든 대조 4건(필드·canonical 바이트·SHA-256) 통과, `cost-core` 전체 통과, `cargo fmt --check`·`clippy` 경고 0, Python 표적 41건 통과. 이 단위는 **추가 전용**이며 스위치 신설·Python 삭제·운영 경로 변경이 없다.
+- 조사 근거: [Traveloka 이식 조사](agents/artifacts/m6-traveloka-port-20261120.md) — 조건부 이식 가능, 위험은 공용 헬퍼에 집중, `airline_payment_mail`이 traveloka를 직접 호출하므로 Python 모듈은 airline 이식까지 유지.
+
 ## 2026-11-20 · 운영 저장 판정 보완과 M6 기준 재설정
 
 - 승인 범위 안에서 운영 decisions-only 보완 2,585건을 완료했다. 새 근거 874건, 저장 대상 누락 0, 재실행 0, 원장 및 기존 판정 91건 불변, 원천·투영·기간 불일치 0. 기존 판정과 다른 60건은 별도 정책 검토 대상이다. 3분기 동일 조회 22탭·256건에서 이용일 공란 56→52건을 확인했다.

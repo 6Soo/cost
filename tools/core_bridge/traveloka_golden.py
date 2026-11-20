@@ -84,6 +84,8 @@ def inputs():
         'Traveloka e-ticket payment complete', 'Booking ID: 987654321\n1,234,000원\n출발 항공편 2026년 2월 30일')
     yield 'fullwidth-digits', message(
         'Traveloka e-ticket payment complete', 'Booking ID: ９８７６５４３２１\n１２３４，０００원')
+    yield 'fullwidth-digits-without-comma', message(
+        'Traveloka e-ticket payment complete', 'Booking ID: 987654321\n１２３４０００원')
     yield 'soft-hyphen-stripped-from-body-only', message(
         'Traveloka e-ticket payment complete', 'Booking ID: 987654321\n1,234,000­원')
     yield 'zero-amount-rejects-whole-fact', message(

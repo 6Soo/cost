@@ -222,14 +222,27 @@ fn word_boundary_after(text: &str, end: usize) -> bool {
     left != right
 }
 
+/// Python `\w`: `str.isalnum()` (letters, Nd, Nl, No) plus underscore.
+///
+/// `char::is_alphanumeric` covers exactly letters and Nd/Nl/No, which is the Python set; the
+/// crate's own `\w` would also include combining marks and join controls.
 fn is_python_word(c: char) -> bool {
+    c == '_' || c.is_alphanumeric()
+}
+
+/// Kept as a differential check that the hand test above agrees with Python's `\w` class.
+#[cfg(test)]
+fn python_word_class(c: char) -> bool {
     PY_WORD.is_match(c.to_string().as_str())
 }
 
-/// Python `\d` is the Nd category; `char::is_digit(10)` accepts exactly the same code points.
-#[allow(clippy::is_digit_ascii_radix)] // ASCII-only would drop fullwidth and Arabic-Indic digits.
+/// Python `\d` is the Nd category, which covers fullwidth `０` and Arabic-Indic `٩`.
+///
+/// `char::is_digit(10)` is ASCII-only, so the category test is the only faithful option.
+static ND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\p{Nd}$").unwrap());
+
 fn is_nd(c: char) -> bool {
-    c.is_digit(10)
+    ND.is_match(c.to_string().as_str())
 }
 
 /// `int(value.replace(',', ''))` over Unicode digits; `None` when the value cannot be held.
@@ -237,11 +250,32 @@ fn int_amount(value: &str) -> Option<i64> {
     let mut number: i64 = 0;
     let mut digits = 0;
     for c in value.chars().filter(|c| *c != ',') {
-        let digit = i64::from(c.to_digit(10)?);
+        let digit = i64::from(nd_value(c)?);
         number = number.checked_mul(10)?.checked_add(digit)?;
         digits += 1;
     }
     (digits > 0).then_some(number)
+}
+
+/// Decimal value of any Nd code point, the way Python's `int()` reads it.
+///
+/// Nd runs are contiguous decimal blocks in ascending value order, so counting back to the
+/// first Nd code point of this character's block yields the digit. `char::to_digit` only
+/// handles ASCII, which would reject fullwidth `０` and Arabic-Indic `٩`.
+fn nd_value(c: char) -> Option<u32> {
+    if !is_nd(c) {
+        return None;
+    }
+    if c.is_ascii_digit() {
+        return c.to_digit(10);
+    }
+    let code = c as u32;
+    let mut start = code;
+    while let Some(previous) = char::from_u32(start - 1).filter(|previous| is_nd(*previous)) {
+        let _ = previous;
+        start -= 1;
+    }
+    Some(code - start)
 }
 
 /// `{'starts_on': day, 'ends_on': day}` from the outbound flight section, or `None`.
@@ -272,7 +306,7 @@ fn reversed_date(text: &str) -> Option<String> {
 /// `int()` over any Unicode decimal digit, as Python does.
 fn read_digits(text: &str) -> i64 {
     text.chars()
-        .filter_map(|c| c.to_digit(10))
+        .filter_map(nd_value)
         .fold(0, |value, digit| value * 10 + i64::from(digit))
 }
 
@@ -282,4 +316,51 @@ fn calendar(year: i64, month: i64, day: i64) -> Option<String> {
     let day = u8::try_from(day).ok()?;
     let date = time::Date::from_calendar_date(i32::try_from(year).ok()?, month, day).ok()?;
     Some(date.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `char::is_alphanumeric` must cover Python's `\w` and nothing the crate's `\w` adds.
+    #[test]
+    fn word_class_matches_pythons_alnum_plus_underscore() {
+        for c in ['a', 'Z', '0', '_', '가', 'Ⅳ', '①', '\u{0301}', '\u{200d}'] {
+            assert_eq!(
+                is_python_word(c),
+                PY_WORD.is_match(c.to_string().as_str()),
+                "{c:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nd_is_the_python_decimal_digit_set() {
+        for c in ['0', '9', '０', '٩', '۵'] {
+            assert!(is_nd(c), "{c:?}");
+        }
+        for c in ['Ⅳ', '①', 'a', ' ', '.'] {
+            assert!(!is_nd(c), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn keyword_tests_stay_case_insensitive() {
+        assert!(COMPLETED_SUBJECT.is_match("Payment Complete"));
+        assert!(COMPLETED_SUBJECT.is_match("PAYMENT SUCCESSFUL"));
+        assert!(!COMPLETED_SUBJECT.is_match("payment failed"));
+        assert!(FLIGHT_SUBJECT.is_match("E-TICKET"));
+        assert!(CANCEL_SUBJECT.is_match("Refund"));
+    }
+
+    #[test]
+    fn whitespace_class_widens_only_for_the_four_separators() {
+        let pattern = Regex::new(&format!("{PY_SPACE}+")).unwrap();
+        for text in ["\u{1c}", "\u{1f}", "\u{a0}", "\u{3000}"] {
+            assert!(pattern.is_match(text), "{text:?}");
+        }
+        for text in ["a", "\u{200b}"] {
+            assert!(!pattern.is_match(text), "{text:?}");
+        }
+    }
 }
