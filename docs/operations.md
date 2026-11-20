@@ -1,3 +1,9 @@
+## 2026-11-20 20:45 KST · OTA 카드 후보 Rust 배치 운영 전환
+
+- ecbdb5c9를 2c442dbb에서 공식 deploy_verified_release.ps1로 전환했다. PR #1070은 main 64743750에 병합됐으며 최종 PR SHA의 Rust·Linux 영향·Windows 검사와 AGY Gemini 3.8 Flash high 독립 검수를 통과했다.
+- Board와 Worker가 같은 릴리스와 호환 바이너리 costcore-c0c45c7f-ota-339b410f.exe를 사용한다. 운영 바이너리 소스에 OTA CLI 두 파일의 변경만 적용했다. 보호 사본에서 연결 7,965건과 후보 진단 2,239건의 결과 차이는 0건이다.
+- 추적 파일 2,015개 불일치 0, 보호 표 14개 불변. 8751 및 공식 경로의 healthz·readyz와 보호 API 인증 거부를 확인했다. core schema_meta는 [1, 2]이며 금융 적용은 없었다. 근거는 D:/WebLedgerHost/releases/deploy-evidence-ecbdb5c918d6b24716d7b9d1c57d6cfc4dc1dd5a.json과 data/backups/ota-rust-rollout-ecbdb5c9-20261120-204441이다.
+
 ## 2026-11-19 17:55 — 9fd2d4c2 운영 배포
 
 - `0ec44c3f` → [`9fd2d4c2`](https://github.com/6Soo/cost/commit/9fd2d4c29a67c2ee02b0bd39c822cd5a3f41bc10). 완료 증거 시각 17:55:11 KST, 백엔드 8751. 포털 지문 보완 [#1018](https://github.com/6Soo/cost/pull/1018)과 기장 시 수동 교정 보존 [#1020](https://github.com/6Soo/cost/pull/1020)을 포함한다.

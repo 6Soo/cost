@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from app import core_ota_links
 from app.ota_payments import (
     _NO_ALLOCATION_SNAPSHOT,
     _approved_lag_match, _digest, _direction, _event_amount, _event_is_paid,
@@ -798,8 +799,9 @@ class OtaReviewStore:
                 snapshot["_evidence_missing"] = True
                 selected.append(snapshot)
                 selected_ids.add(row["event_id"])
-        result = match_ota_payment_events(selected, transactions, existing_links=pinned,
-                                          rules=self.active_rules())
+        matcher = (core_ota_links.match_ota_payment_events if core_ota_links.selected() == "rust"
+                   else match_ota_payment_events)
+        result = matcher(selected, transactions, existing_links=pinned, rules=self.active_rules())
         for item in result:
             link = pinned.get(item.get("ota_event_id"))
             if link:
