@@ -167,7 +167,6 @@ OWNER_ONLY_PATHS = (
     "/api/ota",
     "/import",
     "/my-actions",
-    "/api/user-actions/answer",
     "/export",
     "/trips",
     "/rules",

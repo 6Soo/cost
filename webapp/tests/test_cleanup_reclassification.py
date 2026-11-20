@@ -1,5 +1,4 @@
 """일괄 처리는 준비된 거래를 기록하고 원문·사용자 확정·환불 보호를 유지한다."""
-from urllib.parse import urlparse
 
 from app.db import StoreError
 from webapp import card_flow, ledger_board
@@ -169,35 +168,5 @@ def test_ready_cards_are_recorded_in_the_same_action_and_retry_does_not_duplicat
         assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date FROM transactions ORDER BY transaction_id').fetchall() == raw
         assert card_flow.reclassify_cleanup(board)['recorded'] == 0
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
-    finally:
-        board.close()
-
-
-def test_bulk_route_requires_owner_post_and_csrf(tmp_path, monkeypatch):
-    board = LedgerStore(tmp_path / 'route.sqlite', seed_demo=False)
-    monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '1')
-    monkeypatch.setattr(ledger_board, '_active_store', lambda: board)
-    calls = []
-    monkeypatch.setattr(card_flow, 'reclassify_cleanup', lambda _: calls.append(True) or {'processed': 0})
-    monkeypatch.setattr(card_flow, 'CardFlow', lambda _: (_ for _ in ()).throw(AssertionError('authorization must run first')))
-
-    class Handler:
-        headers = {'X-CSRF-Token': 'token'}
-        def _send_json(self, data, status=200):
-            self.response = data, status
-
-    handler = Handler()
-    route = urlparse('/api/imports/reclassify-pending')
-    try:
-        for role, raw, csrf, expected in [('viewer', b'{}', 'token', 403),
-                                          ('owner', None, 'token', 405),
-                                          ('owner', b'{}', '', 403),
-                                          ('owner', b'{}', 'wrong', 403),
-                                          ('owner', b'{}', 'token', 410)]:
-            monkeypatch.setattr(ledger_board, 'current_role', lambda: role)
-            assert card_flow.dispatch(handler, route, raw=raw, csrf=csrf)
-            assert handler.response[1] == expected
-        assert handler.response[0]['code'] == 'MAINTENANCE_FLOW_REQUIRED'
-        assert calls == []
     finally:
         board.close()

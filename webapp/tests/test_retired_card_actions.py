@@ -1,6 +1,4 @@
 """Historical card questions cannot remain a second user workflow or write path."""
-import json
-
 import pytest
 
 from webapp import ledger_board
@@ -30,17 +28,22 @@ def test_legacy_workflow_get_redirects_without_task_or_financial_writes(signed_s
     assert server.request('/my-actions', cookie=server.cookie(VIEWER))[0] == 403
 
 
-def test_retired_answer_preserves_auth_csrf_and_never_consumes_history(signed_server):
+@pytest.mark.parametrize('path', [
+    '/api/user-actions/answer',
+    '/api/imports/reclassify-pending',
+])
+def test_retired_write_addresses_return_not_found_without_changes(signed_server, path):
     server = signed_server
-    payload = dict(action_id='historical',answer='anything',revision='1',digest='original')
+    payload = dict(action_id='historical', answer='anything', revision='1', digest='original')
     before = list(server.store.conn.iterdump())
-    assert server.request('/api/user-actions/answer',payload=payload)[0] == 401
-    assert server.request('/api/user-actions/answer',cookie=server.cookie(VIEWER),payload=payload)[0] == 403
-    assert server.request('/api/user-actions/answer',cookie=server.cookie(OWNER),payload=payload)[0] == 403
-    assert server.request('/api/user-actions/answer',cookie=server.cookie(OWNER),payload=[])[0] == 400
+    assert server.request(path, payload=payload)[0] == 401
+    assert server.request(path, cookie=server.cookie(VIEWER), payload=payload)[0] == 403
+    owner = server.cookie(OWNER)
+    assert server.request(path, cookie=owner)[0] == 404
+    assert server.request(path, cookie=owner, payload=payload)[0] == 404
     payload['csrf'] = ledger_board.CSRF_TOKEN
-    status, body, _ = server.request('/api/user-actions/answer',cookie=server.cookie(OWNER),payload=payload)
-    assert status == 410 and json.loads(body)['code'] == 'CARD_ACTIONS_RETIRED'
+    headers = {'X-CSRF-Token': ledger_board.CSRF_TOKEN}
+    assert server.request(path, cookie=owner, headers=headers, payload=payload)[0] == 404
     assert list(server.store.conn.iterdump()) == before
 
 

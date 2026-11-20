@@ -2261,6 +2261,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                          '/api/maintenance/expense-bulk/preview',
                          '/api/maintenance/expense-bulk/apply')
     refund_pair_route = parsed.path.startswith('/api/maintenance/refund-pair/')
+    # The broad batch lookup must not interpret the retired action as a batch ID.
+    if parsed.path == '/api/imports/reclassify-pending':
+        return False
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
                             or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths
                             or parsed.path == '/api/cards/coverage/summary' or refund_pair_route):
@@ -2303,20 +2306,6 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler.send_header('Cache-Control', 'no-store')
                 handler.send_header('Content-Length', '0')
                 handler.end_headers()
-            return True
-        if parsed.path == '/api/imports/reclassify-pending':
-            from .ledger_board import current_role
-            if current_role() != 'owner':
-                handler._send_json({'code': 'FORBIDDEN'}, 403)
-            elif raw is None:
-                handler._send_json({'code': 'METHOD_NOT_ALLOWED'}, 405)
-            elif not csrf or handler.headers.get('X-CSRF-Token') != csrf:
-                handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
-            else:
-                # Keep the legacy route closed until a read-only preview,
-                # freshness check, and audited maintenance apply flow exist.
-                handler._send_json({'code': 'MAINTENANCE_FLOW_REQUIRED',
-                                    'message': '일괄 정리는 안전한 유지관리 미리보기 경로가 준비될 때까지 사용할 수 없습니다.'}, 410)
             return True
         from . import provisional_trip_review
         if provisional_trip_review.dispatch(handler, parsed, query=query or {}, raw=raw, csrf=csrf, board=board):
