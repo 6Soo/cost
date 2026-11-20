@@ -21,6 +21,6 @@
 
 - [Git 이력의 이전 인계 원문](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/session_handoff.md) · [이전 작업판 원문](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/agents/BOARD.md) · [이전 관리자 지침](https://github.com/6Soo/cost/blob/a9c739e72a0f8ef806700253b48bc455e9d41dbb/docs/agents/MANAGER.md)
 - [과거 기록·명세 보관함](history/README.md) · [기존 경량화 정적 감사](audits/repository-lightweight-review-20261118.md)
-- [작업판 호환 안내](agents/BOARD.md) · [관리자 문서 호환 안내](agents/MANAGER.md) · [옛 시작 안내](COST_V3_START_HERE.md)
+- [작업판 호환 안내](agents/BOARD.md) · [관리자 문서 사용 중지 안내](agents/MANAGER.md) · [옛 시작 안내](COST_V3_START_HERE.md)
 
 과거 기록의 READY·ACTIVE·미구현 표시는 **현재 지시가 아니다**. 기존 커밋·배포·실자료 검증 상태를 혼동하지 않는다. 고객 원문·인증 정보·운영 사본은 문서와 Git에 싣지 않는다.
