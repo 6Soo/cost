@@ -318,7 +318,6 @@ export function AppShell({ role, trips, path, children, onTripSelect, className,
                 </summary>
                 <div className="cost-bottom-more-panel">
                   <NavigationLinks items={ownerManagement} path={currentPath} />
-                  <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 </div>
               </details>
             )}
