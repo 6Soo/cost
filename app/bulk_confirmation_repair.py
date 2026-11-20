@@ -9,6 +9,8 @@ from collections import Counter
 from datetime import date
 import json
 
+from .db import replay_scoped_request
+
 from .closed_period import manual_ids, trip_map
 from .closed_period_repair import _financial_state
 from .decision_provenance import _state, _digest
@@ -152,9 +154,7 @@ def preview(conn, trips, *, year, quarter, min_batch=5):
 
 
 def replay(conn, request_id):
-    row = conn.execute('SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope=?',
-                       (request_id, SCOPE)).fetchone()
-    return dict(digest=row[0], **json.loads(row[1])) if row else None
+    return replay_scoped_request(conn, request_id, SCOPE)
 
 
 def _write_payload(conn, row_id, board, payload, request_id):

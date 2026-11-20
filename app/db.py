@@ -299,6 +299,19 @@ def canonical(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def replay_scoped_request(conn, request_id, scope):
+    """The stored result for this request id in this scope, or None.
+
+    Five repair modules (AI review, bulk confirmation, HANA duplicate, closed
+    period, preparation cost) each carried this same four-line query; one
+    helper keeps the read shape — digest plus the parsed response body.
+    """
+    row = conn.execute(
+        'SELECT payload_sha256,response_json FROM requests'
+        ' WHERE request_id=? AND scope=?', (request_id, scope)).fetchone()
+    return dict(digest=row[0], **json.loads(row[1])) if row else None
+
+
 class Store:
     """The pipeline's view of one database.
 

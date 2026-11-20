@@ -146,7 +146,6 @@ PREPARED_LABEL_CELL = "D4"
 PREPARED_VALUE_CELL = "E4"
 ASSIGNEE_LABEL_CELL = "G4"
 ASSIGNEE_VALUE_CELL = "H4"
-COMPANY_CELL = "B2"
 
 #: Written to B2 when the owner has not set a company name. An empty cell, not a
 #: placeholder: a blank says "not entered", while any text here would be printed

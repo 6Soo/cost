@@ -6,6 +6,8 @@ no new ledger row is created, and no user-decision marker is written.
 """
 from collections import Counter
 import json
+
+from .db import replay_scoped_request
 import re
 from types import SimpleNamespace
 from .closed_period import completed_period, manual_ids, open_trip, trip_map
@@ -224,9 +226,7 @@ def preview(conn, trips, manifest, *, evidence=None):
 
 
 def replay(conn, request_id):
-    row = conn.execute('SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope=?',
-                       (request_id, SCOPE)).fetchone()
-    return dict(digest=row[0], **json.loads(row[1])) if row else None
+    return replay_scoped_request(conn, request_id, SCOPE)
 
 
 def apply(conn, expected, trips, manifest, *, request_id, evidence=None):

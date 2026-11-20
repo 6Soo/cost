@@ -32,6 +32,8 @@ apply, audited restore and idempotent replay.
 from collections import Counter
 import json
 
+from .db import replay_scoped_request
+
 from .core_links import uncommitted_rows
 from .db import utc_now
 from .decision_provenance import _state, _digest
@@ -339,9 +341,7 @@ def _number_index_for(conn):
 
 
 def replay(conn, request_id):
-    row = conn.execute('SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope=?',
-                       (request_id, SCOPE)).fetchone()
-    return dict(digest=row[0], **json.loads(row[1])) if row else None
+    return replay_scoped_request(conn, request_id, SCOPE)
 
 
 def _unbook(conn, tid):
