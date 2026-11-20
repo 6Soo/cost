@@ -108,6 +108,17 @@ function OwnerOnlyTransactions() {
   );
 }
 
+const SETTLEMENT_COLUMNS = [
+  { key: "date", label: "날짜" },
+  { key: "merchant", label: "가맹점" },
+  { key: "amount", label: "금액" },
+  { key: "description", label: "정산 내용" },
+  { key: "status", label: "내부 장부" },
+  { key: "hold", label: "보류 근거" },
+  { key: "note", label: "검토 근거" },
+  { key: "source_href", label: "카드 근거 보기" },
+];
+
 export function TransactionsPage(props: PageProps) {
   if (props.bootstrap.role !== "owner") return <OwnerOnlyTransactions />;
   return <OwnerTransactionsPage {...props} />;
@@ -132,6 +143,7 @@ function OwnerTransactionsPage(props: PageProps) {
     const target = `${action.id} ${action.href}`.toLowerCase();
     return !/\/api\/user-actions\/answer/.test(target);
   }), [payload, props.bootstrap.role]);
+  const settlementRows = view === "refunds" ? payload?.settlement_review ?? [] : [];
   const currentPath = transactionPath(view);
   const pageSize = state.kind === "ready" ? Math.max(1, state.payload.page_size) : requestedPageSize;
   const totalCount = state.kind === "ready" ? Math.max(0, state.payload.total_count) : 0;
@@ -206,14 +218,14 @@ function OwnerTransactionsPage(props: PageProps) {
         <>
           {payload.status?.message ? <p className="e-feature-status" role="status">{payload.status.message}</p> : null}
           <DataRows payload={payload} />
-          {!payload.rows.length ? (
+          {!payload.rows.length && !settlementRows.length ? (
             <section className="cost-panel e-feature-state">
               <h2>표시할 거래가 없습니다</h2>
               <p>{payload.status?.message || "현재 조건에 맞는 거래가 없습니다."}</p>
             </section>
           ) : null}
           <div className="e-feature-pagination" aria-label="거래 페이지 정보">
-            <p>전체 {totalCount.toLocaleString("ko-KR")}건 · {page} / {totalPages}페이지</p>
+            <p>{view === "refunds" ? "환불 연결" : "전체"} {totalCount.toLocaleString("ko-KR")}건 · {page} / {totalPages}페이지</p>
             <nav aria-label="페이지 이동">
               <a className="cost-button cost-button-secondary" aria-disabled={page <= 1 || undefined}
                 href={previousHref} tabIndex={page <= 1 ? -1 : undefined}>이전</a>
@@ -221,6 +233,13 @@ function OwnerTransactionsPage(props: PageProps) {
                 href={nextHref} tabIndex={page >= totalPages ? -1 : undefined}>다음</a>
             </nav>
           </div>
+          {settlementRows.length ? (
+            <section className="cost-panel e-feature-state" aria-labelledby="refund-settlement-heading">
+              <h2 id="refund-settlement-heading">취소 정산 확인 중 · {settlementRows.length.toLocaleString("ko-KR")}건</h2>
+              <p>원결제 연결, 내부 장부 기록, 실제 환급은 각각 확인합니다.</p>
+              <DataRows payload={{ title: "취소 정산", columns: SETTLEMENT_COLUMNS, rows: settlementRows, actions: [] }} />
+            </section>
+          ) : null}
           <FeatureActionPanel actions={actions} bootstrap={props.bootstrap} onRefresh={reload} onNotice={setNotice} />
         </>
       ) : null}

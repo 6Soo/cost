@@ -87,17 +87,12 @@ def render(store, query='', kind=''):
             + render_settlement_review(store, completed, query=query, kind=kind))
 
 
-def render_settlement_review(store, completed=(), *, query='', kind=''):
-    """Keep reviewed nonzero/unlinked cancellations visible without booking them.
-
-    A refund-tab classification is a review disposition, not proof of a refund.
-    Financial holds and the original source remain unchanged by this read path.
-    """
+def settlement_review_rows(store, completed=(), *, query='', kind=''):
+    """Read reviewed cancellations that are outside the linked refund groups."""
     if store is None or kind == 'in':
-        return ''
+        return []
     if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='transactions'").fetchone():
-        return ''
-    import html
+        return []
     from urllib.parse import urlencode
     rows = store.conn.execute(
         "SELECT t.transaction_id,t.merchant,t.amount_krw,"
@@ -112,20 +107,35 @@ def render_settlement_review(store, completed=(), *, query='', kind=''):
         "AND COALESCE(t.display_tab_id,'') IN ('','unclassified','refunds') "
         "AND COALESCE(t.trip_id,'') IN ('','unclassified','refunds')) "
         "ORDER BY COALESCE(NULLIF(t.approval_date,''),t.posting_date) DESC,t.transaction_id").fetchall()
-    esc = html.escape
-    cards = []
+    result = []
     for tid, merchant, amount, day, description, note, booked, hold in rows:
-        if tid in completed or (query and query not in ' '.join(str(v or '') for v in (merchant,day,description,note))):
+        if tid in completed or (query and query not in ' '.join(str(v or '') for v in (merchant, day, description, note))):
             continue
-        href = '/board?' + urlencode({'row': 'card-' + tid})
-        status = '내부 장부 기록 있음' if booked else '내부 장부 미기록'
-        cards.append("<section class='ui-card refund-card'><h3>" + esc(merchant or '') + '</h3>'
-                     + '<p>' + esc(day or '이용일 원문 없음') + f' · {amount:,}원</p>'
-                     + '<p>' + esc(description or '취소 정산 근거 확인 중') + '</p>'
-                     + '<p>' + esc(status) + ' · 실제 환급 완료를 뜻하지 않습니다.</p>'
-                     + ('<p>' + esc(hold) + '</p>' if hold else '')
-                     + '<details><summary>검토 근거</summary><p>' + esc(note or '') + '</p></details>'
-                     + "<a href='" + esc(href, quote=True) + "'>카드 근거 보기</a></section>")
+        result.append({
+            'id': tid,
+            'merchant': merchant or '',
+            'date': day or '',
+            'amount': str(amount),
+            'description': description or '취소 정산 근거 확인 중',
+            'status': '내부 장부 기록 있음' if booked else '내부 장부 미기록',
+            'hold': hold or '',
+            'note': note or '',
+            'source_href': '/board?' + urlencode({'row': 'card-' + tid}),
+        })
+    return result
+
+
+def render_settlement_review(store, completed=(), *, query='', kind=''):
+    cards = []
+    for row in settlement_review_rows(store, completed, query=query, kind=kind):
+        amount = int(row['amount'])
+        cards.append("<section class='ui-card refund-card'><h3>" + escape(row['merchant']) + '</h3>'
+                     + '<p>' + escape(row['date'] or '이용일 원문 없음') + f' · {amount:,}원</p>'
+                     + '<p>' + escape(row['description']) + '</p>'
+                     + '<p>' + escape(row['status']) + ' · 실제 환급 완료를 뜻하지 않습니다.</p>'
+                     + ('<p>' + escape(row['hold']) + '</p>' if row['hold'] else '')
+                     + '<details><summary>검토 근거</summary><p>' + escape(row['note']) + '</p></details>'
+                     + "<a href='" + escape(row['source_href'], quote=True) + "'>카드 근거 보기</a></section>")
     if not cards:
         return ''
     return ("<section id='refund-settlement-review'><h2>취소 정산 확인 중 · " + str(len(cards))
