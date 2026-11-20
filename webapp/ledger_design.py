@@ -208,14 +208,8 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
         entries.append(
             f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
             f"{' aria-current=\"page\"' if item.get('tab_id') == current else ''}>{board.esc(label)}</a></li>")
-    try:
-        from app import quarter_tab
-        for quarter in (1, 2, 3, 4):
-            tab = quarter_tab.tab_id_for(2026, quarter)
-            label = f"2026년 {quarter}분기 기타비용"
-            entries.append(f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(tab, query, kind, archived))}'>{label}</a></li>")
-    except Exception:
-        pass
+    for tab, label in board.quarter_board_tabs():
+        entries.append(f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(tab, query, kind, archived))}'>{label}</a></li>")
     return (
         "<dialog class='trip-switch-dialog' id='trip-switch-dialog' aria-labelledby='trip-switch-title'>"
         "<div class='trip-switch-head'><h2 id='trip-switch-title'>여행 전환</h2>"
@@ -714,7 +708,7 @@ def _row_party_main(row) -> str:
     return str(row.get("reservation_no") or "").strip() or "-"
 
 
-def _row_party_sub(row) -> str:
+def _row_party_sub(row, *, include_passengers: bool = True) -> str:
     """Display each known reservation once, without modifying the source row."""
     main = _row_party_main(row)
     if row.get("row_kind") == "income":
@@ -746,7 +740,8 @@ def _row_party_sub(row) -> str:
     # A lodging or flight row names its stay or its passengers instead of the number;
     # the number itself stays in the row, the search and the source link.
     if item == "\uD56D\uACF5\uB8CC" and reservation:
-        parts.append(_passenger_text(row))
+        if include_passengers:
+            parts.append(_passenger_text(row))
     elif reservation and reservation != main:
         parts.append("\uC608\uC57D\uBC88\uD638 " + reservation)
     if reservation:
@@ -1885,28 +1880,8 @@ def _quarter_excluded_ids(store) -> set:
     return set(member_ids(store))
 
 
-def _quarter_booked_rows(tab_id: str, store):
-    """A quarter tab's own saved expense rows (the rows this screen books).
-
-    ``_selected_rows`` hides the owner's completed net-zero refund groups from
-    the expenses it shows, and the live summary reads them through it. A quarter
-    tab row can carry the same ``source_event_id`` as a trip tab's pair, so this
-    screen has to apply that same exclusion to the header and the body; without
-    it the header counted a row the summary beside it dropped.
-    """
-    rows = _quarter_tab_rows(tab_id, store, "expense")
-    excluded = _quarter_excluded_ids(store)
-    if not excluded:
-        return rows
-    return [row for row in rows if row.get('source_event_id') not in excluded]
-
-
-def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
-    """A quarter's cost tab: rows waiting for confirmation, the booked rows, and the one action that books the waiting rows."""
-    from app import quarter_tab
-    store = board._active_store()
-    pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
-    booked = _quarter_booked_rows(tab_id, store)
+def _quarter_body(pending, booked, message: str = "", error: str = "") -> str:
+    """Render the selected booked expenses and the existing import summary."""
     pending_total = sum(int(r['amount_krw'] or 0) for r in pending)
     booked_total = sum(board._shown_amount(r) for r in booked)
     note = (f"<p class='status err' role='alert'>{board.esc(error)}</p>" if error else
@@ -2170,19 +2145,9 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         expenses = [r for r in expenses if r.get('source_event_id') not in paired]
         whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
-        # SPEC §11.2.1 계약 1: the same query returns the same rows on both
-        # paths, so this compares case-insensitively over the same recorded
-        # fields the React list searches. `operator_note` stays in the set:
-        # this path is the owner's screen, and a viewer never reaches it.
-        text = str(query).casefold()
-
-        def keep(row):
-            blob = " ".join(str(row.get(key) or "") for key in (
-                "item", "description", "operator_note", "reservation_no",
-                "source_merchant", "customer_name"))
-            return text in blob.casefold()
-        incomes = [r for r in incomes if keep(r)]
-        expenses = [r for r in expenses if keep(r)]
+        owner = board.current_role() == "owner"
+        _, incomes = ledger_query.select_rows(incomes, q=query, owner=owner)
+        _, expenses = ledger_query.select_rows(expenses, q=query, owner=owner)
     expenses = _sort_expenses_for_display(expenses)
     incomes = sorted(incomes, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or ''))
     return incomes, expenses, whole_income, whole_expense
@@ -2267,7 +2232,7 @@ def _quarter_page(tab_id: str, title: str, *, query: str = '', kind: str = '',
     store = board._active_store()
     from app import quarter_tab
     pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
-    booked = _quarter_booked_rows(tab_id, store)
+    _, shown, _, booked = _selected_rows(tab_id, query, kind or 'ex')
     total = sum(board._shown_amount(row) for row in booked)
     status = (f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>" if error else
               f"<p class='status' id='status' role='status'>{board.esc(message)}</p>" if message else '')
@@ -2276,7 +2241,7 @@ def _quarter_page(tab_id: str, title: str, *, query: str = '', kind: str = '',
         {'label': '지출', 'note': f'{len(booked)}건 · {total:,}원', 'href': '#quarter-expenses', 'state': 'done' if not pending else 'todo'},
         {'label': 'Google 복사', 'note': '비교 불가', 'href': '#quarter-expenses', 'state': 'todo'},
     ])
-    body = _quarter_body(tab_id, message, error)
+    body = _quarter_body(pending, shown, message, error)
     main = (f"<main class='main ledger-workspace' id='main' tabindex='-1'>{header}{status}"
             f"<section class='settlement-steps' aria-label='정산 단계'>{step_markup}</section>"
             f"<section id='quarter-expenses' class='view-tabs'><div role='tablist'><button role='tab' aria-selected='true' aria-controls='quarter-panel'>지출</button></div>"
@@ -2336,23 +2301,14 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
         return ""
     if _is_trip_tab(tab_id):
         return _trip_kpi_html(tab_id)
-    _, _, whole_income, whole_expense = _selected_rows(tab_id, '', kind)
+    shown_in, shown_ex, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
     recorded_income_count = len(whole_income)
-    if kind == "in":
-        whole_expense = []
-    elif kind == "ex":
-        whole_income = []
-
     from .google_ledger_page import get_trip_income_summary
     google_income = get_trip_income_summary(tab_id)
 
     if not query:
         return _summary_html(whole_income, whole_expense, recorded_income_count=recorded_income_count,
                              google_income=google_income)
-    # DETAILED 12.2: a filter separates the names; the whole total stays whole.
-    needle = query.strip()
-    shown_in = [r for r in whole_income if _matches(r, needle)]
-    shown_ex = [r for r in whole_expense if _matches(r, needle)]
     return _summary_html(
         shown_in, shown_ex,
         recorded_income_count=recorded_income_count,
@@ -2446,24 +2402,6 @@ def viewer_trips_html(trips) -> str:
         f" · 차액 {money(t.get('balance_krw'))}</li>"
         for t in trips)
     return f"<div class='sect'><h2>담당 여행</h2><ul>{items}</ul></div>"
-
-
-def _matches(row: dict, needle: str) -> bool:
-    """Does this row contain the search text, over the fields the screen shows.
-
-    SPEC §11.2.1 계약 1: the same query must return the same rows on both paths,
-    so this compares case-insensitively the way the React list does. The fields
-    are the ones the screen already shows plus the operator's note, which an
-    owner may read and searches.
-    """
-    if not needle:
-        return True
-    text = str(needle).casefold()
-    hay = " ".join(str(row.get(f) or "") for f in (
-        "occurred_on", "item", "description", "customer_name", "nickname",
-        "reservation_no", "service_period", "source_merchant", "operator_note",
-        "display_tab_id", "income_kind", "evidence_type"))
-    return text in hay.casefold()
 
 
 def _summary_totals(rows_in, rows_ex, linked=None):

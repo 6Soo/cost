@@ -2,6 +2,14 @@
 
 기준일 2026-11-20 KST. 확인한 main은 `0920dc67`, 운영은 `0c7b563b`다(`releases/` 최신 폴더와 `core-switch-applied-*.json` 06:44 기록). 작업 직전에 PR head와 운영 릴리스를 다시 확인한다.
 
+## 2026-11-20 · 장부 표시 기준과 Plush 화면
+
+- 기준 `2fb41a74`. 기존 `/board`에서 레거시의 기본 여행과 분기 전환 선택지, 날짜·분류 순서, 거래처·내용 표시와 분기 지출 표시를 Plush 컴포넌트에 연결했다. 날짜 검색과 분기 지출 검색은 공통 서버 조회를 쓰며 검색 전 전체 합계를 유지한다.
+- 카드 분류와 저장 스키마에는 변경이 없다. 운영 배포는 미수행이다. 참가자·보험, 항공권, 예약 연결을 장부 안에서 여는 동선은 미반영이다.
+- 표적 확인 명령은 `python -B -m pytest -q -p no:cacheprovider webapp/tests/test_ledger_parity_spec_11_2_1.py webapp/tests/test_m4_parity_refund_total_scope.py`와 `npm --prefix frontend run test:run -- src/features/ledger`이다.
+
+- 검증 결과는 장부 조회·환불·열람자 Python 검사 35건과 Plush 장부 검사 43건 통과다. 타입 검사와 빌드도 통과했다.
+
 ## 2026-11-20 (3) — 죽은 코드 퇴역과 기존 회귀 2건 수정
 
 - **죽은 코드 퇴역:** 전수 조사로 참조 0을 확인한 13개 헬퍼·상수(−141줄)와 `ensure_ledger_schema` 래퍼. [#1064](https://github.com/6Soo/cost/pull/1064) `b8667cb9`, [#1065](https://github.com/6Soo/cost/pull/1065) `0920dc67`. #1065는 중복도 함께 정리(`COMPANY_CELL` 중복, `_esc` 사본 2개→`pages.esc`, `app`의 `replay()` 5개→`app.db.replay_scoped_request`)하고, #1062 검수 지적 O1(변환 후 저장소 쓰기→뷰 재생)을 검사로 입증했다.

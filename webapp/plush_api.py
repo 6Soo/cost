@@ -243,6 +243,10 @@ def _bootstrap(ledger_board: Any, access: Any, session: Any, board: Any) -> dict
         "role": "owner" if owner else "viewer",
         "csrf": str(ledger_board.CSRF_TOKEN),
         "trips": summaries,
+        "quarter_tabs": [{"id": tab, "title": title} for tab, title in ledger_board.quarter_board_tabs()]
+        if owner else [],
+        "default_board_tab": ledger_board.first_open_board_tab(trips) if owner
+        else (summaries[0]["id"] if summaries else ""),
         "capabilities": capabilities,
         "receipt_enabled": receipt_enabled,
         "screen_titles": {
@@ -261,15 +265,11 @@ def _home(ledger_board: Any, access: Any, session: Any, board: Any) -> dict[str,
     result.pop("capabilities", None)
     result.pop("receipt_enabled", None)
     result.pop("screen_titles", None)
+    result.pop("default_board_tab", None)
+    result.pop("quarter_tabs", None)
     result["jobs"] = []
     result["updated_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
     return result
-
-
-def _row_search(row: dict[str, Any], board: Any, *, owner: bool = False) -> str:
-    if board is not None and hasattr(board, "projected"):
-        row = board.projected(row)
-    return projection.search_text(row, owner=owner)
 
 
 def _sort_amount_text(row: dict[str, Any]) -> str:
@@ -310,20 +310,16 @@ def _ledger(access: Any, session: Any, board: Any,
             rows = [row for row in rows
                     if row.get("row_kind") == "income"
                     or row.get("source_event_id") not in excluded]
-    all_rows = list(rows)
+    all_rows = rows
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
         raise _ProjectionError("INVALID_VALUE", "kind이 올바르지 않아요", 400)
-    kind_rows = all_rows
-    if kind:
-        kind_rows = [row for row in all_rows if ("income" if row.get("row_kind") == "income" else "expense") == kind]
-    rows = list(kind_rows)
-    text = _first(query, "q").strip().casefold()
-    if text:
-        rows = [row for row in rows if text in _row_search(row, None, owner=owner)]
+    kind_rows, rows = ledger_query.select_rows(all_rows, kind=kind, q=_first(query, "q"), owner=owner)
     sort = _first(query, "sort", "date_desc")
     if sort not in _SORTS:
         raise _ProjectionError("INVALID_VALUE", "정렬 조건이 올바르지 않아요", 400)
+
+    from . import ledger_design
 
     def key(row: dict[str, Any]):
         # The sort only needs the displayed date, merchant and amount.  Building
@@ -332,7 +328,12 @@ def _ledger(access: Any, session: Any, board: Any,
         # from the same fields ``ledger_row`` reads, so the order is identical:
         # ``projection._display_date`` and ``ledger_query.display_amount`` are
         # the same helpers the DTO uses.
-        if sort.startswith("date"):
+        if sort == "date_asc":
+            date = str(row.get("occurred_on") or "")
+            rank = (0 if row.get("row_kind") == "income"
+                    else ledger_design._expense_category_rank(row.get("item")))
+            return (not date, date, rank, str(row.get("row_id") or ""))
+        if sort == "date_desc":
             return (projection._display_date(row), str(row.get("row_id") or ""))
         if sort.startswith("merchant"):
             kind = str(row.get("row_kind") or "expense")
@@ -375,11 +376,17 @@ def _ledger(access: Any, session: Any, board: Any,
     for row in annotated:
         period, period_source = period_rows.period_for_row(row, board)
         compact, full = period_rows.display_label(row)
-        dto_rows.append(projection.ledger_row(
+        dto = projection.ledger_row(
             row, read_only=read_only or row.get('google_income', False),
             period=period, period_source=period_source,
             period_label=compact, period_label_full=full,
-            google_match=match_status.get(str(row.get('row_id') or ''))))
+            google_match=match_status.get(str(row.get('row_id') or '')))
+        if row.get("google_income"):
+            dto["display_merchant"] = ledger_design._row_party_main(row)
+        elif str(trip.get("tab_id") or "") != "refunds":
+            dto["merchant"] = ledger_design._row_party_main(row)
+            dto["description"] = ledger_design._row_party_sub(row, include_passengers=owner)
+        dto_rows.append(dto)
     google_verified = bool(income.get("verified"))
     linked = ledger_query.linked_bank_ids(_board_instance(board))
     filtered_totals = ledger_query.display_totals(

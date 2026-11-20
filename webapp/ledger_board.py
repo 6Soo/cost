@@ -977,10 +977,20 @@ def is_default_listed_trip(trip) -> bool:
 
 def default_board_tab() -> str:
     """Select the first open trip in the sidebar, or the existing empty view."""
-    for trip in live_trips(include_archived=True):
-        if is_default_listed_trip(trip):
-            return trip["tab_id"]
-    return "unclassified"
+    return first_open_board_tab(live_trips(include_archived=True))
+
+
+def first_open_board_tab(trips) -> str:
+    return next((trip["tab_id"] for trip in trips if is_default_listed_trip(trip)), "unclassified")
+
+
+def quarter_board_tabs():
+    from app.quarter_tab import tab_id_for
+
+    return [
+        (tab_id_for(2026, quarter), f"2026년 {quarter}분기 기타비용")
+        for quarter in (1, 2, 3, 4)
+    ]
 
 
 def _with_display_amount(rows):

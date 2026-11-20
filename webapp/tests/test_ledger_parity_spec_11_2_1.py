@@ -345,6 +345,35 @@ def test_search_case_insensitive_parity(bound_store, legacy_owner):
     assert set(legacy) == set(react_rows), "같은 검색어의 행 집합이 두 경로에서 다름"
 
 
+def test_legacy_date_and_category_order_is_reused_in_plush(bound_store, legacy_owner):
+    store, _access = bound_store
+    tab = make_trip(store)
+    meal = make_expense(store, tab, 5000, item="\uc2dd\ube44", day="2026-11-12", desc="Synthetic meal")
+    transfer = make_expense(store, tab, 7000, item="\uad50\ud1b5\ube44", day="2026-11-12", desc="Synthetic transfer")
+
+    legacy = legacy_expense_map(tab, kind="ex")
+    status, response = react_ledger(store, tab, kind="expense", sort="date_asc")
+    assert status == 200
+    assert list(legacy) == [transfer, meal]
+    assert [r["id"] for r in response["rows"]] == list(legacy)
+    assert [r["merchant"] for r in response["rows"]] == ["Synthetic transfer", "Synthetic meal"]
+    assert [r["category"] for r in response["rows"]] == ["\uad50\ud1b5\ube44", "\uc2dd\ube44"]
+
+
+def test_search_display_date_parity(bound_store, legacy_owner):
+    store, _access = bound_store
+    tab = make_trip(store)
+    match = make_expense(store, tab, 5000, day="2026-11-12")
+    make_expense(store, tab, 7000, day="2026-11-13")
+
+    legacy = legacy_expense_map(tab, q="2026-11-12", kind="ex")
+    react, count, total, _ = react_all_pages(store, tab, kind="expense", q="2026-11-12")
+
+    assert legacy == {match: 5000}
+    assert react == {match: "5000"}
+    assert (count, total) == (1, "5000")
+
+
 def test_search_operator_note_field_parity(bound_store, legacy_owner):
     """§11.2.1 계약 1: 검색 대상 필드 집합이 두 경로에서 같아야 한다.
 

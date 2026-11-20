@@ -20,6 +20,8 @@ export interface TripSummary {
 export interface Bootstrap {
   role: Role;
   csrf: string;
+  default_board_tab?: string;
+  quarter_tabs?: { id: string; title: string }[];
   trips: TripSummary[];
   capabilities: string[];
   receipt_enabled: boolean;
@@ -54,6 +56,7 @@ export interface LedgerRow {
   id: string;
   date: string;
   merchant: string;
+  display_merchant?: string;
   description: string;
   category: string;
   amount: string;
