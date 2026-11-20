@@ -118,13 +118,13 @@ def apply_verified_periods(rows: list[dict], stay_index: dict, stored: dict | No
 
     Screen-only inference stays blank. `manual` is the set of row_ids with a person's period (even an empty one).
     """
-    from webapp.ledger_stay_evidence import read_period, verified_period_for
+    from webapp.ledger_stay_evidence import export_period
     filled = 0
     for row in rows:
         if (row.get("service_period") or row.get("period") or "").strip() or not str(
                 row.get("row_id") or "").startswith("card-"):
             continue
-        period, _source = read_period(row, stored, manual or set(), lambda: verified_period_for(row, stay_index), export=True)
+        period = export_period(row, stored, manual, stay_index)
         if period:
             row["service_period"] = period
             filled += 1

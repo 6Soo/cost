@@ -6,8 +6,6 @@ from urllib.parse import urlencode
 
 from app.db import decided_sql
 
-from . import ui_icons
-
 PAGE_SIZE = 50
 STATES = {'booked': '완료', 'excluded': '제외'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"

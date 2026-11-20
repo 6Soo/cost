@@ -1186,6 +1186,12 @@ def read_period(row, stored, manual, compute, *, export=False):
     return compute(), 'computed'
 
 
+def export_period(row, stored, manual, index):
+    """Resolve the export period from stored or verified evidence (DATE-109)."""
+    return read_period(row, stored, manual or set(),
+                       lambda: verified_period_for(row, index), export=True)[0]
+
+
 def flight_departure_days(found):
     """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
 
