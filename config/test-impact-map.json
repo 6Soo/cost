@@ -189,7 +189,7 @@
     },
     {
       "name": "card-destination-only-ux",
-      "paths": ["app/card_destination.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py"],
+      "paths": ["app/card_destination.py", "tests/card_pipeline/test_recorded_display_tab.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py"],
       "tests": ["tests/card_pipeline/test_final_card_destination.py", "tests/card_pipeline/test_card_destination_contract.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_autonomous_cleanup.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py"]
     },
     {
