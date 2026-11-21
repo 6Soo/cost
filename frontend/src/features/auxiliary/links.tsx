@@ -111,9 +111,6 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
   const rosterTripId = text(state.trip_id);
   const rosterReady = resource.kind === "ready" && rosterTripId === tripId;
   const navItems = navWithTrip(nav, tripId);
-  const legacyWorkflowHref = tripId
-    ? `/participants?${new URLSearchParams({ trip: tripId }).toString()}`
-    : "/participants?legacy=1";
 
   async function write(path: string, payload: Record<string, unknown>, success: string) {
     if (busy) return;
@@ -186,7 +183,6 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
             <h2>참가자별 수입 연결</h2>
             <p className="e-feature-hint">연결 선택지는 현재 여행의 서버 조회 결과에서 가져옵니다. 참가자를 새로 만들지 않습니다.</p>
             <p className="e-feature-hint">
-              <a href={legacyWorkflowHref}>참가자 이름·별칭·여행 교정 및 미연결 수입 검토 (기존 화면)</a>
             </p>
             {participants.length ? (
               <div className="e-feature-table-wrap" role="region" aria-label="참가자별 수입 연결 표" tabIndex={0}>

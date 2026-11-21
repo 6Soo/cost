@@ -85,10 +85,6 @@ def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> boo
     query = parse_qs(parsed.query)
     if query.get("legacy") == ["1"]:
         return False
-    # Existing participant-name/alias/trip correction links must keep their
-    # full form. The new participant linking tab uses view=links explicitly.
-    if parsed.path == "/participants" and "trip" in query and "view" not in query:
-        return False
     # Unauthenticated development-mode fixtures keep their original renderer.
     # Production sessions and their refusal handling use the same gate as /ui/.
     if not board.ACCESS_ENFORCEMENT:

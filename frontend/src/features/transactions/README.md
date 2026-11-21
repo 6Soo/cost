@@ -24,7 +24,7 @@
 
 | 화면·기존 주소 | 실제 기능/API 근거 | 새 화면 연결 |
 | --- | --- | --- |
-| 참가자·수입 대조 `/participants` | `webapp/participant_income_page.py`: state, trip-panel, link/unlink, participant; 쓰기는 소유자 전용·화면 지문 및 수입 원행 검증 사용 | `view=participants`; 지문 기반 참가자 연결/해제는 새 화면에서 처리. 이름·별칭·여행 교정 및 나머지 기존 검토는 현재 여행의 인증된 기존 화면 링크로 보존. 여행자 생성은 추가하지 않음 |
+| 참가자·수입 대조 `/participants` | `webapp/participant_income_page.py`: state, trip-panel, link/unlink, participant; 쓰기는 소유자 전용·화면 지문 및 수입 원행 검증 사용 | `view=participants`; 여행 북마크는 현재 참가자 화면을 연다. 참가자 연결·해제, 이름·별칭·여행 및 동일인 교정에 현재 여행의 서버 지문을 사용한다. |
 | 보험 대조 `/participants/insurance-match` | HTML 주소는 등록이 제거되어 기본 404(레거시 렌더러)이며 정리 전용 410 응답은 운영하지 않음; 실제 경로는 owner-only `GET /api/participants/insurance-match` 하나이며 쓰기 API는 없음 | `view=insurance`; 조회 전용. API의 미설정/권한/원천 오류를 빈 결과나 성공으로 합치지 않음 |
 | 예약 연결 `/reserve-links` | `webapp/reserve_link_ui.py`, `ledger_board.py`: GET `/api/reserve-link/plan`, `/state`; POST `/links`, `/apply` | `view=reserve-links`; 서버 계획·revision·저장 응답을 따라 실제 동작 수행 |
 | 수기 지출 `/expense/new` | 실제 등록 `POST /api/expenses/manual` (가시 폼은 `ledger_board.py`) | `AuxiliaryPage`가 `view=expense-new`로 해석. 실제 manual expense 필드 descriptor와 정밀 금액 문자열을 보존해 제출 |
