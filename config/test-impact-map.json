@@ -570,6 +570,11 @@
                 "webapp/tests/test_receipt_partial.py"]
     },
     {
+      "name": "retired-insurance-ui-shell",
+      "paths": ["webapp/insurance_income_match_page.py", "webapp/tests/test_uiux_shell.py"],
+      "tests": ["webapp/tests/test_uiux_shell.py"]
+    },
+    {
       "name": "core-business-acceptance",
       "paths": [
         "webapp/insurance_income_match_service.py", "webapp/insurance_income_match_page.py",
