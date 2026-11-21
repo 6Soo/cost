@@ -243,6 +243,75 @@ def transaction_detail(transaction_id: str, db_path=None):
         conn.close()
 
 
+def _recorded_display_tabs(conn: sqlite3.Connection, transaction_ids, *,
+                            tables: set[str] | None = None) -> Dict[str, str]:
+    """Recorded board tab per card row, read-only in one query.
+
+    The board row id is the card transaction id prefixed the way the screen
+    writes it (`card-<transaction_id>`), so the lookup names the row's own
+    record instead of matching a tab or a name. A card with no board row has no
+    recorded tab and keeps its own attribution. A file without `board_rows`, or
+    whose old `board_rows` cannot name a `display_tab_id`, contributes nothing
+    rather than failing the read, the same optional-table contract
+    `enrich_status` follows. A real manual `display_tab_id` correction outranks
+    the row column, the same precedence `app.ledger` keeps.
+
+    `tables` lets a caller that already listed this connection's tables reuse
+    that result instead of asking the schema twice.
+    """
+    ids = [str(transaction_id) for transaction_id in transaction_ids if transaction_id]
+    if not ids:
+        return {}
+    if tables is None:
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'board_rows' not in tables:
+        return {}
+    columns = {row[1] for row in conn.execute('PRAGMA table_info(board_rows)')}
+    if 'display_tab_id' not in columns:
+        return {}
+    payload_column = 'payload_json' in columns
+    manual_display: set[tuple[str, str]] = set()
+    if payload_column and 'board_manual_overrides' in tables:
+        override_columns = {row[1] for row in conn.execute(
+            'PRAGMA table_info(board_manual_overrides)')}
+        if 'field' in override_columns:
+            from app.manual_overrides import manual_fields
+            try:
+                manual_display = {(str(row_id)[5:], field) for row_id, field in manual_fields(conn)
+                                  if str(row_id).startswith('card-') and field == 'display_tab_id'}
+            except sqlite3.OperationalError:
+                manual_display = set()
+    select = 'SELECT row_id, display_tab_id' + (', payload_json' if payload_column else '') \
+        + ' FROM board_rows WHERE row_id IN (SELECT \'card-\' || value FROM json_each(?))'
+    recorded: Dict[str, str] = {}
+    try:
+        rows = conn.execute(select, (json.dumps(ids),)).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    for row in rows:
+        row_id = row[0]
+        if not isinstance(row_id, str) or not row_id.startswith('card-'):
+            continue
+        tid = row_id[5:]
+        value = row[1]
+        if payload_column:
+            payload = row[2]
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (TypeError, ValueError):
+                    payload = None
+            payload_value = payload.get('display_tab_id') if isinstance(payload, dict) else None
+            if (tid, 'display_tab_id') in manual_display and payload_value not in (None, ''):
+                value = payload_value
+            elif value in (None, '') and payload_value not in (None, ''):
+                value = payload_value
+        if value not in (None, ''):
+            recorded[tid] = value
+    return recorded
+
+
 @request_metrics.card_stage('db_connect')
 def enrich_status(conn, items):
     """Bounded read projection shared by month/search/day/detail, never a writer."""
@@ -288,6 +357,9 @@ def enrich_status(conn, items):
             source,
             dict(already_booked=bool(recorded), refund_link=refund_link),
         )
+    recorded_tabs = _recorded_display_tabs(conn, transaction_ids, tables=tables)
+    for item in items:
+        item['recorded_display_tab_id'] = recorded_tabs.get(item['transaction_id'])
 
 
 def _connect(db_path: str) -> sqlite3.Connection:

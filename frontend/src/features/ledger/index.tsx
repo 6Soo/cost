@@ -9,6 +9,16 @@ import './ledger.css';
 
 import type { LedgerKind } from './urlState';
 type LedgerSort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'merchant_asc';
+type ArchiveExpenseRow = {
+  row: number;
+  date: string;
+  payee: string;
+  category: string;
+  period: string;
+  evidence: string;
+  amount: string | null;
+};
+export type ArchiveExpensesPayload = { rows: ArchiveExpenseRow[]; total_count: number; verified: boolean };
 type LedgerPayload = {
   trip: TripSummary;
   rows: LedgerRow[];
@@ -18,6 +28,7 @@ type LedgerPayload = {
   filtered_total: string;
   total: string;
   closed: boolean;
+  archive_expenses?: ArchiveExpensesPayload | null;
   income_source?: { available: boolean; verified: boolean; reason: string; total?: string | null };
 };
 type CopyPayload = { tsv: string; row_count: number; total_krw: string; message?: string };
@@ -171,6 +182,63 @@ function LedgerMobileList({
   );
 }
 
+function GoogleArchiveExpenses({ archive, searchQuery }: { archive: ArchiveExpensesPayload; searchQuery: string }) {
+  const rows = archive.rows;
+  const total = archive.total_count;
+  return (
+    <section aria-label="Google 보관 지출 원장">
+      <h2>Google 보관 원장 · {total}건</h2>
+      <span className={`cost-ledger__match cost-ledger__match--${archive.verified ? 'ok' : 'warn'}`}>
+        {archive.verified ? '검증됨' : '미검증'}
+      </span>
+      {searchQuery && <p>검색 결과 {rows.length}건</p>}
+      {rows.length ? (
+        <>
+          <div className="cost-ledger__desktop-table">
+            <DataTable
+              caption="Google 보관 원장 지출 목록"
+              columns={[
+                { key: 'date', header: '날짜', cell: (row) => humanDate(row.date) },
+                { key: 'payee', header: '거래처', cell: (row) => row.payee || '내용 없음' },
+                { key: 'category', header: '분류', cell: (row) => row.category || '항목 없음' },
+                { key: 'period', header: '이용일', cell: (row) => row.period || <span className="cost-ledger__period-blank" /> },
+                { key: 'evidence', header: '출처', cell: (row) => row.evidence || '출처 없음' },
+                {
+                  key: 'amount',
+                  header: '금액',
+                  align: 'end' as const,
+                  cell: (row) => row.amount ? <Amount value={row.amount} currency="KRW" /> : '미확인',
+                },
+              ]}
+              rows={rows}
+              getRowKey={(row) => String(row.row)}
+            />
+          </div>
+          <ul className="cost-ledger__mobile-list" aria-label="Google 보관 원장 거래 목록">
+            {rows.map((row) => (
+              <li key={row.row}>
+                <span className="cost-ledger__mobile-top">
+                  <time>{humanDate(row.date)}</time>
+                  <span className="cost-ledger__mobile-amount">{row.amount ? <Amount value={row.amount} currency="KRW" /> : '미확인'}</span>
+                </span>
+                <strong>{row.payee || '내용 없음'}</strong>
+                <span className="cost-ledger__mobile-bottom">
+                  <span>{row.category || '항목 없음'}</span>
+                  {row.period && <span>{row.period}</span>}
+                  <span>{row.evidence || '출처 없음'}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p>{searchQuery ? '검색 결과가 없습니다' : '표시할 Google 보관 지출 행이 없습니다'}</p>
+      )}
+      <p>금액 미확인 행은 '미확인'으로 표시하며, 이 금액은 장부 합계에 더하지 않습니다.</p>
+    </section>
+  );
+}
+
 export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   const { search, update } = useUrlSearch(initialSearch);
   const tab = search.get('tab') || (bootstrap.default_board_tab ?? bootstrap.trips[0]?.id ?? '');
@@ -258,12 +326,17 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
   const currentTrip = loadedTrip ?? trips.find((trip) => trip.id === tab);
   const dataPageSize = data && Number.isFinite(data.page_size) && data.page_size > 0 ? data.page_size : pageSize;
   const pageCount = data ? Math.max(1, Math.ceil(data.total_count / dataPageSize)) : 1;
+  /* 통합 검수(2026-11-21): 보관 여부 자체는 payload 존재 여부로 판정하고 행 수나
+     q/sort 적용 여부로 판정하지 않는다. */
+  const archiveExpenses = kind === 'expense' ? data?.archive_expenses ?? null : null;
+  const archiveOnly = archiveExpenses !== null;
   const isClosed = loadedTrip ? data?.closed === true : currentTrip?.closed ?? false;
   const ledgerLoadedForTab = loadedTrip !== undefined
     && typeof data?.closed === 'boolean'
     && !loading
     && !loadError;
   const ownerCanWrite = bootstrap.role === 'owner'
+    && !archiveOnly
     && ledgerLoadedForTab
     && currentTrip !== undefined
     && !currentTrip.closed
@@ -364,8 +437,8 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
           <dl className={`cost-ledger__summary${incomeProvisional ? ' cost-ledger__summary--provisional' : ''}`}
             aria-label={quarterTab ? '지출 요약' : '여행 손익'}>
             {!quarterTab && <div><dt>수입{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.income} currency="KRW" /></dd></div>}
-            <div><dt>지출</dt><dd><Amount value={currentTrip.expense} currency="KRW" /></dd></div>
-            {!quarterTab && <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd><Amount value={currentTrip.profit} currency="KRW" /></dd></div>}
+            <div><dt>지출</dt><dd>{archiveExpenses ? `보관 ${archiveExpenses.total_count}건` : <Amount value={currentTrip.expense} currency="KRW" />}</dd></div>
+            {!quarterTab && <div><dt>차액{incomeProvisional && <span className="cost-ledger__provisional">잠정</span>}</dt><dd>{archiveOnly ? '—' : <Amount value={currentTrip.profit} currency="KRW" />}</dd></div>}
           </dl>
         )}
       </header>
@@ -404,16 +477,16 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
               <option value="merchant_asc">가맹점 이름순</option>
             </Select>
           </FormField>
-          <FormField id="cost-ledger-page-size" label="페이지당 행">
+          {!archiveOnly && <FormField id="cost-ledger-page-size" label="페이지당 행">
             <Select id="cost-ledger-page-size" value={String(pageSize)} onChange={(event) => update({ page_size: event.currentTarget.value, page: null })}>
               <option value="25">25</option><option value="50">50</option><option value="100">100</option>
             </Select>
-          </FormField>
+          </FormField>}
         </div>
         {bootstrap.role === 'owner' && (
           <div className="cost-ledger__actions">
-            {kind === 'expense' && !quarterTab && <ActionButton type="button" variant="secondary" pending={copyPending} pendingLabel="복사 준비 중" onClick={copyForGoogle}>Google 장부용 복사</ActionButton>}
-            {!quarterTab && <ActionButton type="button" variant="ghost" pending={exportPending} pendingLabel="XLSX 생성 중" onClick={exportTrip}>XLSX 내보내기</ActionButton>}
+            {kind === 'expense' && !quarterTab && !archiveOnly && <ActionButton type="button" variant="secondary" pending={copyPending} pendingLabel="복사 준비 중" onClick={copyForGoogle}>Google 장부용 복사</ActionButton>}
+            {!quarterTab && !archiveOnly && <ActionButton type="button" variant="ghost" pending={exportPending} pendingLabel="XLSX 생성 중" onClick={exportTrip}>XLSX 내보내기</ActionButton>}
             {ownerCanWrite && <ActionButton type="button" variant="primary" onClick={() => setEntryKind(kind)}> {kind === 'expense' ? '수기 지출 추가' : '수입 직접 입력'}</ActionButton>}
           </div>
         )}
@@ -468,12 +541,14 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
       {loading && <Loading label="장부 조회 중" />}
       {!loading && !loadError && data && (
         <>
-          <div className="cost-ledger__totals" aria-live="polite">
-            <div><span>조회 합계</span><strong><Amount value={data.filtered_total} currency="KRW" /></strong></div>
-            <div><span>전체 합계</span><strong><Amount value={data.total} currency="KRW" /></strong></div>
-            <p>{data.total_count}건 · {data.page} / {pageCount}페이지</p>
-          </div>
-          {data.rows.length ? (
+          {!archiveOnly && (
+            <div className="cost-ledger__totals" aria-live="polite">
+              <div><span>조회 합계</span><strong><Amount value={data.filtered_total} currency="KRW" /></strong></div>
+              <div><span>전체 합계</span><strong><Amount value={data.total} currency="KRW" /></strong></div>
+              <p>{data.total_count}건 · {data.page} / {pageCount}페이지</p>
+            </div>
+          )}
+          {data.rows.length > 0 && (
             <>
               <LedgerDesktopTable rows={data.rows} onOpen={openRow} />
               <LedgerMobileList rows={data.rows} onOpen={openRow} />
@@ -483,7 +558,9 @@ export function LedgerPage({ bootstrap, search: initialSearch }: PageProps) {
                 <ActionButton type="button" variant="secondary" disabled={page >= pageCount || loading} onClick={() => update({ page: page + 1 })}>다음</ActionButton>
               </nav>
             </>
-          ) : (
+          )}
+          {archiveExpenses && <GoogleArchiveExpenses archive={archiveExpenses} searchQuery={q} />}
+          {data.rows.length === 0 && !archiveExpenses && (
             <EmptyState
               title={q ? '검색 결과가 없습니다' : `${kind === 'expense' ? '지출' : '수입'} 내역이 없습니다`}
               description={q ? '검색어를 바꾸거나 초기화해 보세요.' : '현재 서버 조회 결과에 표시할 행이 없습니다.'}

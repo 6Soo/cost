@@ -12,6 +12,7 @@ correction and concurrent-edit checks stay with the existing server boundaries.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 # The legacy HTML board uses kind=in/ex; the Plush API uses income/expense.
@@ -154,6 +155,48 @@ def select_rows(rows: list[dict[str, Any]], *, kind: str = "", q: str = "",
     else:
         searched = list(kind_rows)
     return kind_rows, searched
+
+
+def select_archive_expenses(
+    archive: dict | None, q: str = "", sort: str = "date_asc",
+) -> dict | None:
+    """Apply the travel ledger's search and ordering to read-only source rows."""
+    if not archive or not archive["rows"]:
+        return None
+    text = q.strip().casefold()
+    rows = [
+        row for row in archive["rows"]
+        if not text or text in " ".join(
+            row[field] for field in ("date", "payee", "category", "period", "evidence")
+        ).casefold()
+    ]
+    if sort.startswith("date_"):
+        from app.google_expense_rows import day
+
+        keys = [(day(row["date"], row.get("date_year")), row) for row in rows]
+        rows = _sort_archive_rows(keys, descending=sort == "date_desc")
+    elif sort.startswith("amount_"):
+        keys = [(_archive_amount(row["amount"]), row) for row in rows]
+        rows = _sort_archive_rows(keys, descending=sort == "amount_desc")
+    elif sort == "merchant_asc":
+        rows.sort(key=lambda row: row["payee"].casefold())
+    return {"verified": archive["verified"], "rows": rows, "total_count": len(archive["rows"])}
+
+
+def _archive_amount(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
+
+
+def _sort_archive_rows(keys: list[tuple], *, descending: bool) -> list[dict]:
+    known = sorted((pair for pair in keys if pair[0] is not None),
+                   key=lambda pair: pair[0], reverse=descending)
+    return [row for _, row in known] + [row for key, row in keys if key is None]
 
 
 def linked_bank_ids(store: Any) -> set:

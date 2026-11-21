@@ -206,7 +206,7 @@ def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str 
 
 
 def _trip_kpi_html(tab_id: str) -> str:
-    """The three ledger figures, using the existing COST/Google read paths."""
+    """The travel summary uses the same source as the visible expense rows."""
     if not tab_id or _STORE_missing():
         return ""
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(tab_id, '', '')
@@ -246,11 +246,17 @@ def _trip_kpi_html(tab_id: str) -> str:
             "<small>장부 동기화 필요</small>",
             "<small>장부 동기화 필요</small>",
             1)
+    archive = _archive_expenses_for_tab(tab_id)
+    expense_note = f"{len(expenses)}건"
+    if archive is not None:
+        expense = balance = None
+        expense_note = f"Google 보관 {len(archive['rows'])}건"
+        balance_note = '—'
     return (
         "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
         + income_kpi
         + f"<div class='kpi'><dt>지출</dt><dd>{board.esc(amount(expense))}</dd>"
-          f"<small>{len(expenses)}건</small></div>"
+          f"<small>{board.esc(expense_note)}</small></div>"
         + f"<div class='kpi'><dt>차액</dt><dd>{board.esc(amount(balance))}</dd>"
         f"<small>{board.esc(balance_note)}</small></div></dl>"
     )
@@ -260,6 +266,13 @@ def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
     """Search, filter, grouping and manual entry controls for the expense tab."""
     if board.current_role() != 'owner':
         return ""
+    actions = ""
+    if _archive_expenses_for_tab(tab_id) is None:
+        actions = (
+            "<label class='group-toggle'><input id='group-expenses' type='checkbox' data-group-expenses>항목별 묶기</label>"
+            f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
+            f"{ui_icons.icon('pencil')}수기 지출 추가</a>"
+        )
     return (
         "<div class='expense-toolbar' role='toolbar' aria-label='지출 도구'>"
         "<form class='expense-filter' method='get' action='/board' role='search'>"
@@ -274,11 +287,7 @@ def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
         f"<option value='ex'{ ' selected' if kind == 'ex' else ''}>지출</option></select>"
         "<button class='btn' type='submit' id='q-go'>조회</button>"
         + (f"<a class='btn ghost' id='q-clear' href='/board?{board.esc(state_query(tab_id))}'>초기화</a>" if (query or kind) else '')
-        + "</form>"
-        "<label class='group-toggle'><input id='group-expenses' type='checkbox' data-group-expenses>항목별 묶기</label>"
-        f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
-        f"{ui_icons.icon('pencil')}수기 지출 추가</a>"
-        "</div>")
+        + f"</form>{actions}</div>")
 
 
 def _trip_tabs_html(tab_id: str, *, query: str, kind: str, selected: str,
@@ -2309,34 +2318,54 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
         google_income=google_income)
 
 
+def _archive_expenses_for_tab(tab_id: str) -> dict | None:
+    if board.current_role() != "owner" or not _is_trip_tab(tab_id):
+        return None
+    from . import ledger_archived_expenses
+
+    def load():
+        native = [row for row in board._expense_rows() if row.get("display_tab_id") == tab_id]
+        return ledger_archived_expenses.load(tab_id, owner=True, native_expenses=native)
+
+    return read_scope.remember(("archive_expenses", tab_id), load)
+
+
+def _archive_expenses_html(archive: dict) -> str:
+    rows = archive["rows"]
+    verified = "검증됨" if archive["verified"] else "미검증"
+    heading = (
+        "<section class='archive-expenses' aria-label='Google 보관 원장 지출'>"
+        f"<h3>Google 보관 원장 지출 · {archive['total_count']}건 · {verified}</h3>"
+    )
+    if not rows:
+        return heading + "<p>검색 결과가 없습니다</p></section>"
+    items = []
+    for row in rows:
+        fields = [
+            row["date"] or "날짜 없음", row["payee"], row["category"],
+            row["period"], row["evidence"],
+            row["amount"] if row["amount"] is not None else "미확인",
+        ]
+        cells = "".join(f"<td>{board.esc(value)}</td>" for value in fields)
+        items.append(f"<tr class='archive-expense-row'>{cells}</tr>")
+    headers = "".join(f"<th scope='col'>{label}</th>"
+                      for label in ("날짜", "거래처", "분류", "이용일", "출처", "금액"))
+    return (heading + "<div style='overflow-x:auto'><table class='data-table'>"
+            f"<thead><tr>{headers}</tr></thead><tbody>{''.join(items)}</tbody>"
+            "</table></div></section>")
+
+
 def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = "",
                 archived: str = "", back: str = "") -> str:
-    """The two row lists inside the one element a live refresh replaces.
-
-    One renderer, embedded by the full page and re-rendered for a fragment, so the
-    two cannot disagree about which rows exist, which one is selected, or which
-    move form a row carries.
-    """
+    """Wrap the same rows rendered by the live fragment."""
     if _STORE_missing():
         return ""
-    incomes, expenses, _whole_income, _whole_expense = _selected_rows(
-        tab_id, query, kind)
-    unclassified = tab_id == "unclassified"
-    back = back or ("/board?" + state_query(tab_id, query, kind, archived))
-    copy_preview = _expense_copy_preview(tab_id, expenses)
-    matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
-    amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
-    return (f"<div id='live-rows'>"
-            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
-            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
-            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}"
-            f"</div>")
+    content = rows_part(tab_id, query, kind, selected, archived, back=back)
+    return f"<div id='live-rows'>{content}</div>"
 
 
 def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
-              archived: str = "") -> str:
+              archived: str = "", *, back: str = "") -> str:
     """The row lists' contents for a live fragment, without the region's element.
 
     The live sync adds that wrapper, so a bundle written here and a page rendered
@@ -2352,10 +2381,14 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
         return refund_body(board._active_store(), query, kind)
+    if kind != "in":
+        archive = ledger_query.select_archive_expenses(_archive_expenses_for_tab(tab_id), q=query)
+        if archive is not None:
+            return _archive_expenses_html(archive)
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"
-    back = "/board?" + state_query(tab_id, query, kind, archived)
+    back = back or "/board?" + state_query(tab_id, query, kind, archived)
     copy_preview = _expense_copy_preview(tab_id, expenses)
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
