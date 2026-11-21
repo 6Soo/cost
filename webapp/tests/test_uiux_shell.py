@@ -90,28 +90,29 @@ def test_tool_context_does_not_mark_a_trip_as_current_navigation():
     assert document.count('class=\'nv nv-current\'') == 0
 
 
-def test_uxa04_content_negotiation_for_removed_page():
+def test_uxa04_retired_page_falls_through_to_default_and_keeps_api_and_plush_routes():
+    retired = "/participants/insurance-match"
+    assert insurance_income_match_page.owns_route(retired) is False
+    assert insurance_income_match_page.owns_route(insurance_income_match_page.API_PATH) is True
+
     browser = _Handler("text/html,application/xhtml+xml")
-    assert insurance_income_match_page.dispatch(
-        browser,
-        urlsplit(insurance_income_match_page.PAGE_PATH),
-        is_owner=True,
+    handled = insurance_income_match_page.dispatch(
+        browser, urlsplit(retired), is_owner=True,
     )
-    kind, body, status = browser.sent[0]
-    assert kind == "html"
-    assert status == 410
-    assert "이 화면은 정리되었습니다" in body
-    assert "href='/trips'" in body
-    assert 'data-error-page="1"' in body
+    assert handled is False
+    assert browser.sent == []
 
     api_client = _Handler("application/json")
-    insurance_income_match_page.dispatch(
-        api_client,
-        urlsplit(insurance_income_match_page.PAGE_PATH),
-        is_owner=True,
+    handled = insurance_income_match_page.dispatch(
+        api_client, urlsplit(insurance_income_match_page.API_PATH), is_owner=True,
+        state_loader=lambda **kw: {"available": False, "code": "SOURCE_UNAVAILABLE"},
     )
+    assert handled is True
     assert api_client.sent[0][0] == "json"
-    assert api_client.sent[0][2] == 410
+    assert api_client.sent[0][2] == 503
+
+    from webapp import plush_ui
+    assert retired in plush_ui.PRIMARY_ROUTES
 
 
 def test_uxa04_feature_disabled_page_keeps_api_json():
