@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TransactionsResponse } from "../../api/types";
+import { CardCoverage } from "./cardCoverage";
 import { FlightTools } from "./flights";
 import {
   DataRows,
@@ -185,13 +186,7 @@ function OwnerTransactionsPage(props: PageProps) {
         </button>
       </header>
       <FeatureNav label="거래 종류" items={TRANSACTION_TABS} current={view} />
-      {view === "cards" ? (
-        <nav className="e-feature-nav" aria-label="카드 도구">
-          <a className="cost-button cost-button-secondary" href="/cards/all?legacy=1&panel=coverage">
-            카드 이용내역 공백 확인
-          </a>
-        </nav>
-      ) : null}
+      {view === "cards" ? <CardCoverage search={props.search} /> : null}
 
       <form className="e-feature-filter cost-panel" onSubmit={submitSearch} role="search" aria-label="거래 검색">
         <label className="e-feature-field" htmlFor="transaction-search">
