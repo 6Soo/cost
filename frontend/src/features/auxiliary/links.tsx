@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, getJSON, postJSON } from "../../api/client";
 import type { Bootstrap } from "../../api/types";
 import { FeatureNav, type PageProps } from "../transactions/feature-ui";
-
-type AnyRecord = Record<string, unknown>;
+import { amountLabel, record, records, strings, text, type AnyRecord } from "./display";
+import { ParticipantRoster } from "./participant-roster";
 type NavItem = { id: string; label: string; path: string; query?: Record<string, string> };
 type LinkView = "participants" | "reserve-links";
 type LinksPageProps = PageProps & { nav: NavItem[]; view: LinkView };
@@ -12,30 +12,6 @@ type ResourceState<T> =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "ready"; value: T };
-
-function record(value: unknown): AnyRecord {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : {};
-}
-
-function records(value: unknown): AnyRecord[] {
-  return Array.isArray(value) ? value.map(record) : [];
-}
-
-function text(value: unknown): string {
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return "";
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(text).filter(Boolean) : [];
-}
-
-function amountLabel(value: unknown): string {
-  if (typeof value === "number" && Number.isFinite(value)) return `${new Intl.NumberFormat("ko-KR").format(value)}원`;
-  const valueText = text(value);
-  return valueText ? `${valueText}원` : "금액 확인 안 됨";
-}
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message || error.code;
@@ -130,6 +106,10 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
   )).size;
   const fingerprint = text(state.input_fingerprint);
   const configured = state.configured === true;
+  // Only the current ready snapshot may serve a form, and only when its server
+  // trip id is the one selected, so a trip switch never shows stale participants.
+  const rosterTripId = text(state.trip_id);
+  const rosterReady = resource.kind === "ready" && rosterTripId === tripId;
   const navItems = navWithTrip(nav, tripId);
   const legacyWorkflowHref = tripId
     ? `/participants?${new URLSearchParams({ trip: tripId }).toString()}`
@@ -279,9 +259,15 @@ function ParticipantsLinksPage({ bootstrap, search, nav }: Omit<LinksPageProps, 
                   })}</tbody>
                 </table>
               </div>
-            ) : <p className="e-feature-hint">현재 여행의 참가자 조회 결과가 없습니다.</p>}
-          </section>
-        </>
+          ) : <p className="e-feature-hint">현재 여행의 참가자 조회 결과가 없습니다.</p>}
+        </section>
+      </>
+      ) : null}
+      {rosterReady ? (
+        <ParticipantRoster
+          key={`${rosterTripId}\u0000${fingerprint}`}
+          bootstrap={bootstrap} state={state}
+          configured={configured} fingerprint={fingerprint} busy={busy} onWrite={write} />
       ) : null}
     </main>
   );
