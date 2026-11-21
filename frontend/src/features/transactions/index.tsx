@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TransactionsResponse } from "../../api/types";
+import { CardUploadPanel } from "./cardUpload";
 import { CardCoverage } from "./cardCoverage";
 import { FlightTools } from "./flights";
 import {
@@ -131,7 +132,9 @@ function OwnerTransactionsPage(props: PageProps) {
   const page = validPage(props.search);
   const requestedPageSize = validPageSize(props.search, view);
   const endpoint = endpointFor(view, props.search);
-  const { state, reload } = useResource<TransactionsResponse>(endpoint);
+  const panel = view === "cards" ? props.search.get("panel") : null;
+  const uploadWorkspace = panel === "upload";
+  const { state, reload } = useResource<TransactionsResponse>(endpoint, !uploadWorkspace);
   const [notice, setNotice] = useState("");
   const [searchError, setSearchError] = useState("");
   const isKnownView = Object.prototype.hasOwnProperty.call(TITLES, view);
@@ -141,9 +144,11 @@ function OwnerTransactionsPage(props: PageProps) {
     : null;
   const actions = useMemo(() => (payload?.actions ?? []).filter((action) => {
     if (action.method === "POST" && props.bootstrap.role !== "owner") return false;
+    // The dedicated card upload workspace owns the upload entry point.
+    if (view === "cards" && action.id === "card-upload-batch") return false;
     const target = `${action.id} ${action.href}`.toLowerCase();
     return !/\/api\/user-actions\/answer/.test(target);
-  }), [payload, props.bootstrap.role]);
+  }), [payload, props.bootstrap.role, view]);
   const settlementRows = view === "refunds" ? payload?.settlement_review ?? [] : [];
   const currentPath = transactionPath(view);
   const pageSize = state.kind === "ready" ? Math.max(1, state.payload.page_size) : requestedPageSize;
@@ -186,8 +191,14 @@ function OwnerTransactionsPage(props: PageProps) {
         </button>
       </header>
       <FeatureNav label="거래 종류" items={TRANSACTION_TABS} current={view} />
-      {view === "cards" ? <CardCoverage search={props.search} /> : null}
+      {view === "cards" ? (
+        <>
+          <CardCoverage search={props.search} />
+          <CardUploadPanel bootstrap={props.bootstrap} search={props.search} />
+        </>
+      ) : null}
 
+      {uploadWorkspace ? null : (
       <form className="e-feature-filter cost-panel" onSubmit={submitSearch} role="search" aria-label="거래 검색">
         <label className="e-feature-field" htmlFor="transaction-search">
           <span>검색</span>
@@ -198,18 +209,19 @@ function OwnerTransactionsPage(props: PageProps) {
         {props.search.has("q") ? <a className="cost-button cost-button-quiet"
           href={queryForSearch(currentPath, view, props.search, pageSize, "")}>초기화</a> : null}
       </form>
-      {searchError ? <p className="e-feature-error" role="alert">{searchError}</p> : null}
+      )}
+      {searchError && !uploadWorkspace ? <p className="e-feature-error" role="alert">{searchError}</p> : null}
       {notice ? <p className="e-feature-notice" role="status">{notice}</p> : null}
       {view === "flights" ? <FlightTools bootstrap={props.bootstrap} search={props.search} /> : null}
 
-      {state.kind === "loading" ? <p className="cost-panel e-feature-loading" role="status">거래 자료를 불러오는 중입니다…</p> : null}
-      {state.kind === "error" ? (
+      {!uploadWorkspace && state.kind === "loading" ? <p className="cost-panel e-feature-loading" role="status">거래 자료를 불러오는 중입니다…</p> : null}
+      {!uploadWorkspace && state.kind === "error" ? (
         <section className="cost-panel e-feature-state" role="alert">
           <h2>거래를 불러오지 못했습니다</h2><p>{state.message}</p>
           <button className="cost-button" type="button" onClick={reload}>다시 불러오기</button>
         </section>
       ) : null}
-      {payload ? (
+      {payload && !uploadWorkspace ? (
         <>
           {payload.status?.message ? <p className="e-feature-status" role="status">{payload.status.message}</p> : null}
           <DataRows payload={payload} />

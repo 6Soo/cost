@@ -72,7 +72,8 @@ it("shows missing periods before collected periods and links the gap to upload",
   expect(collected).toContain("2026-01-01 ~ 2026-03-31");
   const upload = screen.getByRole("link", { name: "이 기간 업로드" });
   const url = new URL(upload.getAttribute("href") ?? "", "http://localhost");
-  expect(url.searchParams.get("legacy")).toBe("1");
+  expect(url.pathname).toBe("/cards/all");
+  expect(url.searchParams.get("legacy")).toBeNull();
   expect(url.searchParams.get("panel")).toBe("upload");
   expect(url.searchParams.get("gap_card")).toBe("synthetic-card-b");
   expect(url.searchParams.get("gap_start")).toBe("2026-04-01");
@@ -140,6 +141,8 @@ it("groups unverified files and lists dated upload files with processing links",
   expect(new Set(batches)).toEqual(new Set([pendingBatch, datedBatch]));
   for (const link of links) {
     const url = new URL(link.getAttribute("href") ?? "", "http://localhost");
+    expect(url.pathname).toBe("/cards/all");
+    expect(url.searchParams.get("legacy")).toBeNull();
     expect(url.searchParams.get("panel")).toBe("upload");
     expect(url.searchParams.get("q")).toBe("카드");
   }
@@ -161,7 +164,7 @@ it("fails closed with a readable message when coverage is unavailable", async ()
 
   expect(await screen.findByText(/수집 기간을 불러올 수 없습니다/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "카드 파일 업로드" }).getAttribute("href")).toBe(
-    "/cards/all?legacy=1&panel=upload",
+    "/cards/all?panel=upload",
   );
 });
 
@@ -237,7 +240,7 @@ it("renders the native collection status in the owner card view and retires the 
     screen.getByRole("link", { name: "이 기간 업로드" }).getAttribute("href") ?? "",
     "http://localhost",
   );
-  expect(url.searchParams.get("legacy")).toBe("1");
+  expect(url.searchParams.get("legacy")).toBeNull();
   expect(url.searchParams.get("panel")).toBe("upload");
   expect(url.searchParams.get("gap_start")).toBe("2026-04-01");
   expect(url.searchParams.get("gap_end")).toBe("2026-04-30");

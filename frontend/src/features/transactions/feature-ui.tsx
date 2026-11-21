@@ -32,11 +32,16 @@ export function featureError(error: unknown): string {
   return "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-export function useResource<T>(url: string) {
+/**
+ * Loads a same-origin JSON resource. Pass `enabled: false` to keep the
+ * component mounted (and its state) without issuing the request.
+ */
+export function useResource<T>(url: string, enabled = true) {
   const [retry, setRetry] = useState(0);
   const [state, setState] = useState<ResourceState<T>>({ kind: "loading" });
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     let active = true;
     setState({ kind: "loading" });
@@ -57,7 +62,7 @@ export function useResource<T>(url: string) {
       active = false;
       controller.abort();
     };
-  }, [url, retry]);
+  }, [url, retry, enabled]);
 
   const reload = () => setRetry((value) => value + 1);
   return { state, reload };
