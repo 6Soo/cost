@@ -15,9 +15,12 @@ import uuid
 
 from .connected_agent_provider import AgentUnavailable, MAX_OUTPUT_BYTES, _run_bounded
 from . import p2_case
+from .child_environment import child_environment
 
 MODEL = 'gpt-6.1-sol'
 TIMEOUT_SECONDS = 180
+
+
 # Feature names checked against Codex 0.160.0 `features list`; exec uses
 # strict-config to reject unsupported keys on each invocation. Ignore user
 # config keeps authentication but removes user MCP/plugin/provider hooks.
@@ -141,7 +144,7 @@ def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL
             from .connected_agent_provider import _process_check
             token = _process_check.set(check)
             try:
-                proc = (runner or _run_bounded)(command, cwd=cwd, env=dict(os.environ),
+                proc = (runner or _run_bounded)(command, cwd=cwd, env=child_environment(),
                                                timeout=min(timeout, TIMEOUT_SECONDS), input_bytes=input_bytes)
             finally:
                 _process_check.reset(token)

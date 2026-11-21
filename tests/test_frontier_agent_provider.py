@@ -50,9 +50,18 @@ def test_runner_receives_stdin_empty_cwd_and_tool_disabled_config(monkeypatch, t
     monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-codex.exe')
     monkeypatch.setattr(provider, 'schema_path', lambda: tmp_path / 'schema.json')
     (tmp_path / 'schema.json').write_text('{}')
+    for key in ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_BEDROCK', 'AWS_PROFILE',
+                'AZURE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS'):
+        monkeypatch.setenv(key, 'synthetic-only')
+    monkeypatch.setenv('PATH', '/synthetic/bin')
     observed = []
 
     def runner(command, *, cwd, env, timeout, input_bytes):
+        assert not set(env).intersection({
+            'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_BEDROCK', 'AWS_PROFILE',
+            'AZURE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS',
+        })
+        assert env['PATH'] == '/synthetic/bin'
         observed.append((command, input_bytes))
         assert list(Path(cwd).iterdir()) == []
         assert b'raw synthetic evidence' in input_bytes

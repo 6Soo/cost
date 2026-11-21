@@ -18,23 +18,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app import frontier_agent_provider as provider
+from app.child_environment import DENIED_ENV_PREFIXES, child_environment  # noqa: F401 - kept as adapter surface
 from app.connected_agent_provider import AgentUnavailable, _run_bounded
 from tools.p2_batch.layer1 import schema, validate
 
-# Same deny list the receipt bridge uses (app/receipt_paseo.py:_bridge_environment):
-# a per-call API key or cloud credential inherited into the child would bill the
-# API account instead of the subscription the owner approved. The adapter spawns
-# with the whole parent environment, so it has to strip these itself.
-DENIED_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_USE_", "OPENAI_API_KEY", "AWS_",
-                       "AZURE_", "GOOGLE_APPLICATION_CREDENTIALS")
+# The deny list is shared with app/receipt_paseo.py and
+# app/frontier_agent_provider.py via app/child_environment.py: a per-call API
+# key or cloud credential inherited into the child would bill the API account
+# instead of the subscription.
 
 
 def _child_environment() -> dict[str, str]:
     """The parent environment minus anything that would switch billing accounts."""
-    return {
-        key: value for key, value in os.environ.items()
-        if not key.upper().startswith(DENIED_ENV_PREFIXES)
-    }
+    return child_environment()
 
 MAX_REQUEST_BYTES = 512 * 1024
 SAFE_ERRORS = frozenset({

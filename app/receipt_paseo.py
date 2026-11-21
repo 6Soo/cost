@@ -16,6 +16,7 @@ import subprocess
 from typing import Any
 
 from . import receipt_vision
+from .child_environment import child_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "tools" / "receipt_paseo_bridge.mjs"
@@ -149,12 +150,7 @@ def _bridge(operation: str, payload: dict[str, Any], *, timeout: int = BRIDGE_TI
 
 def _bridge_environment() -> dict[str, str]:
     """Keep per-call API and cloud billing switches out of the SDK bridge process."""
-    denied_prefixes = ("ANTHROPIC_", "CLAUDE_CODE_USE_", "OPENAI_API_KEY", "AWS_",
-                       "AZURE_", "GOOGLE_APPLICATION_CREDENTIALS")
-    return {
-        key: value for key, value in os.environ.items()
-        if not key.upper().startswith(denied_prefixes)
-    }
+    return child_environment()
 
 
 def catalog(provider: str | None = None) -> dict[str, Any]:
