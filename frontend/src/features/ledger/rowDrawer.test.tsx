@@ -209,3 +209,73 @@ test('a split action saves the complete plan with the source revision', async ()
   ));
   await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
 });
+
+/**
+ * The legacy "직전 정정 되돌리기" reaches the Plush detail as an advertised
+ * POST action; the generic action form must send exactly its advertised
+ * fields plus the concurrency identifiers, with no invented split/bank extras.
+ */
+test('submits the advertised revert action through the generic form', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    expected_revision: 7,
+    actions: [
+      { id: 'row-revert', label: '직전 정정 되돌리기', href: '/api/rows/synthetic-row/revert', method: 'POST',
+        encoding: 'json', csrf: 'header', response: 'json', fields: [
+          { name: 'expected_revision', label: 'revision', type: 'hidden', value: 7 },
+          { name: 'client_request_id', label: '요청 ID', type: 'hidden' },
+        ] },
+    ],
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '직전 정정 되돌리기' }));
+  fireEvent.click(screen.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(postJSON).toHaveBeenCalledTimes(1));
+  const [path, payload, csrf] = vi.mocked(postJSON).mock.calls[0];
+  expect(path).toBe('/api/rows/synthetic-row/revert');
+  expect(payload).toEqual({ expected_revision: 7, client_request_id: expect.any(String) });
+  expect(csrf).toBe('synthetic-csrf');
+});
+
+/**
+ * The allocation "직전 정정 되돌리기" is the same advertised action form: the
+ * advertised hidden revision (the source revision in the store's contract)
+ * flows through untouched, and no extra split/bank field is invented.
+ */
+test('submits the advertised revert revision value through the generic form', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    expected_revision: 7,
+    actions: [
+      { id: 'row-revert', label: '직전 정정 되돌리기', href: '/api/rows/synthetic-row/revert', method: 'POST',
+        encoding: 'json', csrf: 'header', response: 'json', fields: [
+          { name: 'expected_revision', label: 'revision', type: 'hidden', value: 42 },
+          { name: 'client_request_id', label: '요청 ID', type: 'hidden' },
+        ] },
+    ],
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '직전 정정 되돌리기' }));
+  fireEvent.click(screen.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(postJSON).toHaveBeenCalledTimes(1));
+  const [path, payload] = vi.mocked(postJSON).mock.calls[0];
+  expect(path).toBe('/api/rows/synthetic-row/revert');
+  expect(payload).toEqual({ expected_revision: 42, client_request_id: expect.any(String) });
+});
+
+test.each(['revision-작성기', '9007199254740993', true])(
+  'blocks an action with an invalid advertised revision %s', async (revision) => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    expected_revision: 7,
+    actions: [
+      { id: 'row-revert', label: '직전 정정 되돌리기', href: '/api/rows/synthetic-row/revert', method: 'POST',
+        encoding: 'json', csrf: 'header', response: 'json', fields: [
+          { name: 'expected_revision', label: 'revision', type: 'hidden', value: revision },
+          { name: 'client_request_id', label: '요청 ID', type: 'hidden' },
+        ] },
+    ],
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  const action = await screen.findByRole('button', { name: '직전 정정 되돌리기' });
+  expect((action as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(action);
+  expect(postJSON).not.toHaveBeenCalled();
+});

@@ -61,6 +61,11 @@
       "tests": ["tests/test_accounting_audit.py", "tests/card_pipeline/test_google_income_components.py", "tests/card_pipeline/test_mail_evidence_coverage.py", "webapp/tests/test_unposted_booking_recovery.py"]
     },
     {
+      "name": "plush-bank-correction-actions",
+      "paths": ["webapp/plush_api.py", "webapp/tests/test_plush_bank_correction_actions.py"],
+      "tests": ["webapp/tests/test_plush_bank_correction_actions.py"]
+    },
+    {
       "name": "plush-income-split",
       "paths": ["webapp/plush_api.py", "webapp/tests/test_plush_split_save.py"],
       "tests": ["webapp/tests/test_plush_split_save.py"]

@@ -129,6 +129,136 @@ def test_row_detail_has_owner_actions_but_no_legacy_html_href(bound_store):
     assert trip_field["options"]
 
 
+def test_row_detail_advertises_the_revert_contract_only_to_the_write_owner(bound_store):
+    store, _ = bound_store
+    raw = store.get_row("expense-demo-c1")
+    assert raw is not None
+    status, detail = call(f"/api/plush/row?id={raw['row_id']}", "syn-owner", store)
+    assert status == 200
+    revert = next(action for action in detail["actions"] if action["id"] == "row-revert")
+    # The advertised state is the store's own verdict, never a client guess.
+    verdict = store.revert_status(raw["row_id"])
+    assert revert["method"] == "POST"
+    assert revert["href"] == f"/api/rows/{raw['row_id']}/revert"
+    if verdict["revertible"]:
+        assert "disabled" not in revert
+        names = {field["name"] for field in revert["fields"]}
+        assert {"expected_revision", "client_request_id"} <= names
+    else:
+        assert revert["disabled"] is True
+        assert revert["reason"] == verdict["reason"]
+    # The rest of the advertised contract is untouched.
+    assert {action["id"] for action in detail["actions"]} >= {"row-save", "row-lineage"}
+
+
+def _synthetic_allocation(store, *, request_id):
+    """A direct income source with one active allocation, via the real store."""
+    created = store.create_direct_income(
+        fields={"display_tab_id": "trip-demo-a", "occurred_on": "2026-04-11",
+                "amount_krw": 50000, "income_kind": "deposit",
+                "customer_id": None, "customer_name": "합성 고객",
+                "nickname": "", "memo": ""},
+        client_request_id=f"{request_id}-source",
+    )
+    source_revision = created.get("revision", 1)
+    store.save_allocations(
+        source_row_id=created["row_id"], expected_source_revision=source_revision,
+        allocations=[{"customer_name": "배분 A", "display_tab_id": "trip-demo-a",
+                      "income_kind": "deposit", "amount_krw": 30000}],
+        client_request_id=f"{request_id}-save",
+    )
+    # The legacy page's 되돌리기 verb is offered for an allocation *edit*; its
+    # own save is the plan write, which the store's helper reports separately.
+    allocation = store.active_allocations(created["row_id"])[0]
+    store.update_allocation(
+        allocation_id=allocation["allocation_id"],
+        expected_source_revision=store.get_row(created["row_id"])["revision"],
+        client_request_id=f"{request_id}-edit",
+        changes={"customer_name": "배분 A2"},
+    )
+    return created, store.active_allocations(created["row_id"])[0]
+
+
+def test_row_detail_offers_the_allocation_revert_from_its_source_revision(bound_store, monkeypatch):
+    from webapp.board_render_helpers import allocation_revert_status
+    store, _ = bound_store
+    created, allocation = _synthetic_allocation(store, request_id="verify-alloc")
+    display = store.get_allocation_display(allocation["allocation_id"])
+    assert display is not None and display.get("is_allocation") is True
+    verdict = allocation_revert_status(display, store=store)
+    assert verdict["revertible"] is True
+    original_get_row = store.get_row
+
+    def resolve(row_id):
+        # The board's own lookup resolves an allocation beside its source; the
+        # detail projection must name the same row a saved split produced.
+        return display if row_id == allocation["allocation_id"] else original_get_row(row_id)
+
+    monkeypatch.setattr(store, "get_row", resolve)
+    status, detail = call(f"/api/plush/row?id={allocation['allocation_id']}", "syn-owner", store)
+    assert status == 200
+    revert = next(action for action in detail["actions"] if action["id"] == "row-revert")
+    assert "disabled" not in revert
+    assert revert["href"] == f"/api/rows/{allocation['allocation_id']}/revert"
+    fields = {field["name"]: field for field in revert["fields"]}
+    # The advertised concurrency value is the source revision the allocation
+    # revert contract consumes, never a row-level figure guessed client-side.
+    assert fields["expected_revision"]["value"] == verdict["expected_source_revision"]
+    assert verdict["expected_source_revision"] == store.get_row(created["row_id"])["revision"]
+    assert "client_request_id" in fields
+
+
+def test_row_detail_disables_the_allocation_revert_when_the_store_says_so(bound_store, monkeypatch):
+    store, _ = bound_store
+    _, allocation = _synthetic_allocation(store, request_id="verify-alloc-done")
+    display = store.get_allocation_display(allocation["allocation_id"])
+    from webapp.board_render_helpers import allocation_revert_status
+    enabled = allocation_revert_status(display, store=store)
+    # The advertised value is the answer the store gave just before the act.
+    store.revert_row(
+        row_id=allocation["allocation_id"],
+        expected_revision=enabled["expected_source_revision"],
+        client_request_id="verify-alloc-revert-once",
+    )
+    display = store.get_allocation_display(allocation["allocation_id"])
+    verdict = allocation_revert_status(display, store=store)
+    assert verdict["revertible"] is False
+    original_get_row = store.get_row
+
+    def resolve(row_id):
+        return display if row_id == allocation["allocation_id"] else original_get_row(row_id)
+
+    monkeypatch.setattr(store, "get_row", resolve)
+    status, detail = call(f"/api/plush/row?id={allocation['allocation_id']}", "syn-owner", store)
+    assert status == 200
+    revert = next(action for action in detail["actions"] if action["id"] == "row-revert")
+    assert revert["disabled"] is True
+    assert revert["reason"] == verdict["reason"]
+
+
+def test_row_detail_withholds_the_allocation_revert_from_a_viewer(bound_store, monkeypatch):
+    store, access = bound_store
+    access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id, now=None: {"trip-demo-a"})
+    created, allocation = _synthetic_allocation(store, request_id="verify-alloc-viewer")
+    display = store.get_allocation_display(allocation["allocation_id"])
+    original_get_row = store.get_row
+
+    def resolve(row_id):
+        return display if row_id == allocation["allocation_id"] else original_get_row(row_id)
+
+    monkeypatch.setattr(store, "get_row", resolve)
+    status, detail = call(f"/api/plush/row?id={allocation['allocation_id']}", "syn-viewer", store)
+    assert status == 200
+    assert all(action["id"] != "row-revert" for action in detail["actions"])
+    store, access = bound_store
+    access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
+    # can_view_tab calls visible_tabs(user_id, now=...); the stub must take it.
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id, now=None: {"trip-demo-a"})
+    status, detail = call("/api/plush/row?id=expense-demo-c1", "syn-viewer", store)
+    assert status == 200
+    assert all(action["id"] != "row-revert" for action in detail["actions"])
+
 def test_row_detail_uses_display_correction_and_keeps_raw_detail(bound_store, monkeypatch):
     store, _ = bound_store
     raw = store.get_row("expense-demo-c1")

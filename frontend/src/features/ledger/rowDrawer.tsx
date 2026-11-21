@@ -129,6 +129,18 @@ function fieldInitial(field: FieldDescriptor): string | boolean {
   return field.value === undefined || field.value === null ? '' : String(field.value);
 }
 
+function actionRevision(action: ActionDescriptor, detail: RowDetail): number | null {
+  const field = action.fields?.find(({ name }) => name === 'expected_revision');
+  if (field && field.type !== 'hidden') return null;
+  const value = field ? field.value : detail.expected_revision;
+  const revision = typeof value === 'string' && /^[0-9]+$/.test(value.trim())
+    ? Number(value.trim())
+    : value;
+  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : null;
+}
+
 function RowActionForm({
   action,
   detail,
@@ -149,15 +161,13 @@ function RowActionForm({
   const [error, setError] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState(requestId);
   const actionHref = internalHref(action.href);
-  const revision = detail.expected_revision;
+  const revision = actionRevision(action, detail);
   const encoding = (action as ActionDescriptor & { encoding?: string }).encoding;
   const canSubmit = Boolean(actionHref?.startsWith('/api/'))
     && action.method === 'POST'
     && fields.length > 0
     && (encoding === undefined || encoding === 'json')
     && revision !== null
-    && revision !== undefined
-    && String(revision).trim() !== ''
     && bootstrap.role === 'owner'
     && !detail.row.read_only
     && !action.disabled;
@@ -167,7 +177,7 @@ function RowActionForm({
     if (!canSubmit || !actionHref || pending) return;
     const payload: Record<string, unknown> = {};
     fields.forEach((field) => {
-      if (field.read_only || field.type === 'file') return;
+      if (field.name === 'expected_revision' || field.read_only || field.type === 'file') return;
       const value = values[field.name];
       if (value === undefined) return;
       // The projection can intentionally omit a current value (such as a private
@@ -175,7 +185,7 @@ function RowActionForm({
       if ((field.value === undefined || field.value === null) && value === '' && field.type !== 'checkbox') return;
       payload[field.name] = value;
     });
-    // Use the dedicated API concurrency token even if a descriptor also lists it.
+    // An explicit action revision may refer to the source row of an allocation.
     payload.expected_revision = revision;
     if (typeof payload.client_request_id !== 'string' || !payload.client_request_id.trim()) {
       payload.client_request_id = clientRequestId;
@@ -354,7 +364,7 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
                     : null;
                 }
                 if (action.method !== 'POST') return null;
-                const hasRevision = detail.expected_revision !== null && detail.expected_revision !== undefined && String(detail.expected_revision).trim() !== '';
+                const hasRevision = actionRevision(action, detail) !== null;
                 const split = detail.split;
                 const hasForm = action.encoding === 'allocation-plan'
                   ? Boolean(split && href === `/api/income/${encodeURIComponent(split.source_row_id)}/allocations`)
