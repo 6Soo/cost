@@ -178,3 +178,34 @@ test('a read-only action outside the advertised API target is not linked', async
   expect(screen.queryByRole('link', { name: '외부 이력' })).toBeNull();
   expect(screen.queryByRole('button', { name: '외부 이력' })).toBeNull();
 });
+
+
+test('a split action saves the complete plan with the source revision', async () => {
+  const plan = [{
+    allocation_id: 'synthetic-allocation', customer_id: 'synthetic-customer',
+    customer_name: '합성 참가자', nickname: '합성 별칭', display_tab_id: null,
+    income_kind: 'deposit', amount_krw: 100,
+  }];
+  const onSaved = vi.fn();
+  vi.mocked(postJSON).mockClear();
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    actions: [{
+      id: 'income-split-save', label: '배분 저장', method: 'POST',
+      href: '/api/income/synthetic-source/allocations',
+      encoding: 'allocation-plan', csrf: 'header', response: 'json',
+    }],
+    split: {
+      source_row_id: 'synthetic-source', expected_source_revision: 12,
+      reflected_amount_krw: 100, source_kind: '직접 입력', plan,
+    },
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={onSaved} />);
+  fireEvent.click(await screen.findByRole('button', { name: '배분 저장' }));
+  fireEvent.click(await screen.findByRole('button', { name: '배분안 저장' }));
+  await waitFor(() => expect(postJSON).toHaveBeenCalledWith(
+    '/api/income/synthetic-source/allocations',
+    { expected_source_revision: 12, client_request_id: expect.any(String), allocations: plan },
+    'synthetic-csrf',
+  ));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+});

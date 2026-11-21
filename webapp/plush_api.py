@@ -426,7 +426,11 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     if not row_id or board is None:
         raise _ProjectionError("RESOURCE_NOT_FOUND", "없는 행이에요", 404)
     row = board.get_row(unquote(row_id)) if hasattr(board, "get_row") else None
-    if row is None and row_id.startswith('google-income|'):
+    if row is None and hasattr(board, "get_allocation_display"):
+        # The board resolves an allocation beside its source (find_row); the
+        # detail projection must name the same row or a saved split 404s here.
+        row = board.get_allocation_display(unquote(row_id))
+    if row is None and row_id.startswith("google-income|"):
         parts = row_id.split('|')
         if len(parts) == 4:
             owner = _owner(ledger_board, access, session)
@@ -445,6 +449,7 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
     display_row = board.projected(row) if hasattr(board, "projected") else row
     fields = []
     actions = []
+    split: dict[str, Any] | None = None
     if owner and not read_only:
         fields = _row_edit_fields(row, trips, display_row=display_row)
         save_fields = [*fields, {
@@ -474,6 +479,23 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
             "href": f"/api/rows/{_quote(row_id)}/lineage", "encoding": "form",
             "csrf": "none", "response": "json",
         })
+        if str(row.get("row_kind") or "") == "income" and not row.get("google_income"):
+            split_source = row
+            split_id = row_id
+            if row.get("is_allocation") or row.get("is_remainder"):
+                split_id = str(row.get("source_row_id") or "")
+                split_source = board.get_row(split_id) if split_id and hasattr(board, "get_row") else None
+            if split_source is not None and split_source.get("revision") is not None:
+                source_tab = str(split_source.get("display_tab_id") or "")
+                source_trip = next((item for item in trips
+                                    if str(item.get("tab_id")) == source_tab), {})
+                if not (source_trip.get("visual_closed") or source_trip.get("archived")):
+                    split = _split_context(board, split_source)
+                if split is not None:
+                    actions.append(_descriptor(
+                        action_id="income-split-save", label="배분 저장", method="POST",
+                        href=f"/api/income/{_quote(split_id)}/allocations",
+                        encoding="allocation-plan"))
     # Keep source detail unprojected for provenance, but make the row shown to
     # the user follow the exact same correction projection as the ledger list.
     # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
@@ -493,6 +515,7 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         "expected_revision": row.get("revision"),
         "edit_fields": fields,
         "read_only": read_only,
+        "split": split,
         "actions": actions,
     }
 
@@ -545,6 +568,36 @@ def _row_edit_fields(row: dict[str, Any], trips: list[dict[str, Any]], *,
             ]
         result.append(item)
     return result
+
+
+def _split_context(board: Any, source: dict[str, Any]) -> dict[str, Any] | None:
+    """Read the complete active plan for the dedicated split editor."""
+    if source.get("row_kind") != "income" or source.get("google_income"):
+        return None
+    source_id = str(source.get("row_id") or "")
+    reader = getattr(board, "active_allocations", None)
+    display_amount = getattr(board, "display_amount", None)
+    if not source_id or not callable(reader) or not callable(display_amount):
+        return None
+    try:
+        allocations = reader(source_id)
+        if not isinstance(allocations, list):
+            return None
+        fields = ("allocation_id", "customer_id", "customer_name", "nickname",
+                  "display_tab_id", "income_kind", "amount_krw")
+        plan = [{field: item[field] for field in fields} for item in allocations]
+        reflected = display_amount(source)
+        remainder = reflected - sum(item["amount_krw"] for item in plan)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "source_row_id": source_id,
+        "expected_source_revision": source["revision"],
+        "reflected_amount_krw": reflected,
+        "source_kind": source.get("source_kind"),
+        "plan": plan,
+        "remainder": remainder,
+    }
 
 
 def _transaction_actions() -> list[dict[str, Any]]:
