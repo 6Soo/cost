@@ -1156,22 +1156,29 @@ def manual_period_rows(store) -> set:
 
 
 def read_period(row, stored, manual, compute, *, export=False):
-    """(period, source) for a screen or export. A person's value wins; then the stored decision; computing is the fallback.
+    """(period, source) for a screen or export.
 
-    `stored` is `core_writer.load_stored_periods()` (None while Python writes: `compute()` as before). With a Rust
-    decision the period is only read, never recomputed; a card without one is computed and counted until backfilled.
-    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred period is read only by
-    a screen (`export=False`, source 'decision_inferred'); copies, the paste pack and reconciliation (`export=True`)
-    take verified periods only (DATE-109).
+    A person's value wins, and a person's explicit blank wins too; then the stored
+    decision; computing is the fallback.  `stored` is `core_writer.load_stored_periods()`
+    (None while Python writes) — with a Rust decision the period is only read, never
+    recomputed; a card without one is computed and counted until backfilled.  With no
+    stored decision (`stored is None`) computing is the fallback unless a person set
+    the field, in which case the manual read still applies.
+    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred
+    period is read only by a screen (`export=False`, source 'decision_inferred'); copies, the
+    paste pack and reconciliation (`export=True`) take verified periods only (DATE-109).
     """
     value = str(row.get('service_period') or '').strip()
     if value:
         return value, 'row'
     row_id = str(row.get('row_id') or '')
+    if row_id in manual:
+        # A person's blank is authoritative in every writer mode: with no stored
+        # decision the read would otherwise recompute and present a period the
+        # person explicitly cleared.  Precedence per DECISION_POLICY/SPEC §13.2.
+        return '', 'manual'
     if stored is None or not row_id.startswith('card-'):
         return compute(), 'computed'
-    if row_id in manual:
-        return '', 'manual'
     tid = str(row.get('source_event_id') or row_id[5:])
     if row_id != 'card-' + tid:
         return '', 'decision'

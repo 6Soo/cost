@@ -96,13 +96,13 @@ def period_for_row(row: dict[str, Any], store: Any) -> tuple[str, str]:
         from app import core_writer
 
         stored = read_scope.remember("stored_periods", core_writer.load_stored_periods)
-        manual = (read_scope.remember("manual_period_rows",
-                                      lambda: ledger_stay_evidence.manual_period_rows(store))
-                  if stored is not None else set())
-        index = read_scope.remember("ledger_stay_evidence",
-                                    lambda: ledger_stay_evidence.stay_index(store))
+        manual = read_scope.remember("manual_period_rows",
+                                     lambda: ledger_stay_evidence.manual_period_rows(store))
         return ledger_stay_evidence.read_period(
             row, stored, manual,
-            lambda: ledger_stay_evidence.period_for(row, index), export=False)
+            lambda: ledger_stay_evidence.period_for(
+                row, read_scope.remember("ledger_stay_evidence",
+                                         lambda: ledger_stay_evidence.stay_index(store))),
+            export=False)
     except Exception:
         return stored_period, ("row" if stored_period else "")

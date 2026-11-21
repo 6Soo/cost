@@ -797,7 +797,7 @@ def _read_period(row, *, verified: bool):
         pick = ledger_stay_evidence.verified_period_for if verified else ledger_stay_evidence.period_for
         return pick(row, index)
     stored = _stored_periods()
-    manual = _manual_period_rows() if stored is not None else set()
+    manual = _manual_period_rows()
     if stored is not None:
         record = (plush_periods._stored_for(row, stored) if not verified
                   else None)
