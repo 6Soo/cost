@@ -85,7 +85,7 @@ function Gap({ card, gap, index }: { card: CoverageCard; gap: CoveragePeriod; in
       <span className="e-feature-hint">
         비어 있는 기간 {gap.start ?? ""} ~ {gap.end ?? ""}
       </span>{" "}
-      <UploadAction action={`/cards/all?legacy=1&panel=upload&${params.toString()}`} />
+      <UploadAction action={`/cards/all?panel=upload&${params.toString()}`} />
     </p>
   );
 }
@@ -133,7 +133,6 @@ function CoverageFiles({ files, search }: { files: CoverageFile[]; search: URLSe
   const batchLink = (file: CoverageFile) => {
     if (!BATCH_ID.test(file.batch_id ?? "")) return null;
     const params = new URLSearchParams(search);
-    params.set("legacy", "1");
     params.set("panel", "upload");
     params.set("batch", file.batch_id ?? "");
     params.delete("review");
@@ -192,7 +191,7 @@ function CoverageSummary({ data, search }: { data: CardCoverageSummary; search: 
     return (
       <p className="e-feature-error" role="alert">
         수집 기간을 불러올 수 없습니다. 카드 파일 업로드는 계속할 수 있습니다.{" "}
-        <a className="cost-button cost-button-secondary" href="/cards/all?legacy=1&panel=upload">
+        <a className="cost-button cost-button-secondary" href="/cards/all?panel=upload">
           카드 파일 업로드
         </a>
       </p>
