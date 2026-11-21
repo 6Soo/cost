@@ -281,7 +281,6 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
   }, [detailVersion, rowId]);
 
   const actions = detail?.actions ?? [];
-  const writeActions = actions.filter((action) => action.method === 'POST');
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
   /* Two independent gates, on purpose (defense in depth — SPEC §13#10):
@@ -323,23 +322,30 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
               </dl>
             </section>
           )}
-          {bootstrap.role === 'owner' && writeActions.length > 0 && (
+          {bootstrap.role === 'owner' && actions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
               <h3>동작</h3>
-              {writeActions.map((action) => {
+              {actions.map((action) => {
                 const href = internalHref(action.href);
+                // A read-only action (for example the advertised row lineage)
+                // is a link to navigate to, never an edit form. Like the
+                // previous GET branch this stays inside internalHref's
+                // same-origin check and the API target restriction.
+                if (action.method === 'GET') {
+                  return href?.startsWith('/api/')
+                    ? <a className="cost-ledger__action-link" href={href} key={action.id}>{action.label}</a>
+                    : null;
+                }
+                if (action.method !== 'POST') return null;
                 const actionEncoding = (action as ActionDescriptor & { encoding?: string }).encoding;
                 const hasRevision = detail.expected_revision !== null && detail.expected_revision !== undefined && String(detail.expected_revision).trim() !== '';
-                const postCanEdit = action.method === 'POST' && action.fields?.length && (actionEncoding === undefined || actionEncoding === 'json') && href?.startsWith('/api/') && hasRevision && !action.disabled && !detail.row.read_only;
-                if (action.method === 'GET' && href?.startsWith('/api/')) {
-                  return <a className="cost-ledger__action-link" href={href} key={action.id}>{action.label}</a>;
-                }
+                const canEdit = Boolean(action.fields?.length) && (actionEncoding === undefined || actionEncoding === 'json') && href?.startsWith('/api/') && hasRevision && !action.disabled && !detail.row.read_only;
                 return (
                   <div className="cost-ledger__action" key={action.id}>
                     <ActionButton
                       type="button"
                       variant="secondary"
-                      disabled={!postCanEdit}
+                      disabled={!canEdit}
                       title={action.disabled ? action.reason : undefined}
                       onClick={() => setEditingAction(action.id)}
                     >

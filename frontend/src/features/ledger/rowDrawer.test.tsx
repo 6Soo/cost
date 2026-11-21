@@ -145,3 +145,36 @@ test('submits only server-advertised allocation fields plus concurrency identifi
   expect(payload).toEqual({ item: '교통비', expected_revision: 7, client_request_id: expect.any(String) });
   expect(csrf).toBe('synthetic-csrf');
 });
+
+/**
+ * The server already advertises the row-lineage GET on the row detail, but
+ * the drawer filtered the action list to POST only, so the advertised read
+ * action could never be reached from this screen. The link uses the existing
+ * same-origin `internalHref` plus the API target restriction; no new page or
+ * API is introduced.
+ */
+test('an owner reaches an advertised row-lineage GET as a link, not hidden behind the POST filter', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    expected_revision: 7,
+    actions: [
+      { id: 'row-save', label: '수정', href: '/api/rows/synthetic-row/save', method: 'POST', fields: [] },
+      { id: 'row-lineage', label: '거래 이력', href: '/api/rows/synthetic-row/lineage', method: 'GET' },
+    ],
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  const link = await screen.findByRole('link', { name: '거래 이력' });
+  expect(link.getAttribute('href')).toBe('/api/rows/synthetic-row/lineage');
+  expect(screen.queryByRole('button', { name: '거래 이력' })).toBeNull();
+});
+
+test('a read-only action outside the advertised API target is not linked', async () => {
+  vi.mocked(getJSON).mockResolvedValue(detail({
+    actions: [
+      { id: 'foreign-lineage', label: '외부 이력', href: '/not-an-api/lineage', method: 'GET' },
+    ],
+  }));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role: 'owner', csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  await screen.findByText('수정 이력');
+  expect(screen.queryByRole('link', { name: '외부 이력' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '외부 이력' })).toBeNull();
+});
