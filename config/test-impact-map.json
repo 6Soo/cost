@@ -570,20 +570,23 @@
                 "webapp/tests/test_receipt_partial.py"]
     },
     {
+      "name": "retired-insurance-ui-shell",
+      "paths": ["webapp/insurance_income_match_page.py", "webapp/tests/test_uiux_shell.py"],
+      "tests": ["webapp/tests/test_uiux_shell.py"]
+    },
+    {
       "name": "core-business-acceptance",
       "paths": [
         "webapp/insurance_income_match_service.py", "webapp/insurance_income_match_page.py",
         "webapp/owner_metadata.py", "webapp/flight_booking_index.py", "webapp/rule_review.py",
-        "webapp/dialog_turn.py",         "webapp/tests/test_insurance_income_match_http.py",
-        "webapp/tests/test_insurance_income_match_browser.py", "webapp/tests/test_uiux_shell.py",
-        "webapp/tests/test_owner_metadata.py",
+        "webapp/dialog_turn.py", "webapp/tests/test_insurance_income_match_http.py",
+        "webapp/tests/test_insurance_income_match_browser.py", "webapp/tests/test_owner_metadata.py",
         "webapp/tests/test_flight_booking_name_search.py", "webapp/tests/test_rule_review.py",
         "webapp/tests/test_rule_dialog_screen.py", "webapp/tests/test_trip_history_browser.py",
         "webapp/tests/test_trip_expense_copy_button.py"
       ],
       "tests": [
         "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_insurance_income_match_browser.py",
-        "webapp/tests/test_uiux_shell.py",
         "webapp/tests/test_owner_metadata.py", "webapp/tests/test_flight_booking_name_search.py",
         "webapp/tests/test_rule_review.py", "webapp/tests/test_rule_dialog_screen.py",
         "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"
