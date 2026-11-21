@@ -496,6 +496,78 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
                         action_id="income-split-save", label="배분 저장", method="POST",
                         href=f"/api/income/{_quote(split_id)}/allocations",
                         encoding="allocation-plan"))
+        if (row.get("row_kind") == "income" and row.get("source_kind") == "은행"
+                and not row.get("is_allocation") and not row.get("is_remainder")):
+            actions.append(_descriptor(
+                action_id="bank-correction", label="은행 정정 기록", method="POST",
+                href=f"/api/income/{_quote(row_id)}/correct", encoding="json",
+                csrf="header", response="json",
+                fields=[
+                    {"name": "corrected_amount_krw", "label": "장부 표시 금액(원)",
+                     "type": "number", "required": True},
+                    {"name": "corrected_occurred_on", "label": "장부 표시 날짜(선택)",
+                     "type": "date"},
+                    {"name": "reason", "label": "이유", "type": "text", "required": True},
+                    {"name": "expected_revision", "label": "revision", "type": "hidden",
+                     "value": row.get("revision"), "required": True},
+                    {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
+                     "value": uuid.uuid4().hex, "required": True},
+                ]))
+        if (row.get("row_kind") == "income" and row.get("source_kind") == "직접 입력"
+                and not row.get("is_allocation") and not row.get("is_remainder")):
+            actions.append(_descriptor(
+                action_id="bank-link", label="은행 원천 연결", method="POST",
+                href=f"/api/income/{_quote(row_id)}/link-bank", encoding="json",
+                csrf="header", response="json",
+                fields=[
+                    {"name": "bank_batch_id", "label": "은행 배치 ID",
+                     "type": "text", "required": True},
+                    {"name": "bank_row_index", "label": "은행 행 번호",
+                     "type": "number", "required": True},
+                    {"name": "expected_revision", "label": "revision", "type": "hidden",
+                     "value": row.get("revision"), "required": True},
+                    {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
+                      "value": uuid.uuid4().hex, "required": True},
+                ]))
+        # The legacy row detail advertises "직전 정정 되돌리기" from the same
+        # stored read. An allocation row answers through its own existing
+        # helper (allocation_revert_status), which reads the plan history and
+        # the *source* revision; any other row keeps the row-level verdict. Only
+        # the write-capable owner reaches this branch, and the action is
+        # enabled exactly when the store says the change is revertible. The POST
+        # target, its auth, JSON body, expected_revision and
+        # client_request_id are the existing ones; nothing new is introduced.
+        revert = None
+        if row.get("is_allocation"):
+            if hasattr(board, "get_allocation") and hasattr(board, "get_row"):
+                from .board_render_helpers import allocation_revert_status
+                revert = allocation_revert_status(row, store=board)
+        elif hasattr(board, "revert_status"):
+            revert = board.revert_status(row_id)
+        if revert is not None:
+            expected_revision = (
+                revert.get("expected_source_revision")
+                if row.get("is_allocation")
+                else row.get("revision")
+            )
+            revert_fields = [
+                {"name": "expected_revision", "label": "revision", "type": "hidden",
+                 "value": expected_revision, "required": True},
+                {"name": "client_request_id", "label": "요청 ID", "type": "hidden",
+                 "value": uuid.uuid4().hex, "required": True},
+            ]
+            if revert.get("revertible"):
+                actions.append(_descriptor(
+                    action_id="row-revert", label="직전 정정 되돌리기", method="POST",
+                    href=f"/api/rows/{_quote(row_id)}/revert", fields=revert_fields,
+                ))
+            else:
+                actions.append(_descriptor(
+                    action_id="row-revert", label="직전 정정 되돌리기", method="POST",
+                    href=f"/api/rows/{_quote(row_id)}/revert",
+                    disabled=True,
+                    reason=revert.get("reason") or "현재 되돌릴 수 있는 수정이 없어요.",
+                ))
     # Keep source detail unprojected for provenance, but make the row shown to
     # the user follow the exact same correction projection as the ledger list.
     # The detail shows the same period the list does (SPEC §11.2.1 계약 4).
