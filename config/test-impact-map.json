@@ -66,6 +66,11 @@
       "tests": ["webapp/tests/test_plush_split_save.py"]
     },
     {
+      "name": "subscription-child-environment",
+      "paths": ["app/child_environment.py"],
+      "tests": ["tests/test_frontier_agent_provider.py", "tests/test_m5_p2_adapter.py", "tests/card_pipeline/test_receipt_paseo_runtime.py"]
+    },
+    {
       "name": "plush-primary-route-contract",
       "paths": ["webapp/plush_ui.py", "webapp/tests/test_plush_primary_routes.py"],
       "tests": ["webapp/tests/test_plush_primary_routes.py"]
