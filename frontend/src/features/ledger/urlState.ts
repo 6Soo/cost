@@ -42,6 +42,10 @@ export function legacyLedgerKind(kind: LedgerKind): 'ex' | 'in' {
   return kind === 'income' ? 'in' : 'ex';
 }
 
+export function ledgerTabHref(id: string): string {
+  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
+}
+
 const BOARD_STATE_KEYS = ['tab', 'kind', 'q', 'sort', 'page_size', 'page', 'arch'] as const;
 
 const BOARD_SORTS = ['date_desc', 'date_asc', 'amount_desc', 'amount_asc', 'merchant_asc'] as const;

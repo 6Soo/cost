@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Bootstrap, JobSummary, TripSummary } from '../../api/types';
 import { Amount, EmptyState, InlineNotice, JobStatus, Loading } from '../../components';
 import { getJSON, ApiError } from '../../api/client';
-import { humanDate } from '../ledger/urlState';
+import { humanDate, ledgerTabHref } from '../ledger/urlState';
 import { listedTrips } from '../../lib/trips';
 import './home.css';
 
@@ -17,10 +17,6 @@ type PageProps = {
   path: string;
   search: URLSearchParams;
 };
-
-function tripHref(id: string): string {
-  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
-}
 
 function tripState(trip: TripSummary & { kind?: 'trip' | 'quarter' }): string {
   if (trip.kind === 'quarter' || trip.id.startsWith('quarter:')) return '분기 기타비용';
@@ -99,7 +95,7 @@ export function HomePage({ bootstrap }: PageProps) {
         {loading && !data ? <Loading label="여행 현황 불러오는 중" /> : trips.length ? (
           <div className="cost-home__trip-grid">
             {trips.map((trip) => (
-              <a className="cost-home__trip-card" href={tripHref(trip.id)} key={trip.id}>
+              <a className="cost-home__trip-card" href={ledgerTabHref(trip.id)} key={trip.id}>
                 <span className="cost-home__trip-status" data-state={tripStateKey(trip)}>{tripState(trip)}</span>
                 <strong title={trip.title}>{trip.title}</strong>
                 <span className="cost-home__trip-period">{humanDate(trip.starts_on)}–{humanDate(trip.ends_on)}</span>

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { Bootstrap, TripSummary } from '../../api/types';
 import { Amount, DataTable, EmptyState, FormField, Input, Select, Tabs } from '../../components';
-import { humanDate, readPage, useUrlSearch } from '../ledger/urlState';
+import { humanDate, ledgerTabHref, readPage, useUrlSearch } from '../ledger/urlState';
 import './trips.css';
 
 type TripKind = 'trip' | 'quarter';
@@ -44,10 +44,6 @@ function compareIntegerStrings(left: string, right: string): number {
   }
 }
 
-function ledgerHref(id: string): string {
-  return `/board?${new URLSearchParams({ tab: id }).toString()}`;
-}
-
 export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {
   const { search, update } = useUrlSearch(initialSearch);
   const q = search.get('q') ?? '';
@@ -83,7 +79,7 @@ export function TripsPage({ bootstrap, search: initialSearch }: PageProps) {
       header: '여행',
       cell: (trip: TripListItem) => (
         <>
-        <a className="cost-trips__trip-link" href={ledgerHref(trip.id)} title={trip.title}>
+        <a className="cost-trips__trip-link" href={ledgerTabHref(trip.id)} title={trip.title}>
           <strong>{trip.title}</strong>
           <span>{humanDate(trip.starts_on)}–{humanDate(trip.ends_on)}</span>
         </a>
