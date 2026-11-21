@@ -35,17 +35,23 @@ def test_existing_browser_urls_serve_the_same_shell_without_redirect(dist, path)
     assert handler.wfile.getvalue() == b'<main id="root"></main>'
 
 
-def test_participant_trip_bookmark_opens_primary_shell(dist):
+@pytest.mark.parametrize("path", [
+    "/participants?trip=demo",
+    "/participants?trip=demo&legacy=1",
+    "/cards/all?legacy=1&panel=coverage",
+    "/cards/all?legacy=1&panel=upload&batch=demo",
+])
+def test_migrated_tool_bookmarks_open_primary_shell(dist, path):
     handler = Handler()
     handler.headers["Accept"] = "text/html"
     board = SimpleNamespace(ACCESS_ENFORCEMENT=True, require_session=lambda *_: object())
-    assert plush_ui.dispatch_primary(handler, urlsplit("/participants?trip=demo"), board=board, dist=dist)
+    assert plush_ui.dispatch_primary(handler, urlsplit(path), board=board, dist=dist)
     assert handler.status == 200
     assert "Location" not in handler.response_headers
 
 
 @pytest.mark.parametrize("path,accept,enforced", [
-    ("/participants?trip=demo&legacy=1", "text/html", True),
+    ("/cards/all?legacy=1", "text/html", True),
     ("/board?tab=refunds&legacy=1", "text/html", True),
     ("/cards/all", "application/json", True),
     ("/api/plush/bootstrap", "text/html", True),
