@@ -14,11 +14,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
-from . import ledger_google_match
+from . import ledger_archived_expenses, ledger_google_match
 from . import ledger_periods as period_rows
 from . import ledger_query
 from . import plush_projection as projection
-
 
 ROUTES = (
     "/api/plush/bootstrap",
@@ -293,6 +292,8 @@ def _ledger(access: Any, session: Any, board: Any,
     rows = ledger_query.merge_income(rows, income)
     if board is not None and hasattr(board, "projected"):
         rows = [board.projected(row) for row in rows]
+    # Any native expense suppresses the archive, including rows hidden by the refund view.
+    native_expense_rows = [row for row in rows if row.get("row_kind") == "expense"]
     # RFND-022 / ITEM-011: a completed net-zero refund group belongs to the
     # refund tab and is not shown or summed again in the general expenses. This
     # changes only which rows are displayed — the amounts, signs and the refund
@@ -314,10 +315,16 @@ def _ledger(access: Any, session: Any, board: Any,
     kind = _first(query, "kind")
     if kind and kind not in {"expense", "income"}:
         raise _ProjectionError("INVALID_VALUE", "kind이 올바르지 않아요", 400)
-    kind_rows, rows = ledger_query.select_rows(all_rows, kind=kind, q=_first(query, "q"), owner=owner)
     sort = _first(query, "sort", "date_desc")
     if sort not in _SORTS:
         raise _ProjectionError("INVALID_VALUE", "정렬 조건이 올바르지 않아요", 400)
+    q = _first(query, "q")
+    tab_id = str(trip.get("tab_id") or "")
+    archive_expenses = None
+    if owner and kind != "income" and tab_id not in ("refunds", "unclassified") and not _quarter_tab_entry(tab_id):
+        archive = ledger_archived_expenses.load(tab_id, owner=owner, native_expenses=native_expense_rows)
+        archive_expenses = ledger_query.select_archive_expenses(archive, q, _first(query, "sort", "date_asc"))
+    kind_rows, rows = ledger_query.select_rows(all_rows, kind=kind, q=q, owner=owner)
 
     from . import ledger_design
 
@@ -409,6 +416,7 @@ def _ledger(access: Any, session: Any, board: Any,
         "total": overall_totals["total"],
         "closed": closed,
         "source_totals": {"filtered": filtered_totals, "overall": overall_totals},
+        "archive_expenses": archive_expenses,
     }
 
 

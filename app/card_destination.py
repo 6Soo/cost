@@ -40,7 +40,7 @@ def observed_quarter(row):
 def display_destination(row, trip_names=None):
     """Project a destination without changing original, manual or financial facts."""
     names = trip_names or {}
-    for key in ('display_tab_id', 'trip_id'):
+    for key in ('recorded_display_tab_id', 'display_tab_id', 'trip_id'):
         identity = row.get(key) or ''
         match = re.fullmatch(r'quarter:(\d{4}):([1-4])', identity)
         if match:

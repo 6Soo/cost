@@ -1154,6 +1154,52 @@ def test_admin_google_projects_safe_comparison_and_only_active_actions(bound_sto
         assert secret not in serialized
 
 
+def test_ledger_searches_archive_without_counting_it_as_booked(bound_store, monkeypatch):
+    store, _ = bound_store
+    trip = store.create_trip(
+        starts_on="2026-08-01", ends_on="2026-08-03", destination="Archive",
+        display_key="0801_Archive", client_request_id="archive-ledger-test",
+    )
+    tab_id = trip["tab_id"]
+    rows = [
+        dict(row=12, date="26.08.01", date_year=2026, payee="Cafe", category="Food",
+             period="", evidence="Card", amount="8000"),
+        dict(row=13, date="2026-08-02", date_year=2026, payee="Bus", category="Transport",
+             period="", evidence="", amount=None),
+    ]
+
+    def load(requested_tab, *, owner, native_expenses):
+        assert (requested_tab, owner, native_expenses) == (tab_id, True, [])
+        return {"rows": rows, "verified": False}
+
+    monkeypatch.setattr(plush_api.ledger_archived_expenses, "load", load)
+    path = f"/api/plush/ledger?tab={tab_id}"
+    for suffix, expected in (("&sort=date_desc", [13, 12]), ("&q=bus", [13]), ("&q=absent", [])):
+        status, ledger = call(path + suffix, "syn-owner", store)
+        assert status == 200
+        archive = ledger["archive_expenses"]
+        assert archive["total_count"] == 2 and archive["verified"] is False
+        assert [row["row"] for row in archive["rows"]] == expected
+        assert ledger["total_count"] == 0
+        assert ledger["filtered_total"] == ledger["total"] == "0"
+
+    status, ledger = call(path + "&kind=income", "syn-owner", store)
+    assert status == 200 and ledger["archive_expenses"] is None
+
+
+def test_ledger_archive_expenses_are_owner_only(bound_store, monkeypatch):
+    store, access = bound_store
+    access.create_account(user_id="syn-viewer", role=access_control.ROLE_VIEWER)
+    monkeypatch.setattr(access, "visible_tabs", lambda user_id, now=None: {"trip-demo-a"})
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("viewer request reached the private archive")
+
+    monkeypatch.setattr(plush_api.ledger_archived_expenses, "load", forbidden)
+    status, ledger = call("/api/plush/ledger?tab=trip-demo-a", "syn-viewer", store)
+    assert status == 200 and ledger["archive_expenses"] is None
+
+
 def test_admin_google_stale_snapshot_clears_verified_amounts(bound_store, monkeypatch, tmp_path):
     store, _ = bound_store
     from webapp import google_ledger_page
