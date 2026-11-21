@@ -582,6 +582,7 @@ def _row_detail(ledger_board: Any, access: Any, session: Any, board: Any,
         "classification_origin": (projection.origin_label(row) if owner else None),
         "decision": projection.safe_decision(row) if owner else None,
         "history": list(board.list_history(row_id)) if owner and not row.get('google_income') and hasattr(board, "list_history") else [],
+        **_bank_read_only_info(board, row, owner=owner),
         "lineage": [projection.safe_source(row)] if owner else [],
         "detail": projection.safe_detail(row) if owner else {},
         "expected_revision": row.get("revision"),
@@ -640,6 +641,42 @@ def _row_edit_fields(row: dict[str, Any], trips: list[dict[str, Any]], *,
             ]
         result.append(item)
     return result
+
+
+def _bank_read_only_info(board: Any, row: dict[str, Any], *, owner: bool) -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "corrections": [], "linked_bank_sources": [], "bank_candidates": [], "bank_source_locked": False,
+    }
+    if (not owner or row.get("row_kind") != "income" or row.get("google_income")
+            or row.get("is_allocation") or row.get("is_remainder")):
+        return info
+
+    row_id = row["row_id"]
+    source = row.get("source_kind")
+    if source == "은행" and hasattr(board, "list_corrections"):
+        fields = ("corrected_amount_krw", "corrected_occurred_on", "reason", "created_at")
+        info["corrections"] = [
+            {key: correction.get(key) for key in fields}
+            for correction in board.list_corrections(row_id)
+        ]
+    elif source == "직접 입력":
+        conn = getattr(board, "conn", None)
+        if conn is not None:
+            links = conn.execute(
+                "SELECT bank_batch_id, bank_row_index FROM income_source_links"
+                " WHERE row_id=? ORDER BY created_at, bank_batch_id, bank_row_index", (row_id,),
+            ).fetchall()
+            info["linked_bank_sources"] = [
+                {"bank_batch_id": batch_id, "bank_row_index": index} for batch_id, index in links
+            ]
+            info["bank_source_locked"] = bool(links)
+        if hasattr(board, "find_bank_candidates"):
+            fields = ("occurred_on", "customer_name", "amount_krw", "row_id")
+            info["bank_candidates"] = [
+                {key: candidate.get(key) for key in fields}
+                for candidate in board.find_bank_candidates(row_id)
+            ]
+    return info
 
 
 def _split_context(board: Any, source: dict[str, Any]) -> dict[str, Any] | None:

@@ -123,6 +123,10 @@ def test_direct_income_advertises_bank_link(env):
 def test_bank_income_advertises_correction_and_pins_fixed_amount(env):
     store, _, db = env
     row_id = _bank_row(store, db)
+    first = store.correct_bank_income(
+        row_id=row_id, corrected_amount_krw=450000, reason="은행 확인 금액",
+        client_request_id="bank-actions-corr-1", expected_revision=1)
+    assert first["reused"] is False
     detail = _detail(store, row_id)
     assert detail["read_only"] is False
     action = _action(detail, "bank-correction")
@@ -138,6 +142,12 @@ def test_bank_income_advertises_correction_and_pins_fixed_amount(env):
     edit_fields = {field["name"] for field in detail["edit_fields"]}
     assert "amount_krw" not in edit_fields
     assert "occurred_on" not in edit_fields
+    corrections = detail["corrections"]
+    assert [item["corrected_amount_krw"] for item in corrections] == [450000]
+    assert corrections[0]["reason"] == "은행 확인 금액"
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == []
+    assert detail["bank_source_locked"] is False
 
 
 def test_direct_expense_does_not_advertise_bank_actions(env):
@@ -172,6 +182,10 @@ def test_google_income_does_not_advertise_bank_actions(env, monkeypatch):
     ids = {action["id"] for action in detail["actions"]}
     assert "bank-link" not in ids
     assert "bank-correction" not in ids
+    assert detail["corrections"] == []
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == []
+    assert detail["bank_source_locked"] is False
 
 
 def test_allocation_fragment_does_not_advertise_bank_actions(env):
@@ -188,6 +202,10 @@ def test_allocation_fragment_does_not_advertise_bank_actions(env):
     ids = {action["id"] for action in detail["actions"]}
     assert "bank-link" not in ids
     assert "bank-correction" not in ids
+    assert detail["corrections"] == []
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == []
+    assert detail["bank_source_locked"] is False
 
 
 def test_remainder_fragment_is_not_a_board_row(env):
@@ -211,6 +229,55 @@ def test_remainder_fragment_is_not_a_board_row(env):
     edit_fields = {field["name"] for field in detail["edit_fields"]}
     assert "amount_krw" in edit_fields
     assert "occurred_on" in edit_fields
+    assert detail["corrections"] == []
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == []
+    assert detail["bank_source_locked"] is False
+
+
+def test_direct_link_parity_and_duplicate_candidates(env):
+    store, _, db = env
+    direct = _direct_row(store, "bank-actions-link-parity")
+    bank = _bank_row(store, db)
+    (batch_id,) = store.conn.execute("SELECT batch_id FROM bank_import_batches").fetchone()
+
+    detail = _detail(store, direct["row_id"])
+    assert detail["bank_source_locked"] is False
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == [{
+        "occurred_on": "2026-04-02", "customer_name": "김예시",
+        "amount_krw": 500000, "row_id": bank,
+    }]
+    assert store.conn.execute("SELECT COUNT(*) FROM income_source_links").fetchone()[0] == 0
+    assert store.get_row(direct["row_id"])["revision"] == direct["revision"]
+
+    store.link_bank_source(row_id=direct["row_id"], bank_batch_id=batch_id,
+                           bank_row_index=0, expected_revision=direct["revision"],
+                           client_request_id="bank-actions-link-call")
+    detail = _detail(store, direct["row_id"])
+    assert detail["linked_bank_sources"] == [
+        {"bank_batch_id": batch_id, "bank_row_index": 0}]
+    assert detail["bank_source_locked"] is True
+    assert detail["bank_candidates"] == []
+
+
+def test_closed_trip_keeps_read_only_history_without_write_actions(env):
+    store, _, db = env
+    bank_id = _bank_row(store, db)
+    store.save(row_id=bank_id, expected_revision=1, client_request_id="bank-actions-assign-trip",
+               change_mode="exception", changes={"display_tab_id": TRIP})
+    store.correct_bank_income(row_id=bank_id, corrected_amount_krw=123,
+                              reason="마감 전 기록", client_request_id="bank-actions-closed-corr",
+                              expected_revision=store.get_row(bank_id)["revision"])
+    store.save_trip_visual_close(tab_id=TRIP, expected_closed=False,
+                                 closed=True, client_request_id="bank-actions-close")
+    detail = _detail(store, bank_id)
+    assert detail["read_only"] is True
+    assert detail["actions"] == []
+    assert [item["corrected_amount_krw"] for item in detail["corrections"]] == [123]
+    assert set(detail["corrections"][0]) == {
+        "corrected_amount_krw", "corrected_occurred_on", "reason", "created_at",
+    }
 
 
 def test_viewer_advertisement_is_refused(env, monkeypatch):
@@ -222,6 +289,10 @@ def test_viewer_advertisement_is_refused(env, monkeypatch):
     detail = _detail(store, row["row_id"], "syn-viewer")
     assert detail["read_only"] is True
     assert detail["actions"] == []
+    assert detail["corrections"] == []
+    assert detail["linked_bank_sources"] == []
+    assert detail["bank_candidates"] == []
+    assert detail["bank_source_locked"] is False
 
 
 def test_closed_trip_has_no_write_actions(env):

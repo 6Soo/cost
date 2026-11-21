@@ -25,6 +25,15 @@ type RowDetail = {
   expected_revision: string | number | null;
   actions: ActionDescriptor[];
   detail?: RowEvidence | null;
+  corrections?: {
+    corrected_amount_krw: string | number;
+    corrected_occurred_on?: string | null;
+    reason: string;
+    created_at: string;
+  }[];
+  linked_bank_sources?: { bank_batch_id: string; bank_row_index: number }[];
+  bank_candidates?: { occurred_on: string; customer_name: string; amount_krw: string | number; row_id: string }[];
+  bank_source_locked?: boolean;
   split?: {
     source_row_id: string;
     expected_source_revision: number;
@@ -124,6 +133,61 @@ function HistoryList({ history }: { history: unknown[] }) {
   );
 }
 
+const BANK_SOURCE_LOCK_NOTE = '은행 원천에 연결한 날짜와 금액은 은행 정정에서 바꿀 수 있습니다.';
+
+function BankIncomeDetails({ detail }: { detail: RowDetail }) {
+  const corrections = detail.corrections ?? [];
+  const sources = detail.linked_bank_sources ?? [];
+  const candidates = detail.bank_candidates ?? [];
+  return (
+    <>
+      {corrections.length > 0 && (
+        <section className="cost-ledger__detail-section" aria-label="은행 정정 이력">
+          <h3>은행 정정 이력</h3>
+          <ol className="cost-ledger__history">
+            {corrections.map((entry, index) => (
+              <li key={`${entry.created_at}-${index}`}>
+                <Amount value={String(entry.corrected_amount_krw)} />
+                {entry.corrected_occurred_on && <span>장부 표시 날짜 {humanDate(entry.corrected_occurred_on)}</span>}
+                <span>{entry.reason}</span>
+                <time dateTime={entry.created_at}>{entry.created_at}</time>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {sources.length > 0 && (
+        <section className="cost-ledger__detail-section" aria-label="연결된 은행 원천">
+          <h3>연결된 은행 원천</h3>
+          <ul className="cost-ledger__history">
+            {sources.map((source) => (
+              <li key={`${source.bank_batch_id}-${source.bank_row_index}`}>
+                {source.bank_batch_id} #{source.bank_row_index}
+              </li>
+            ))}
+          </ul>
+          {detail.bank_source_locked && <p className="cost-ledger__muted">{BANK_SOURCE_LOCK_NOTE}</p>}
+        </section>
+      )}
+      {candidates.length > 0 && (
+        <section className="cost-ledger__detail-section" aria-label="은행 중복 후보">
+          <h3>은행 중복 후보</h3>
+          <p className="cost-ledger__muted">후보 표시 자체는 장부 합계에 영향을 주지 않습니다.</p>
+          <ul className="cost-ledger__history">
+            {candidates.map((candidate) => (
+              <li key={candidate.row_id}>
+                <span>{humanDate(candidate.occurred_on)} · {candidate.customer_name}</span>
+                <Amount value={String(candidate.amount_krw)} />
+                <span>{candidate.row_id}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
 function fieldInitial(field: FieldDescriptor): string | boolean {
   if (field.type === 'checkbox') return field.value === true || field.value === 'true' || field.value === '1';
   return field.value === undefined || field.value === null ? '' : String(field.value);
@@ -205,6 +269,9 @@ function RowActionForm({
 
   return (
     <form className="cost-ledger__edit-form" onSubmit={submit}>
+      {action.id === 'row-save' && detail.bank_source_locked && (
+        <p className="cost-ledger__muted">{BANK_SOURCE_LOCK_NOTE}</p>
+      )}
       {error && <InlineNotice tone="error" title="저장하지 못했습니다">{error}</InlineNotice>}
       {!canSubmit && <InlineNotice tone="warning" title="이 수정 동작을 사용할 수 없습니다">서버에서 제공한 저장 경로, 수정 필드와 revision을 확인하지 못했습니다.</InlineNotice>}
       {fields.map((field) => {
@@ -349,6 +416,7 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
               </dl>
             </section>
           )}
+          {bootstrap.role === 'owner' && <BankIncomeDetails detail={detail} />}
           {bootstrap.role === 'owner' && actions.length > 0 && (
             <section className="cost-ledger__detail-actions" aria-label="거래 동작">
               <h3>동작</h3>
