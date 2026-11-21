@@ -7,6 +7,7 @@ const BATCH_ID = /^batch-[a-f0-9]{24}$/;
 const JOB_KEY = "cost-card-upload-job";
 const MAX_FILES = 100;
 const MAX_TOTAL_BYTES = 99 * 1024 * 1024;
+const UPLOAD_LIMIT_NOTICE = "한 번에 100개, 전체 99MB 이하로 나누어 선택해 주세요.";
 const MAX_TRANSIENT_FAILURES = 5;
 const GAP_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -30,6 +31,11 @@ type CardUploadProps = { bootstrap: Bootstrap; search: URLSearchParams };
 
 const isUnknownStatusMessage = (message: string): boolean =>
   /처리 상태를 확인하지 못했습니다|저장된 파일의 처리 결과를 확인|파일은 저장됐지만/.test(message);
+
+function exceedsUploadLimits(files: readonly File[]): boolean {
+  return files.length > MAX_FILES
+    || files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_BYTES;
+}
 
 function readStoredJobs(storage: Storage): CardUploadJob[] {
   let raw: string | null = null;
@@ -259,11 +265,7 @@ export function CardUploadPanel({ bootstrap, search }: CardUploadProps) {
   function selectFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.currentTarget.files ?? []);
     setSelected(files.length);
-    if (files.length > MAX_FILES || files.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_BYTES) {
-      setNotice("한 번에 100개, 전체 99MB 이하로 나누어 선택해 주세요.");
-    } else {
-      setNotice("");
-    }
+    setNotice(exceedsUploadLimits(files) ? UPLOAD_LIMIT_NOTICE : "");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -273,6 +275,11 @@ export function CardUploadPanel({ bootstrap, search }: CardUploadProps) {
     const files = Array.from(input?.files ?? []);
     if (!files.length) {
       setNotice("업로드할 카드 파일을 선택해 주세요.");
+      input?.focus();
+      return;
+    }
+    if (exceedsUploadLimits(files)) {
+      setNotice(UPLOAD_LIMIT_NOTICE);
       input?.focus();
       return;
     }

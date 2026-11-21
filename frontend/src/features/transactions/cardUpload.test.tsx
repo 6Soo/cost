@@ -161,15 +161,25 @@ it("recovers an expired upload status through the saved batch", async () => {
   expect(calls.some((call) => call.url.startsWith(`${STATUS_A}?batch=`))).toBe(true);
 });
 
-it("rejects more than 100 selected files client-side", () => {
-  stubFetch(() => jsonResponse({}));
+it.each([
+  ["more than 100 files", 101, 1],
+  ["more than 99 MB in total", 6, 17 * 1024 * 1024],
+])("blocks submission with %s", (_label, count, size) => {
+  const { calls } = stubFetch(() => jsonResponse({}));
   render(<CardUploadPanel bootstrap={OWNER} search={new URLSearchParams()} />);
-  const files = Array.from({ length: 101 }, (_, index) => new File([""], `synthetic-${index}.csv`, { type: "text/csv" }));
+  const files = Array.from({ length: count }, (_, index) => {
+    const file = new File([""], `synthetic-${index}.csv`, { type: "text/csv" });
+    Object.defineProperty(file, "size", { value: size });
+    return file;
+  });
   const input = screen.getByLabelText(/카드 명세서 파일/) as HTMLInputElement;
   Object.defineProperty(input, "files", { value: files, configurable: true });
   fireEvent.change(input);
-  expect(screen.getByText("101개 파일 선택")).toBeTruthy();
+  expect(screen.getByText(`${count}개 파일 선택`)).toBeTruthy();
   expect(screen.getByText("한 번에 100개, 전체 99MB 이하로 나누어 선택해 주세요.")).toBeTruthy();
+
+  fireEvent.submit(input.form as HTMLFormElement);
+  expect(calls).toHaveLength(0);
 });
 
 it("resumes stored jobs from a previous visit", async () => {
