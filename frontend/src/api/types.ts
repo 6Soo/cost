@@ -111,7 +111,7 @@ export interface ActionDescriptor {
   label: string;
   method: "GET" | "POST";
   href: string;
-  encoding: "json" | "form" | "multipart";
+  encoding: "json" | "form" | "multipart" | "allocation-plan";
   csrf: "header" | "field" | "none";
   response: "json" | "redirect" | "blob";
   fields?: FieldDescriptor[];

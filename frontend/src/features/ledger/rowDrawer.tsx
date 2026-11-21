@@ -4,6 +4,7 @@ import { ActionButton, Amount, Drawer, FormField, InlineNotice, Input, Select, L
 import { getJSON, postJSON, ApiError } from '../../api/client';
 import { humanDate, internalHref, legacyCorrectionHref, requestId, type LedgerKind } from './urlState';
 import { PeriodValue } from './index';
+import { SplitPlanForm, type SplitAllocation } from './splitPlanForm';
 
 /**
  * SPEC §11.2.1 계약 4: the owner's row detail carries the same stored
@@ -24,6 +25,13 @@ type RowDetail = {
   expected_revision: string | number | null;
   actions: ActionDescriptor[];
   detail?: RowEvidence | null;
+  split?: {
+    source_row_id: string;
+    expected_source_revision: number;
+    reflected_amount_krw: number | null;
+    source_kind?: string | null;
+    plan: SplitAllocation[];
+  } | null;
 };
 
 /** The stored values the drawer was missing. Only `reservation_no` is listed:
@@ -282,6 +290,15 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
 
   const actions = detail?.actions ?? [];
   const selectedAction = actions.find((action) => action.id === editingAction) ?? null;
+  const activeSplit = selectedAction?.encoding === 'allocation-plan' ? detail?.split : null;
+
+  function refreshAfterSave() {
+    setEditingAction(null);
+    onSaved();
+    setDetail(null);
+    setDetailVersion((version) => version + 1);
+  }
+
   const title = detail?.row.merchant || detail?.row.description || '거래 상세';
   /* Two independent gates, on purpose (defense in depth — SPEC §13#10):
      1. the server sends `detail` only to the owner, so a viewer's response has
@@ -337,9 +354,12 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
                     : null;
                 }
                 if (action.method !== 'POST') return null;
-                const actionEncoding = (action as ActionDescriptor & { encoding?: string }).encoding;
                 const hasRevision = detail.expected_revision !== null && detail.expected_revision !== undefined && String(detail.expected_revision).trim() !== '';
-                const canEdit = Boolean(action.fields?.length) && (actionEncoding === undefined || actionEncoding === 'json') && href?.startsWith('/api/') && hasRevision && !action.disabled && !detail.row.read_only;
+                const split = detail.split;
+                const hasForm = action.encoding === 'allocation-plan'
+                  ? Boolean(split && href === `/api/income/${encodeURIComponent(split.source_row_id)}/allocations`)
+                  : Boolean(action.fields?.length) && (action.encoding === undefined || action.encoding === 'json') && Boolean(href?.startsWith('/api/'));
+                const canEdit = hasForm && hasRevision && !action.disabled && !detail.row.read_only;
                 return (
                   <div className="cost-ledger__action" key={action.id}>
                     <ActionButton
@@ -369,22 +389,39 @@ export function RowDrawer({ rowId, bootstrap, tab, kind, search, onClose, onSave
       )}
       {detail && selectedAction && (
         <section className="cost-ledger__drawer-content">
-          <div className="cost-ledger__edit-heading">
-            <h3>{selectedAction.label}</h3>
-            {selectedAction.reason && <p>{selectedAction.reason}</p>}
-          </div>
-          <RowActionForm
-            action={selectedAction}
-            detail={detail}
-            bootstrap={bootstrap}
-            onCancel={() => setEditingAction(null)}
-            onSaved={() => {
-              setEditingAction(null);
-              onSaved();
-              setDetail(null);
-              setDetailVersion((version) => version + 1);
-            }}
-          />
+          {!activeSplit && (
+            <div className="cost-ledger__edit-heading">
+              <h3>{selectedAction.label}</h3>
+              {selectedAction.reason && <p>{selectedAction.reason}</p>}
+            </div>
+          )}
+          {activeSplit ? (
+            <>
+              <SplitPlanForm
+                source={{
+                  row_id: activeSplit.source_row_id,
+                  revision: activeSplit.expected_source_revision,
+                  amount_krw: activeSplit.reflected_amount_krw,
+                  source_kind: activeSplit.source_kind,
+                }}
+                initialAllocations={activeSplit.plan}
+                trips={bootstrap.trips}
+                csrf={bootstrap.csrf}
+                onSaved={refreshAfterSave}
+              />
+              <ActionButton type="button" variant="secondary" onClick={() => setEditingAction(null)}>
+                취소
+              </ActionButton>
+            </>
+          ) : (
+            <RowActionForm
+              action={selectedAction}
+              detail={detail}
+              bootstrap={bootstrap}
+              onCancel={() => setEditingAction(null)}
+              onSaved={refreshAfterSave}
+            />
+          )}
         </section>
       )}
     </Drawer>
