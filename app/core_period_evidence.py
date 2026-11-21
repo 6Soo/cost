@@ -56,6 +56,31 @@ def verified_from_snapshot(data, manual, rows):
     return {str(row.get('row_id')): verified_period_for(row, index) for row in rows}
 
 
+def verified_report(rows, verified, manual=None):
+    """row_id -> {'period', 'state'} from an already computed ``verified`` map (no index, no re-walk).
+
+    The read-only report over the per-row durations a caller already holds (the ``periods`` bridge
+    computes its ``verified`` map once and passes it here): ``rows`` is walked once, ``state`` is
+    'row' (the row carries a value), 'manual' (a person's field - a value or an explicit blank,
+    which wins), 'verified' or 'none'.  A none is not a failure and never becomes verified; the
+    producer does not guess why evidence is missing - that reason lives in the rule/decision layer.
+    """
+    manual_ids = {str(row_id) for row_id in (manual or ())}
+    report = {}
+    for row in rows:
+        row_id = str(row.get('row_id'))
+        value = str(row.get('service_period') or '').strip()
+        if value:
+            report[row_id] = {'period': value, 'state': 'row'}
+        elif row_id in manual_ids:
+            report[row_id] = {'period': '', 'state': 'manual'}
+        elif verified.get(row_id):
+            report[row_id] = {'period': str(verified[row_id]), 'state': 'verified'}
+        else:
+            report[row_id] = {'period': '', 'state': 'none'}
+    return report
+
+
 FLIGHTS_KEY = '@flights'  # core/crates/core/src/period.rs FLIGHTS_KEY
 BASES = {'p2': 'p2_run', 'reservation': 'reservation_only', 'candidates': 'candidate_agreement'}  # InferredBasis::as_str
 

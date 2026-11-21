@@ -7,20 +7,23 @@ Nothing here writes.
 from __future__ import annotations
 
 from app.core_period_evidence import (BASES, CARD_KEYS, EVENT_KEYS, FACT_KEYS, FLIGHTS_KEY,
-                                      evidence_from_snapshot, facts_from_snapshot, flights_from_snapshot,
-                                      found_from_snapshot, inferred_from_snapshot, p2_index, stay_index,
-                                      verified_from_snapshot)
+                                       evidence_from_snapshot, facts_from_snapshot, flights_from_snapshot,
+                                       found_from_snapshot, inferred_from_snapshot, p2_index, stay_index,
+                                       verified_report, verified_from_snapshot)
 
 __all__ = ['BASES', 'CARD_KEYS', 'EVENT_KEYS', 'FACT_KEYS', 'FLIGHTS_KEY', 'evidence_from_snapshot',
            'facts_from_snapshot', 'flights_from_snapshot', 'found_from_snapshot', 'inferred_from_snapshot',
-           'p2_index', 'stay_index', 'verified_from_snapshot', 'periods']
+           'p2_index', 'stay_index', 'verified_report', 'verified_from_snapshot', 'periods']
 
 
 def periods(request):
     """Bridge command: ``{data, manual, rows?}`` -> ``{facts, verified?}`` (nothing is applied).
 
     With ``inference`` set the answer also carries ``inferred``, ``flights`` and ``found`` (the new evidence
-    kinds); without it the output is the one the first golden cases were written with.
+    kinds); without it the output is the one the first golden cases were written with.  The explicit
+    ``report: true`` option (needs ``rows``) adds ``period_report``: the verified-only read of each row
+    (value / manual / verified / none) that stops at what the rule verifies (DATE-109) - no candidates,
+    no screen-only inference, no stored projection, no writes.
     """
     data, manual = request['data'], set(request.get('manual') or ())
     result = {'facts': facts_from_snapshot(data, manual)}
@@ -32,4 +35,6 @@ def periods(request):
         result['flights'] = flights_from_snapshot(data, manual)
         if 'rows' in request:
             result['found'] = found_from_snapshot(data, manual, request['rows'], p2)
+    if request.get('report') and 'rows' in request:
+        result['period_report'] = verified_report(request['rows'], result['verified'], manual)
     return result
