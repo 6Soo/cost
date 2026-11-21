@@ -411,9 +411,22 @@ function displayValue(value: unknown): string {
 function isMoneyColumn(column: Column) {
   return /(amount|money|total|income|expense|profit|금액|합계|수입|지출|차액)/i.test(`${column.key} ${column.label}`);
 }
+const TABLE_CELL_LABELS = new Map<string, string>([["owner", "소유자"], ["viewer", "열람자"], ["unlinked", "미연결"], ["linked", "연결됨"], ["pending", "대기 중"], ["active", "활성"], ["inactive", "비활성"]]);
+function formatTableCell(value: unknown, column: Column): string {
+  if (typeof value === "boolean") return value ? "예" : "아니오";
+  if (isMoneyColumn(column)) {
+    const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.trim()) : Number.NaN;
+    if (Number.isFinite(parsed)) return new Intl.NumberFormat("ko-KR").format(parsed);
+  }
+  if (typeof value === "string") {
+    const mapped = TABLE_CELL_LABELS.get(value.trim().toLowerCase());
+    if (mapped) return mapped;
+  }
+  return displayValue(value);
+}
 
 function DataCell({ row, column }: { row: Record<string, unknown>; column: Column }) {
-  if (column.key !== "source_href") return <>{displayValue(row[column.key])}</>;
+  if (column.key !== "source_href") return <>{formatTableCell(row[column.key], column)}</>;
   const value = row[column.key];
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return <>—</>;
   try {
