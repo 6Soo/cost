@@ -279,3 +279,34 @@ test.each(['revision-작성기', '9007199254740993', true])(
   fireEvent.click(action);
   expect(postJSON).not.toHaveBeenCalled();
 });
+
+const syntheticBankEvidence = {
+  corrections: [{
+    corrected_amount_krw: 12345, corrected_occurred_on: '2026-10-04',
+    reason: '합성 은행 정정 사유', created_at: '2026-10-04T10:52:00+00:00',
+  }],
+  linked_bank_sources: [{ bank_batch_id: 'synthetic-bank-batch', bank_row_index: 0 }],
+  bank_candidates: [{
+    occurred_on: '2026-10-07', customer_name: '합성 은행 후보',
+    amount_krw: 24689, row_id: 'synthetic-bank-candidate',
+  }],
+  bank_source_locked: true,
+};
+
+test.each(['owner', 'viewer'] as const)('bank evidence follows the %s role', async (role) => {
+  vi.mocked(getJSON).mockResolvedValue(detail(syntheticBankEvidence));
+  render(<RowDrawer rowId='synthetic-row' bootstrap={{ role, csrf: 'synthetic-csrf', trips: [], capabilities: [], receipt_enabled: false }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  await screen.findByText('수정 이력');
+  if (role === 'owner') {
+    expect(screen.getByRole('heading', { name: '은행 정정 이력' })).toBeTruthy();
+    expect(screen.getByText('합성 은행 정정 사유')).toBeTruthy();
+    expect(screen.getByText('synthetic-bank-batch #0')).toBeTruthy();
+    expect(screen.getByText('synthetic-bank-candidate')).toBeTruthy();
+    expect(screen.getByText('후보 표시 자체는 장부 합계에 영향을 주지 않습니다.')).toBeTruthy();
+  } else {
+    expect(screen.queryByText('합성 은행 정정 사유')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '은행 중복 후보' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '연결된 은행 원천' })).toBeNull();
+  }
+  expect(postJSON).not.toHaveBeenCalled();
+});
