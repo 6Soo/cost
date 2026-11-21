@@ -71,8 +71,8 @@ def owns_route(path: str) -> bool:
 def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> bool:
     """Serve browser pages at their established URLs, preserving non-page clients.
 
-    Old form/detail links explicitly request legacy=1; their original handlers
-    still enforce the same login, role and financial protections.
+    Existing form and detail links may request the legacy renderer until their
+    workflow is on the primary route. All renders use the existing access gate.
     """
     if parsed.path not in PRIMARY_ROUTES:
         return False
@@ -84,7 +84,9 @@ def dispatch_primary(handler, parsed, *, board, dist: Path | None = None) -> boo
         return False
     query = parse_qs(parsed.query)
     if query.get("legacy") == ["1"]:
-        return False
+        card_tool = parsed.path == "/cards/all" and query.get("panel", [""])[0] in ("coverage", "upload")
+        if parsed.path != "/participants" and not card_tool:
+            return False
     # Unauthenticated development-mode fixtures keep their original renderer.
     # Production sessions and their refusal handling use the same gate as /ui/.
     if not board.ACCESS_ENFORCEMENT:
