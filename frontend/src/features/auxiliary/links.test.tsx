@@ -556,7 +556,7 @@ describe("auxiliary link screens", () => {
     expect(within(summary as HTMLElement).getByText("2건")).toBeTruthy();
   });
 
-  it("links to the existing participant correction and income review workflow for the selected trip", async () => {
+  it("uses the bookmarked trip and keeps its corrections in the participant view", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
       if (url.pathname === "/api/participants/state") return jsonResponse({
@@ -569,9 +569,11 @@ describe("auxiliary link screens", () => {
 
     renderLinksPage("participants", "trip=trip-a");
 
-    const legacyWorkflow = await screen.findByRole("link", {
-      name: "참가자 이름·별칭·여행 교정 및 미연결 수입 검토 (기존 화면)",
-    });
-    expect(legacyWorkflow.getAttribute("href")).toBe("/participants?trip=trip-a");
+    await screen.findByRole("heading", { name: "현재 대조 상태" });
+    expect(fetchMock.mock.calls.some(([input]) => {
+      const url = new URL(String(input), window.location.origin);
+      return url.pathname === "/api/participants/state" && url.searchParams.get("trip") === "trip-a";
+    })).toBe(true);
+    expect(screen.queryByRole("link", { name: /기존 화면/ })).toBeNull();
   });
 });
