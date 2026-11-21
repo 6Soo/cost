@@ -2,15 +2,17 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Bootstrap } from "../../api/types";
 import type { PageProps } from "../transactions/feature-ui";
 import { AuxiliaryPage } from "./index";
 
-function renderLinksPage(view: "participants" | "reserve-links", search = "") {
+function renderLinksPage(view: "participants" | "reserve-links", search = "",
+                          options: { trips?: Bootstrap["trips"] } = {}) {
   const props: PageProps = {
     bootstrap: {
       role: "owner",
       csrf: "csrf-synthetic",
-      trips: [{
+      trips: options.trips ?? [{
         id: "trip-a", title: "알파 여행", kind: "trip", previous: false,
         starts_on: "2026-11-01", ends_on: "2026-11-03", income: "0",
         expense: "0", profit: "0", closed: false, archived: false,
@@ -114,6 +116,243 @@ describe("auxiliary link screens", () => {
     for (const write of writes) {
       expect(write.init?.headers).toMatchObject({ "X-CSRF-Token": "csrf-synthetic" });
     }
+  });
+
+  it("offers name, alias, trip and duplicate-name correction with the current fingerprint", async () => {
+    const participantWrites: Array<{ body: Record<string, unknown>; init?: RequestInit }> = [];
+    const linkWrites: Array<{ body: Record<string, unknown>; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        return jsonResponse({
+          trip_id: "trip-a",
+          configured: true,
+          input_fingerprint: "participant-fp-roster",
+          counts: { participants: 2, linked_income_rows: 0, unlinked_income_rows: 1 },
+          participants: [
+            {
+              participant_id: "participant-syn-1", display_name: "가람 합성", nickname: "가람",
+              active: true, participant_state: "confirmed", state: "unlinked", links: [],
+              candidate_refs: ["income-ref-syn-9"],
+            },
+            {
+              participant_id: "participant-syn-2", display_name: "나래 합성",
+              active: true, participant_state: "confirmed", state: "unlinked", links: [],
+            },
+          ],
+          income_rows: [
+            { ref: "income-ref-syn-9", row: 9, name: "가람 합성", amount: 12000 },
+            { ref: "income-ref-syn-8", row: 8, name: "이름 미확인 합성", nickname: "", amount: null },
+          ],
+          unlinked_income: [
+            { ref: "income-ref-syn-8", row: 8, name: "이름 미확인 합성", nickname: "",
+              amount: null, cells: {}, state: "not_in_roster" },
+          ],
+        });
+      }
+      if (url.pathname === "/api/participants/participant") {
+        participantWrites.push({ body: requestBody(init), init });
+        return jsonResponse({ code: "OK", result: { saved: true } });
+      }
+      if (url.pathname === "/api/participants/link") {
+        linkWrites.push({ body: requestBody(init), init });
+        return jsonResponse({ code: "OK", result: { saved: true } });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a", { trips: [
+      { id: "trip-a", title: "알파 여행", kind: "trip", previous: false,
+        starts_on: "2026-11-01", ends_on: "2026-11-03", income: "0", expense: "0",
+        profit: "0", closed: false, archived: false },
+      { id: "trip-b", title: "베타 여행", kind: "trip", previous: false,
+        starts_on: "2026-11-04", ends_on: "2026-11-05", income: "0", expense: "0",
+        profit: "0", closed: false, archived: false },
+    ] });
+
+    const rename = await screen.findByLabelText("이름 정정 값 · 가람 합성");
+    fireEvent.change(rename, { target: { value: "가람 정정" } });
+    fireEvent.click(await screen.findByRole("button", { name: "이름 정정 저장 · 가람 합성" }));
+    expect(await screen.findByText("이름을 정정했습니다.")).toBeTruthy();
+
+    fireEvent.change(await screen.findByLabelText("확인된 별칭 값 · 가람 합성"), { target: { value: "가람별칭" } });
+    fireEvent.click(screen.getByRole("button", { name: "별칭 확인 저장 · 가람 합성" }));
+    expect(await screen.findByText("별칭을 확인했습니다.")).toBeTruthy();
+
+    fireEvent.change(await screen.findByLabelText("여행 선택 · 가람 합성"), { target: { value: "trip-b" } });
+    fireEvent.change(await screen.findByLabelText("여행 교정 사유 · 가람 합성"), { target: { value: "이동" } });
+    fireEvent.click(await screen.findByRole("button", { name: "여행 연결 수정 · 가람 합성" }));
+    expect(await screen.findByText("여행 연결을 수정했습니다.")).toBeTruthy();
+
+    fireEvent.change(await screen.findByLabelText("같은 사람으로 확인 대상 · 나래 합성"),
+      { target: { value: "participant-syn-1" } });
+    fireEvent.click(await screen.findByRole("button", { name: "같은 사람 확인 저장 · 나래 합성" }));
+    expect(await screen.findByText("같은 사람으로 확인했습니다.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("서로 다른 사람으로 확인 대상 · 나래 합성"),
+      { target: { value: "participant-syn-1" } });
+    fireEvent.click(await screen.findByRole("button", { name: "서로 다른 사람 확인 저장 · 나래 합성" }));
+    expect(await screen.findByText("서로 다른 사람으로 확인했습니다.")).toBeTruthy();
+
+    expect(screen.queryByRole("heading", { name: "미연결 수입 검토" })).toBeNull();
+
+    expect(participantWrites.map((write) => write.body)).toEqual([
+      { trip: "trip-a", action: "rename", participant_id: "participant-syn-1",
+        name: "가람 정정", reason: "", input_fingerprint: "participant-fp-roster" },
+      { trip: "trip-a", action: "alias", participant_id: "participant-syn-1",
+        alias: "가람별칭", input_fingerprint: "participant-fp-roster" },
+      { trip: "trip-a", action: "remap", participant_id: "participant-syn-1",
+        target_trip: "trip-b", reason: "이동", input_fingerprint: "participant-fp-roster" },
+      { trip: "trip-a", action: "same_person", participant_id: "participant-syn-2",
+        other_participant_id: "participant-syn-1", input_fingerprint: "participant-fp-roster" },
+      { trip: "trip-a", action: "separate", participant_id: "participant-syn-2",
+        other_participant_id: "participant-syn-1", input_fingerprint: "participant-fp-roster" },
+    ]);
+    expect(linkWrites).toHaveLength(0);
+    for (const write of participantWrites) {
+      expect(write.init?.headers).toMatchObject({ "X-CSRF-Token": "csrf-synthetic" });
+    }
+  });
+
+  it("keeps correction writes disabled without a usable fingerprint", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        return jsonResponse({
+          trip_id: "trip-a", configured: true, input_fingerprint: "",
+          counts: { participants: 1, linked_income_rows: 0, unlinked_income_rows: 0 },
+          participants: [{
+            participant_id: "participant-syn-1", display_name: "가람 합성", nickname: "",
+            active: true, participant_state: "confirmed", state: "unlinked", links: [],
+          }],
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+    expect(await screen.findByText(
+      "대조 상태가 준비되지 않아 교정 내용을 저장할 수 없습니다.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "이름 정정 저장 · 가람 합성" })
+      .hasAttribute("disabled")).toBe(true);
+  });
+
+  it("surfaces a stale conflict without reporting a false success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        return jsonResponse({
+          trip_id: "trip-a", configured: true, input_fingerprint: "participant-fp-stale",
+          counts: { participants: 1, linked_income_rows: 0, unlinked_income_rows: 0 },
+          participants: [{
+            participant_id: "participant-syn-1", display_name: "가람 합성", nickname: "",
+            active: true, participant_state: "confirmed", state: "unlinked", links: [],
+          }],
+        });
+      }
+      if (url.pathname === "/api/participants/participant") {
+        return jsonResponse({
+          code: "STALE_RECONCILIATION", message: "화면이 오래됐어요. 다시 확인해 주세요",
+        }, 409);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+    const rename = await screen.findByLabelText("이름 정정 값 · 가람 합성");
+    fireEvent.change(rename, { target: { value: "가람 정정" } });
+    fireEvent.click(screen.getByRole("button", { name: "이름 정정 저장 · 가람 합성" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent)
+      .toContain("화면이 오래됐어요. 다시 확인해 주세요");
+    expect(screen.queryByText("이름을 정정했습니다.")).toBeNull();
+  });
+
+  it("skips correction writes for rows without a participant identifier or income ref", async () => {
+    const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        return jsonResponse({
+          trip_id: "trip-a", configured: true, input_fingerprint: "participant-fp-identity",
+          counts: { participants: 1, linked_income_rows: 0, unlinked_income_rows: 1 },
+          participants: [{
+            display_name: "식별자 없는 합성", nickname: "",
+            active: true, participant_state: "confirmed", state: "unlinked", links: [],
+          }],
+          income_rows: [],
+          unlinked_income: [{ ref: "", row: 3, name: "식별자 없는 행", nickname: "", amount: 5000, cells: {}, state: "not_in_roster" }],
+        });
+      }
+      if (String(url.pathname).startsWith("/api/participants/")) {
+        writes.push({ path: url.pathname, body: requestBody(init) });
+        return jsonResponse({ code: "OK", result: { saved: true } });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+    expect(await screen.findByText("참가자 식별자가 없어 교정 내용을 저장하지 않습니다.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /이름 정정/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /검토 완료/ })).toBeNull();
+    writes.length = 0;
+  });
+
+  it("does not carry an unsubmitted draft onto a new fingerprint and sends only re-submitted values", async () => {
+    let stateCalls = 0;
+    const participantWrites: Array<{ body: Record<string, unknown>; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/participants/state") {
+        stateCalls += 1;
+        return jsonResponse({
+          trip_id: "trip-a", configured: true,
+          input_fingerprint: stateCalls === 1 ? "participant-fp-first" : "participant-fp-refreshed",
+          counts: { participants: 1, linked_income_rows: 0, unlinked_income_rows: 0 },
+          participants: [{
+            participant_id: "participant-syn-1",
+            display_name: stateCalls === 1 ? "가람 합성" : "가람 갱신",
+            nickname: "", active: true, participant_state: "confirmed",
+            state: "unlinked", links: [],
+          }],
+        });
+      }
+      if (url.pathname === "/api/participants/participant") {
+        participantWrites.push({ body: requestBody(init), init });
+        return jsonResponse({ code: "OK", result: { saved: true } });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderLinksPage("participants", "trip=trip-a");
+    const rename = await screen.findByLabelText("이름 정정 값 · 가람 합성");
+    fireEvent.change(rename, { target: { value: "가람-미제출-값" } });
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(stateCalls).toBe(2));
+    expect(participantWrites).toHaveLength(0);
+    // A refresh that returns a new fingerprint must not attach the unapproved
+    // draft to it: the field shows the fresh server value again.
+    const refreshed = await screen.findByLabelText("이름 정정 값 · 가람 갱신");
+    expect((refreshed as HTMLInputElement).value).toBe("가람 갱신");
+
+    fireEvent.change(refreshed, { target: { value: "가람-새-값" } });
+    fireEvent.click(await screen.findByRole("button", { name: "이름 정정 저장 · 가람 갱신" }));
+    expect(await screen.findByText("이름을 정정했습니다.")).toBeTruthy();
+    expect(participantWrites).toHaveLength(1);
+    expect(participantWrites[0].body).toMatchObject({
+      trip: "trip-a", action: "rename", participant_id: "participant-syn-1",
+      name: "가람-새-값", reason: "", input_fingerprint: "participant-fp-refreshed",
+    });
+    // A successful write is not re-sent by the retained draft; another request
+    // needs another explicit submit.
+    await waitFor(() => expect(participantWrites).toHaveLength(1));
+    expect((await screen.findByLabelText("이름 정정 값 · 가람 갱신") as HTMLInputElement).value)
+      .toBe("가람-새-값");
   });
 
   it("saves selected reservation links and applies the refreshed plan with stable request ids", async () => {
