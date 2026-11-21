@@ -29,17 +29,18 @@ class Handler:
 
 
 class InsuranceIncomeMatchPageTests(unittest.TestCase):
-    def test_removed_page_never_loads_private_sources(self):
+    def test_retired_address_is_not_routed_and_never_loads_private_sources(self):
         handler = Handler()
-        page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=True,
-                      state_loader=lambda **kw: self.fail("removed page must not load sources"))
-        self.assertEqual(handler.sent[0][2], 410)
-        self.assertEqual(handler.sent[0][1]["code"], "PAGE_REMOVED")
-        self.assertFalse(hasattr(page, "render_page"))
+        handled = page.dispatch(handler, urlsplit("/participants/insurance-match"), is_owner=True,
+                                state_loader=lambda **kw: self.fail("retired page must not load sources"))
+        self.assertFalse(handled)
+        self.assertEqual(handler.sent, [])
+        self.assertFalse(page.owns_route("/participants/insurance-match"))
+        self.assertNotIn("PAGE_REMOVED", repr(page))
 
     def test_non_owner_is_refused_before_loader(self):
         handler, called = Handler(), []
-        handled = page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=False,
+        handled = page.dispatch(handler, urlsplit(page.API_PATH), is_owner=False,
                                 state_loader=lambda **kw: called.append(True))
         self.assertTrue(handled)
         self.assertEqual(called, [])
@@ -48,14 +49,14 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
     def test_get_only_and_raw_payload_rejected(self):
         for command, raw in (("POST", None), ("GET", b"")):
             handler = Handler(); handler.command = command
-            page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=True, raw=raw,
+            page.dispatch(handler, urlsplit(page.API_PATH), is_owner=True, raw=raw,
                           state_loader=lambda **kw: self.fail("loader must not run"))
             self.assertEqual(handler.sent[0][2], 405)
 
     def test_owner_loader_receives_filters_and_api_has_no_source_paths(self):
         handler, received = Handler(), []
         query = {"contract_key": ["contract-syn"], "trip": ["trip-secret"]}
-        page.dispatch(handler, urlsplit(page.ROUTES[1]), is_owner=True, query=query,
+        page.dispatch(handler, urlsplit(page.API_PATH), is_owner=True, query=query,
                       state_loader=lambda **kw: received.append(kw) or state())
         self.assertEqual(received, [{"query": query}])
         self.assertEqual(handler.sent[0][0], "json")
@@ -63,7 +64,7 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
 
     def test_loader_exception_does_not_leak_exception_path(self):
         handler = Handler()
-        page.dispatch(handler, urlsplit(page.ROUTES[1]), is_owner=True,
+        page.dispatch(handler, urlsplit(page.API_PATH), is_owner=True,
                       state_loader=lambda **kw: (_ for _ in ()).throw(OSError("C:/private/source.pdf")))
         self.assertNotIn("source.pdf", repr(handler.sent[0][1]))
         self.assertEqual(handler.sent[0][1]["code"], "SOURCE_UNAVAILABLE")
@@ -71,7 +72,7 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
     def test_api_error_status_matches_source_status(self):
         for code, expected in (("INVALID_FILTER", 400), ("SOURCE_UNAVAILABLE", 503)):
             handler = Handler()
-            page.dispatch(handler, urlsplit(page.ROUTES[1]), is_owner=True,
+            page.dispatch(handler, urlsplit(page.API_PATH), is_owner=True,
                           state_loader=lambda **kw: {"available": False, "code": code})
             self.assertEqual(handler.sent[0][2], expected)
 
