@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from app import airbnb_mail, mail_collect, ota_mail
+from tools.core_bridge.synthetic_golden import write_jsonl
 
 GOLDEN = Path(__file__).resolve().parents[2] / 'core' / 'golden' / 'synthetic' / 'airbnb_mail.jsonl'
 
@@ -113,12 +114,7 @@ def inputs():
 def build():
     records = [case(case_id, messages, inventory) for case_id, messages, *rest in inputs()
                for inventory in [rest[0] if rest else ()]]
-    lines = ''.join(json.dumps(record, ensure_ascii=False, sort_keys=True) + '\n' for record in records)
-    if GOLDEN.exists():
-        raise SystemExit(f'{GOLDEN} already exists; refusing to overwrite')
-    GOLDEN.parent.mkdir(parents=True, exist_ok=True)
-    GOLDEN.write_bytes(lines.encode('utf-8'))
-    return len(records), GOLDEN
+    return write_jsonl(GOLDEN, records)
 
 
 if __name__ == '__main__':
